@@ -1,122 +1,138 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { Icon } from './components/Icon'
+import { Modal } from './components/Modal'
+import { createCustomer, createVehicle, moveVehicleCone, changeVehicleStatus, TOTAL_CONES, emptyData } from './services/erp'
+import { loadDatabase, saveDatabase } from './services/database'
+import type { Customer, CustomerType, ErpData, VehicleStatus, View } from './types'
+
+const nav: { id: View; label: string }[] = [
+  { id: 'dashboard', label: 'Dashboard' }, { id: 'customers', label: 'Clienti' },
+  { id: 'vehicles', label: 'Veicoli' }, { id: 'cones', label: 'Gestione coni' },
+  { id: 'planner', label: 'Planner intelligente' },
+]
+const statuses: VehicleStatus[] = ['Accettata', 'Confermata', 'In lavorazione', 'Pronta', 'Consegnata']
+const formatDate = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [data, setData] = useState<ErpData>(emptyData)
+  const [databaseReady, setDatabaseReady] = useState(false)
+  const [view, setView] = useState<View>('dashboard')
+  const [query, setQuery] = useState('')
+  const [modal, setModal] = useState<'customer' | 'vehicle' | null>(null)
+  const [error, setError] = useState('')
+  const [menu, setMenu] = useState(false)
+  useEffect(() => {
+    loadDatabase().then((stored) => { setData(stored); setDatabaseReady(true) })
+  }, [])
+  useEffect(() => {
+    if (databaseReady) void saveDatabase(data)
+  }, [data, databaseReady])
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+  const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
+  const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
+  const filteredCustomers = data.customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.email}`.toLowerCase().includes(query.toLowerCase()))
+  const filteredVehicles = data.vehicles.filter((vehicle) => `${vehicle.plate} ${vehicle.make} ${vehicle.model} ${customerById(vehicle.customerId)?.name}`.toLowerCase().includes(query.toLowerCase()))
 
-      <div className="ticks"></div>
+  const updateStatus = (vehicleId: string, status: VehicleStatus) => {
+    try { setData((current) => changeVehicleStatus(current, vehicleId, status)); setError('') }
+    catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') }
+  }
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+  const title = nav.find((item) => item.id === view)?.label
+  return <div className="app-shell">
+    <aside className={menu ? 'sidebar open' : 'sidebar'}>
+      <div className="brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
+      <nav>{nav.map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); setMenu(false); setQuery('') }}><Icon name={item.id} /><span>{item.label}</span>{item.id === 'cones' && <b>{occupied.length}</b>}</button>)}</nav>
+      <div className="sidebar-foot"><span className="online-dot" /> Sistema operativo</div>
+    </aside>
+    {menu && <button className="menu-overlay" onClick={() => setMenu(false)} aria-label="Chiudi menu" />}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    <main>
+      <header><button className="menu-button" onClick={() => setMenu(true)}><Icon name="menu" /></button><div><span className="eyebrow">PANORAMICA OPERATIVA</span><h1>{title}</h1></div><div className="header-actions"><div className="search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca targa, cliente..." /></div><div className="avatar">FE</div></div></header>
+      {error && <div className="toast error">{error}<button onClick={() => setError('')}>×</button></div>}
+      <div className="content">
+        {view === 'dashboard' && <Dashboard data={data} setView={setView} customerById={customerById} />}
+        {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal('customer')} />}
+        {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => setModal('vehicle')} updateStatus={updateStatus} customerById={customerById} />}
+        {view === 'cones' && <Cones data={data} customerById={customerById} onMove={(vehicleId, cone) => { try { setData((current) => moveVehicleCone(current, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
+        {view === 'planner' && <Planner data={data} customerById={customerById} updateStatus={updateStatus} />}
+      </div>
+    </main>
+
+    {modal === 'customer' && <CustomerForm onClose={() => setModal(null)} onSave={(customer) => { setData((current) => ({ ...current, customers: [customer, ...current.customers] })); setModal(null) }} setError={setError} />}
+    {modal === 'vehicle' && <VehicleForm customers={data.customers} onClose={() => setModal(null)} onSave={(vehicle) => { setData((current) => ({ ...current, vehicles: [vehicle, ...current.vehicles] })); setModal(null) }} vehicles={data.vehicles} setError={setError} />}
+  </div>
 }
 
+function Dashboard({ data, setView, customerById }: { data: ErpData; setView: (view: View) => void; customerById: (id: string) => Customer | undefined }) {
+  const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
+  const active = data.vehicles.filter((vehicle) => vehicle.status !== 'Consegnata')
+  const ready = data.vehicles.filter((vehicle) => vehicle.status === 'Pronta')
+  const cards = [
+    ['Vetture presenti', active.length, 'vehicles'], ['Clienti registrati', data.customers.length, 'customers'],
+    ['Coni occupati', occupied.length, 'cones'], ['Vetture pronte', ready.length, 'vehicles'],
+  ] as const
+  return <>
+    <section className="welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Tutto ciò che serve per tenere sotto controllo accettazione, vetture e piazzale.</p></div><button className="primary" onClick={() => setView('vehicles')}><Icon name="plus" /> Nuova vettura</button></section>
+    <section className="stat-grid">{cards.map(([label, value, target]) => <button className="stat-card" key={label} onClick={() => setView(target)}><span>{label}</span><strong>{value}</strong><small>{label === 'Coni occupati' ? `${TOTAL_CONES - occupied.length} coni liberi` : 'Vedi dettaglio →'}</small></button>)}</section>
+    <section className="dashboard-grid">
+      <div className="panel"><div className="panel-head"><div><span className="eyebrow">PIAZZALE</span><h3>Stato dei 30 coni</h3></div><button className="link" onClick={() => setView('cones')}>Gestisci coni →</button></div><div className="mini-cones">{Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).map((number) => { const vehicle = occupied.find((item) => item.coneNumber === number); return <div title={vehicle?.plate ?? 'Libero'} className={vehicle ? 'busy' : ''} key={number}>{number}</div> })}</div><div className="legend"><span><i /> Liberi ({TOTAL_CONES - occupied.length})</span><span><i className="busy" /> Occupati ({occupied.length})</span></div></div>
+      <div className="panel"><div className="panel-head"><div><span className="eyebrow">ATTIVITÀ RECENTI</span><h3>Ultime assegnazioni</h3></div></div><div className="activity">{data.coneHistory.slice(0, 5).map((item) => { const vehicle = data.vehicles.find((v) => v.id === item.vehicleId); return <div key={item.id}><b>{item.coneNumber}</b><span><strong>{vehicle?.plate ?? 'Vettura'}</strong><small>{item.action} · {customerById(vehicle?.customerId ?? '')?.name}</small></span><time>{formatDate(item.timestamp)}</time></div> })}{!data.coneHistory.length && <Empty text="Le assegnazioni dei coni compariranno qui." />}</div></div>
+    </section>
+  </>
+}
+
+function Customers({ customers, data, onAdd }: { customers: Customer[]; data: ErpData; onAdd: () => void }) {
+  return <div className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">ANAGRAFICA</span><h3>{customers.length} clienti</h3></div><button className="primary" onClick={onAdd}><Icon name="plus" /> Nuovo cliente</button></div>
+    <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Tipo</th><th>Contatti</th><th>Codice fiscale / P.IVA</th><th>Veicoli</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}><td><strong>{customer.name}</strong><small>{customer.address || 'Indirizzo non indicato'}</small></td><td><span className="tag">{customer.type}</span></td><td>{customer.phone}<small>{customer.email || 'Email non indicata'}</small></td><td>{customer.taxId || '—'}</td><td><b className="count">{data.vehicles.filter((vehicle) => vehicle.customerId === customer.id).length}</b></td></tr>)}</tbody></table></div>{!customers.length && <Empty text="Nessun cliente trovato. Crea la prima anagrafica." />}</div>
+}
+
+function Vehicles({ vehicles, customers, onAdd, updateStatus, customerById }: { vehicles: ErpData['vehicles']; customers: Customer[]; onAdd: () => void; updateStatus: (id: string, status: VehicleStatus) => void; customerById: (id: string) => Customer | undefined }) {
+  return <div className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">PARCO VEICOLI</span><h3>{vehicles.length} vetture</h3></div><button className="primary" onClick={onAdd} disabled={!customers.length} title={!customers.length ? 'Crea prima un cliente' : ''}><Icon name="plus" /> Nuova vettura</button></div>
+    <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Stato operativo</th><th>Cono</th><th>Dati</th></tr></thead><tbody>{vehicles.map((vehicle) => <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${vehicle.status.toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : '—'}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td></tr>)}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
+}
+
+function Cones({ data, customerById, onMove }: { data: ErpData; customerById: (id: string) => Customer | undefined; onMove: (id: string, cone: number) => void }) {
+  const [selected, setSelected] = useState<number | null>(null)
+  const [filter, setFilter] = useState<'Tutti' | 'Liberi' | 'Occupati'>('Tutti')
+  const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
+  const cones = useMemo(() => Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).filter((number) => filter === 'Tutti' || (filter === 'Occupati') === occupied.some((vehicle) => vehicle.coneNumber === number)), [filter, occupied])
+  const vehicle = occupied.find((item) => item.coneNumber === selected)
+  return <>
+    <section className="cone-summary"><div><span>Coni occupati</span><strong>{occupied.length}</strong></div><div><span>Coni liberi</span><strong>{TOTAL_CONES - occupied.length}</strong></div><div className="occupancy"><span>Occupazione piazzale</span><strong>{Math.round(occupied.length / TOTAL_CONES * 100)}%</strong><i><b style={{ width: `${occupied.length / TOTAL_CONES * 100}%` }} /></i></div></section>
+    <section className="panel"><div className="panel-head"><div><span className="eyebrow">MAPPA PIAZZALE</span><h3>Coni da 1 a 30</h3></div><div className="segmented">{(['Tutti', 'Liberi', 'Occupati'] as const).map((item) => <button className={filter === item ? 'active' : ''} onClick={() => setFilter(item)} key={item}>{item}</button>)}</div></div>
+      <div className="cone-grid">{cones.map((number) => { const assigned = occupied.find((item) => item.coneNumber === number); return <button onClick={() => setSelected(number)} className={`cone-card ${assigned ? 'busy' : ''}`} key={number}><span>CONO</span><strong>{number}</strong>{assigned ? <><b className="plate">{assigned.plate}</b><small>{assigned.make} {assigned.model}</small></> : <b className="available">LIBERO</b>}</button> })}</div>
+    </section>
+    <section className="panel history"><div className="panel-head"><div><span className="eyebrow">REGISTRO NON MODIFICABILE</span><h3>Storico assegnazioni</h3></div></div><div className="table-wrap"><table><thead><tr><th>Data e ora</th><th>Evento</th><th>Cono</th><th>Vettura</th><th>Nota</th></tr></thead><tbody>{data.coneHistory.map((item) => { const itemVehicle = data.vehicles.find((entry) => entry.id === item.vehicleId); return <tr key={item.id}><td>{formatDate(item.timestamp)}</td><td><span className="tag">{item.action}</span></td><td><b className="cone-badge">{item.coneNumber}</b></td><td><strong className="plate">{itemVehicle?.plate}</strong><small>{customerById(itemVehicle?.customerId ?? '')?.name}</small></td><td>{item.note}</td></tr> })}</tbody></table></div>{!data.coneHistory.length && <Empty text="Nessuna assegnazione registrata." />}</section>
+    {selected !== null && <Modal title={`Cono ${selected}`} onClose={() => setSelected(null)}>{vehicle ? <div className="cone-detail"><div className="detail-plate">{vehicle.plate}</div><dl><div><dt>Vettura</dt><dd>{vehicle.make} {vehicle.model}</dd></div><div><dt>Cliente</dt><dd>{customerById(vehicle.customerId)?.name}</dd></div><div><dt>Stato</dt><dd>{vehicle.status}</dd></div></dl><label>Sposta manualmente su un cono libero<select defaultValue="" onChange={(event) => { onMove(vehicle.id, Number(event.target.value)); setSelected(null) }}><option value="" disabled>Seleziona nuovo cono</option>{Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).filter((cone) => !occupied.some((entry) => entry.coneNumber === cone)).map((cone) => <option value={cone} key={cone}>Cono {cone}</option>)}</select></label></div> : <div className="empty modal-empty"><b>Cono libero</b><p>Verrà assegnato automaticamente quando sarà il primo disponibile.</p></div>}</Modal>}
+  </>
+}
+
+function Planner({ data, customerById, updateStatus }: { data: ErpData; customerById: (id: string) => Customer | undefined; updateStatus: (id: string, status: VehicleStatus) => void }) {
+  const active = data.vehicles
+    .filter((vehicle) => vehicle.status !== 'Consegnata')
+    .sort((a, b) => {
+      const priority = { Urgente: 0, Alta: 1, Normale: 2 }
+      const score = (vehicle: ErpData['vehicles'][number]) => priority[vehicle.priority ?? 'Normale']
+      return score(a) - score(b) || (a.deliveryDate || '9999').localeCompare(b.deliveryDate || '9999')
+    })
+  const columns: VehicleStatus[] = ['Accettata', 'Confermata', 'In lavorazione', 'Pronta']
+  return <>
+    <section className="welcome"><div><span className="eyebrow">PIANIFICAZIONE DINAMICA</span><h2>Priorità operative</h2><p>Le vetture urgenti e con consegna più vicina vengono proposte per prime.</p></div><div className="planner-total"><strong>{active.length}</strong><span>vetture attive</span></div></section>
+    <section className="planner-board">{columns.map((status) => <div className="planner-column" key={status}><div className="planner-title"><span>{status}</span><b>{active.filter((vehicle) => vehicle.status === status).length}</b></div>{active.filter((vehicle) => vehicle.status === status).map((vehicle, index) => <article className="planner-card" key={vehicle.id}><div><span className={`priority priority-${(vehicle.priority ?? 'Normale').toLowerCase()}`}>{vehicle.priority ?? 'Normale'}</span>{index === 0 && status !== 'Pronta' && <span className="suggested">PROSSIMA</span>}</div><strong className="plate">{vehicle.plate}</strong><p>{vehicle.make} {vehicle.model}</p><small>{customerById(vehicle.customerId)?.name}</small><div className="planner-meta"><span>Cono {vehicle.coneNumber ?? '—'}</span><span>{vehicle.deliveryDate ? new Intl.DateTimeFormat('it-IT').format(new Date(vehicle.deliveryDate)) : 'Consegna n/d'}</span></div>{status !== 'Pronta' && <button className="advance" onClick={() => updateStatus(vehicle.id, columns[columns.indexOf(status) + 1])}>Avanza fase →</button>}</article>)}</div>)}</section>
+  </>
+}
+
+function CustomerForm({ onClose, onSave, setError }: { onClose: () => void; onSave: (customer: Customer) => void; setError: (error: string) => void }) {
+  const submit = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { onSave(createCustomer({ type: form.get('type') as CustomerType, name: String(form.get('name')), phone: String(form.get('phone')), email: String(form.get('email')), taxId: String(form.get('taxId')), address: String(form.get('address')) })); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Dati non validi.') } }
+  return <Modal title="Nuovo cliente" onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Tipo cliente<select name="type"><option>Privato</option><option>Azienda</option></select></label><label>Nome / ragione sociale<input name="name" required autoFocus /></label><label>Telefono<input name="phone" required inputMode="tel" /></label><label>Email<input name="email" type="email" /></label><label>Codice fiscale / P.IVA<input name="taxId" /></label><label>Indirizzo<input name="address" /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva cliente</button></div></form></Modal>
+}
+
+function VehicleForm({ customers, vehicles, onClose, onSave, setError }: { customers: Customer[]; vehicles: ErpData['vehicles']; onClose: () => void; onSave: (vehicle: ErpData['vehicles'][number]) => void; setError: (error: string) => void }) {
+  const submit = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { onSave(createVehicle({ customerId: String(form.get('customerId')), plate: String(form.get('plate')), make: String(form.get('make')), model: String(form.get('model')), color: String(form.get('color')), year: String(form.get('year')), vin: String(form.get('vin')), mileage: String(form.get('mileage')), status: form.get('status') as VehicleStatus, priority: form.get('priority') as 'Normale' | 'Alta' | 'Urgente', deliveryDate: String(form.get('deliveryDate')) }, vehicles)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Dati non validi.') } }
+  return <Modal title="Nuova vettura" onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" /></label><label>Marca<input name="make" required placeholder="es. BMW" /></label><label>Modello<input name="model" required placeholder="es. Serie 3" /></label><label>Colore<input name="color" /></label><label>Anno<input name="year" inputMode="numeric" /></label><label>VIN<input name="vin" /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" /></label><label>Stato iniziale<select name="status">{statuses.map((status) => <option key={status}>{status}</option>)}</select></label><label>Priorità<select name="priority"><option>Normale</option><option>Alta</option><option>Urgente</option></select></label><label>Consegna prevista<input name="deliveryDate" type="date" /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva vettura</button></div></form></Modal>
+}
+
+function Empty({ text }: { text: string }) { return <div className="empty"><div>◇</div><p>{text}</p></div> }
 export default App
