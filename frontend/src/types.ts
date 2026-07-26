@@ -33,6 +33,7 @@ export interface Vehicle {
 export interface ConeEvent {
   id: string
   vehicleId: string
+  vehiclePlate: string
   coneNumber: number
   action: 'Assegnato' | 'Spostato' | 'Liberato'
   timestamp: string

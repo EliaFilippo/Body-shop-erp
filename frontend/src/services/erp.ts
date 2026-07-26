@@ -23,10 +23,31 @@ export function saveData(data: ErpData) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
 }
 
-export function createCustomer(data: Omit<Customer, 'id' | 'createdAt'>): Customer {
+function cleanCustomer(data: Omit<Customer, 'id' | 'createdAt'>) {
   if (!data.name.trim()) throw new Error('Il nome o la ragione sociale è obbligatorio.')
   if (!data.phone.trim()) throw new Error('Il telefono è obbligatorio.')
-  return { ...data, name: data.name.trim(), id: id(), createdAt: now() }
+  return {
+    ...data,
+    name: data.name.trim(),
+    phone: data.phone.trim(),
+    email: data.email.trim(),
+    taxId: data.taxId.trim().toUpperCase(),
+    address: data.address.trim(),
+  }
+}
+
+export function createCustomer(data: Omit<Customer, 'id' | 'createdAt'>): Customer {
+  return { ...cleanCustomer(data), id: id(), createdAt: now() }
+}
+
+export function updateCustomer(
+  customers: Customer[],
+  customerId: string,
+  data: Omit<Customer, 'id' | 'createdAt'>,
+): Customer[] {
+  if (!customers.some((customer) => customer.id === customerId)) throw new Error('Cliente non trovato.')
+  const cleaned = cleanCustomer(data)
+  return customers.map((customer) => customer.id === customerId ? { ...customer, ...cleaned } : customer)
 }
 
 export function createVehicle(
@@ -42,12 +63,55 @@ export function createVehicle(
   return { ...data, plate, id: id(), coneNumber: null, createdAt: now() }
 }
 
-const event = (
+export function addVehicle(data: ErpData, input: Omit<Vehicle, 'id' | 'createdAt' | 'coneNumber'>): ErpData {
+  const vehicle = createVehicle(input, data.vehicles)
+  const next = { ...data, vehicles: [vehicle, ...data.vehicles] }
+  return input.status === 'Confermata' ? changeVehicleStatus(next, vehicle.id, 'Confermata') : next
+}
+
+export function updateVehicle(
+  data: ErpData,
   vehicleId: string,
+  input: Omit<Vehicle, 'id' | 'createdAt' | 'coneNumber'>,
+): ErpData {
+  const current = data.vehicles.find((vehicle) => vehicle.id === vehicleId)
+  if (!current) throw new Error('Vettura non trovata.')
+  const plate = normalizePlate(input.plate)
+  if (plate.length < 5) throw new Error('Inserisci una targa valida.')
+  if (data.vehicles.some((vehicle) => vehicle.id !== vehicleId && normalizePlate(vehicle.plate) === plate)) {
+    throw new Error(`La targa ${plate} è già presente.`)
+  }
+  if (!input.customerId) throw new Error('Seleziona il cliente proprietario.')
+  return {
+    ...data,
+    vehicles: data.vehicles.map((vehicle) =>
+      vehicle.id === vehicleId ? { ...vehicle, ...input, status: current.status, plate } : vehicle,
+    ),
+  }
+}
+
+export function deleteCustomer(data: ErpData, customerId: string): ErpData {
+  if (data.vehicles.some((vehicle) => vehicle.customerId === customerId)) {
+    throw new Error('Non puoi eliminare un cliente con veicoli collegati.')
+  }
+  return { ...data, customers: data.customers.filter((customer) => customer.id !== customerId) }
+}
+
+export function deleteVehicle(data: ErpData, vehicleId: string): ErpData {
+  const vehicle = data.vehicles.find((item) => item.id === vehicleId)
+  if (!vehicle) throw new Error('Vettura non trovata.')
+  const history = vehicle.coneNumber === null
+    ? data.coneHistory
+    : [event(vehicle, vehicle.coneNumber, 'Liberato', 'Vettura eliminata dall’archivio'), ...data.coneHistory]
+  return { ...data, vehicles: data.vehicles.filter((item) => item.id !== vehicleId), coneHistory: history }
+}
+
+const event = (
+  vehicle: Pick<Vehicle, 'id' | 'plate'>,
   coneNumber: number,
   action: ConeEvent['action'],
   note: string,
-): ConeEvent => ({ id: id(), vehicleId, coneNumber, action, note, timestamp: now() })
+): ConeEvent => ({ id: id(), vehicleId: vehicle.id, vehiclePlate: vehicle.plate, coneNumber, action, note, timestamp: now() })
 
 export function changeVehicleStatus(data: ErpData, vehicleId: string, status: VehicleStatus): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
@@ -61,11 +125,11 @@ export function changeVehicleStatus(data: ErpData, vehicleId: string, status: Ve
     coneNumber = Array.from({ length: TOTAL_CONES }, (_, index) => index + 1)
       .find((number) => !occupied.has(number)) ?? null
     if (coneNumber === null) throw new Error('Tutti i 30 coni sono occupati.')
-    history.unshift(event(vehicleId, coneNumber, 'Assegnato', 'Primo cono libero assegnato automaticamente'))
+    history.unshift(event(vehicle, coneNumber, 'Assegnato', 'Primo cono libero assegnato automaticamente'))
   }
 
   if (status === 'Consegnata' && coneNumber !== null) {
-    history.unshift(event(vehicleId, coneNumber, 'Liberato', 'Vettura consegnata'))
+    history.unshift(event(vehicle, coneNumber, 'Liberato', 'Vettura consegnata'))
     coneNumber = null
   }
 
@@ -93,10 +157,9 @@ export function moveVehicleCone(data: ErpData, vehicleId: string, newCone: numbe
       item.id === vehicleId ? { ...item, coneNumber: newCone } : item,
     ),
     coneHistory: [
-      event(vehicleId, newCone, 'Spostato', `Spostamento manuale dal cono ${oldCone}`),
-      event(vehicleId, oldCone, 'Liberato', `Spostamento manuale al cono ${newCone}`),
+      event(vehicle, newCone, 'Spostato', `Spostamento manuale dal cono ${oldCone}`),
+      event(vehicle, oldCone, 'Liberato', `Spostamento manuale al cono ${newCone}`),
       ...data.coneHistory,
     ],
   }
 }
-
