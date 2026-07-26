@@ -49,7 +49,7 @@ function App() {
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
       <nav>{nav.map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); setMenu(false); setQuery('') }}><Icon name={item.id} /><span>{item.label}</span>{item.id === 'cones' && <b>{occupied.length}</b>}</button>)}</nav>
-      <div className="sidebar-foot"><span className="online-dot" /> Sistema operativo</div>
+      <div className="sidebar-foot"><span className="online-dot" /> {databaseReady ? 'Archivio pronto' : 'Caricamento archivio'}</div>
     </aside>
     {menu && <button className="menu-overlay" onClick={() => setMenu(false)} aria-label="Chiudi menu" />}
 
@@ -57,7 +57,13 @@ function App() {
       <header><button className="menu-button" onClick={() => setMenu(true)}><Icon name="menu" /></button><div><span className="eyebrow">PANORAMICA OPERATIVA</span><h1>{title}</h1></div><div className="header-actions"><div className="search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca targa, cliente..." /></div><div className="avatar">FE</div></div></header>
       {error && <div className="toast error">{error}<button onClick={() => setError('')}>×</button></div>}
       <div className="content">
-        {view === 'dashboard' && <Dashboard data={data} setView={setView} customerById={customerById} />}
+        {view === 'dashboard' && <Dashboard data={data} setView={setView} customerById={customerById} onNewVehicle={() => {
+          if (data.customers.length) setModal({ type: 'vehicle' })
+          else {
+            setView('customers')
+            setModal({ type: 'customer' })
+          }
+        }} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { setData(deleteCustomer(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
         {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => setModal({ type: 'vehicle' })} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { setData(deleteVehicle(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} updateStatus={updateStatus} customerById={customerById} />}
         {view === 'cones' && <Cones data={data} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
@@ -70,7 +76,7 @@ function App() {
   </div>
 }
 
-function Dashboard({ data, setView, customerById }: { data: ErpData; setView: (view: View) => void; customerById: (id: string) => Customer | undefined }) {
+function Dashboard({ data, setView, customerById, onNewVehicle }: { data: ErpData; setView: (view: View) => void; customerById: (id: string) => Customer | undefined; onNewVehicle: () => void }) {
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
   const active = data.vehicles.filter((vehicle) => vehicle.status !== 'Consegnata')
   const ready = data.vehicles.filter((vehicle) => vehicle.status === 'Pronta')
@@ -79,7 +85,7 @@ function Dashboard({ data, setView, customerById }: { data: ErpData; setView: (v
     ['Coni occupati', occupied.length, 'cones'], ['Vetture pronte', ready.length, 'vehicles'],
   ] as const
   return <>
-    <section className="welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Tutto ciò che serve per tenere sotto controllo accettazione, vetture e piazzale.</p></div><button className="primary" onClick={() => setView('vehicles')}><Icon name="plus" /> Nuova vettura</button></section>
+    <section className="welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Tutto ciò che serve per tenere sotto controllo accettazione, vetture e piazzale.</p></div><button className="primary" onClick={onNewVehicle}><Icon name="plus" /> {data.customers.length ? 'Nuova vettura' : 'Crea il primo cliente'}</button></section>
     <section className="stat-grid">{cards.map(([label, value, target]) => <button className="stat-card" key={label} onClick={() => setView(target)}><span>{label}</span><strong>{value}</strong><small>{label === 'Coni occupati' ? `${TOTAL_CONES - occupied.length} coni liberi` : 'Vedi dettaglio →'}</small></button>)}</section>
     <section className="dashboard-grid">
       <div className="panel"><div className="panel-head"><div><span className="eyebrow">PIAZZALE</span><h3>Stato dei 30 coni</h3></div><button className="link" onClick={() => setView('cones')}>Gestisci coni →</button></div><div className="mini-cones">{Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).map((number) => { const vehicle = occupied.find((item) => item.coneNumber === number); return <div title={vehicle?.plate ?? 'Libero'} className={vehicle ? 'busy' : ''} key={number}>{number}</div> })}</div><div className="legend"><span><i /> Liberi ({TOTAL_CONES - occupied.length})</span><span><i className="busy" /> Occupati ({occupied.length})</span></div></div>
