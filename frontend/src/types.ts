@@ -1,4 +1,4 @@
-export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner'
+export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings'
 export type CustomerType = 'Privato' | 'Azienda'
 export type VehicleStatus = 'Accettata' | 'Confermata' | 'In lavorazione' | 'Pronta' | 'Consegnata'
 
@@ -27,7 +27,52 @@ export interface Vehicle {
   coneNumber: number | null
   priority?: 'Normale' | 'Alta' | 'Urgente'
   deliveryDate?: string
+  estimatedHours: number
+  workedHours: number
+  plannedEntryDate: string
+  requestedDeliveryDate: string
+  calculatedDeliveryDate: string
+  expectedRevenue: number
+  expectedMargin: number
+  partsStatus: 'Disponibili' | 'Ordinati' | 'Mancanti'
+  blockReason: string
+  manualPlanningDate: string
   createdAt: string
+}
+
+export interface PlannerOperator {
+  id: string
+  name: string
+  dailyHours: number
+  active: boolean
+}
+
+export interface PlannerAbsence {
+  id: string
+  operatorId: string
+  startDate: string
+  endDate: string
+  hoursPerDay: number | null
+  reason: string
+}
+
+export interface PlannerSettings {
+  operators: PlannerOperator[]
+  workingDays: number[]
+  efficiencyPercent: number
+  safetyMarginPercent: number
+  holidays: string[]
+  closures: string[]
+  absences: PlannerAbsence[]
+  monthlyRevenueGoal: number
+  monthlyMarginGoal: number | null
+}
+
+export interface PlannerAssignment {
+  vehicleId: string
+  date: string
+  protectedHours: number
+  normalHours: number
 }
 
 export interface ConeEvent {
@@ -44,4 +89,6 @@ export interface ErpData {
   customers: Customer[]
   vehicles: Vehicle[]
   coneHistory: ConeEvent[]
+  plannerSettings: PlannerSettings
+  plannerAssignments: PlannerAssignment[]
 }

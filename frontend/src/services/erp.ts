@@ -1,9 +1,27 @@
-import type { ConeEvent, Customer, ErpData, Vehicle, VehicleStatus } from '../types'
+import type { ConeEvent, Customer, ErpData, PlannerSettings, Vehicle, VehicleStatus } from '../types'
 
 export const TOTAL_CONES = 30
 export const STORAGE_KEY = 'carrozzeria-elias-erp-v1'
 
-export const emptyData: ErpData = { customers: [], vehicles: [], coneHistory: [] }
+export const defaultPlannerSettings: PlannerSettings = {
+  operators: [],
+  workingDays: [1, 2, 3, 4, 5],
+  efficiencyPercent: 85,
+  safetyMarginPercent: 15,
+  holidays: [],
+  closures: [],
+  absences: [],
+  monthlyRevenueGoal: 0,
+  monthlyMarginGoal: null,
+}
+
+export const emptyData: ErpData = {
+  customers: [],
+  vehicles: [],
+  coneHistory: [],
+  plannerSettings: defaultPlannerSettings,
+  plannerAssignments: [],
+}
 
 export const normalizePlate = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
 
