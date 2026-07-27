@@ -29,6 +29,33 @@ function paymentStatus(invoice?: Invoice) {
   return { label: invoice.status, symbol: '●' }
 }
 
+function customerRisk(row: CustomerRow) {
+  if (row.insolvents > 0 || row.expired > 20000 || row.rating === 'D') {
+    return {
+      label: 'RISCHIO ALTO',
+      color: '#ff6b6b',
+      background: 'rgba(255, 107, 107, 0.10)',
+      message: 'Prima di accettare nuove lavorazioni, controlla insoluti e credito scaduto.',
+    }
+  }
+
+  if (row.expired > 0 || row.averageDelay > 15 || row.rating === 'B' || row.rating === 'C') {
+    return {
+      label: 'DA MONITORARE',
+      color: '#e6b85c',
+      background: 'rgba(230, 184, 92, 0.10)',
+      message: 'Il cliente presenta ritardi o importi scaduti: monitora l’esposizione.',
+    }
+  }
+
+  return {
+    label: 'REGOLARE',
+    color: '#67d9a3',
+    background: 'rgba(103, 217, 163, 0.10)',
+    message: 'Al momento non risultano criticità nei pagamenti registrati.',
+  }
+}
+
 export function CustomerFinanceDetail({ row, data, onEditTerms }: {
   row: CustomerRow
   data: ErpData
@@ -46,6 +73,8 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
   const presentableRiba = row.invoices
     .filter((invoice) => invoice.paymentMethod === 'R.I.B.A.' && invoice.status !== 'Incassata' && invoice.status !== 'Stornata')
     .reduce((sum, invoice) => sum + invoiceResidual(invoice), 0)
+  const notExpired = Math.max(0, row.outstanding - row.expired)
+  const risk = customerRisk(row)
 
   const alerts = [
     row.expired > 0 ? `${money(row.expired)} di fatture scadute da sollecitare.` : '',
@@ -92,9 +121,23 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
       <div className="row-actions"><span className="tag">Rating {row.rating}</span><button onClick={onEditTerms}>Modifica condizioni</button></div>
     </div>
 
+    <div style={{ border: `1px solid ${risk.color}`, background: risk.background, borderRadius: '14px', padding: '14px 16px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div>
+        <span className="eyebrow">AFFIDABILITÀ PAGAMENTI</span>
+        <h3 style={{ margin: '4px 0', color: risk.color }}>{risk.label}</h3>
+        <p style={{ margin: 0 }}>{risk.message}</p>
+      </div>
+      <div className="row-actions">
+        <span className="tag">Scaduto {money(row.expired)}</span>
+        <span className="tag">Ritardo {row.averageDelay} gg</span>
+        <span className="tag">Insoluti {row.insolvents}</span>
+      </div>
+    </div>
+
     <div className="stat-grid">
       <div className="stat-card"><span>Credito aperto</span><strong>{money(row.outstanding)}</strong><small>{row.open.length} fatture aperte</small></div>
       <div className="stat-card"><span>Scaduto</span><strong>{money(row.expired)}</strong><small>Da sollecitare</small></div>
+      <div className="stat-card"><span>Non ancora scaduto</span><strong>{money(notExpired)}</strong><small>Credito futuro</small></div>
       <div className="stat-card"><span>In R.I.B.A.</span><strong>{money(row.inRiba)}</strong><small>Già presentato</small></div>
       <div className="stat-card"><span>Prossimo incasso</span><strong>{nextDueInvoice ? money(invoiceResidual(nextDueInvoice)) : money(0)}</strong><small>{nextDueInvoice?.dueDate ?? 'Nessuna scadenza'}</small></div>
       <div className="stat-card"><span>Vetture lavorate</span><strong>{row.vehicles.length}</strong><small>Storico complessivo</small></div>
