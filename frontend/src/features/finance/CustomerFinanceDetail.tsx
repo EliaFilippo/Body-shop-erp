@@ -3,6 +3,7 @@ import type { Customer, ErpData, Invoice, Vehicle } from '../../types'
 import { invoiceResidual } from '../../services/finance'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
+const today = () => new Date().toISOString().slice(0, 10)
 
 type CustomerRow = {
   customer: Customer
@@ -19,6 +20,15 @@ type CustomerRow = {
   rating: string
 }
 
+function paymentStatus(invoice?: Invoice) {
+  if (!invoice) return { label: 'Da fatturare', symbol: '○' }
+  if (invoice.status === 'Incassata') return { label: 'Incassata', symbol: '●' }
+  if (invoice.status === 'Insoluta') return { label: 'Insoluta', symbol: '●' }
+  if (invoice.dueDate < today() && invoiceResidual(invoice) > 0) return { label: 'Scaduta', symbol: '●' }
+  if (invoice.ribaAllocatedAmount > 0) return { label: 'In R.I.B.A.', symbol: '●' }
+  return { label: invoice.status, symbol: '●' }
+}
+
 export function CustomerFinanceDetail({ row, data, onEditTerms }: {
   row: CustomerRow
   data: ErpData
@@ -28,6 +38,21 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
   const [highlighted, setHighlighted] = useState(false)
   const invoiceByVehicle = new Map<string, Invoice>()
   row.invoices.forEach((invoice) => invoice.lines.forEach((line) => invoiceByVehicle.set(line.vehicleId, invoice)))
+
+  const nextDueInvoice = row.open
+    .filter((invoice) => invoiceResidual(invoice) > 0)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
+  const notInvoiced = row.vehicles.filter((vehicle) => !invoiceByVehicle.has(vehicle.id)).length
+  const presentableRiba = row.invoices
+    .filter((invoice) => invoice.paymentMethod === 'R.I.B.A.' && invoice.status !== 'Incassata' && invoice.status !== 'Stornata')
+    .reduce((sum, invoice) => sum + invoiceResidual(invoice), 0)
+
+  const alerts = [
+    row.expired > 0 ? `${money(row.expired)} di fatture scadute da sollecitare.` : '',
+    notInvoiced > 0 ? `${notInvoiced} vetture risultano ancora da fatturare.` : '',
+    presentableRiba > 0 ? `${money(presentableRiba)} ancora disponibili per nuove R.I.B.A.` : '',
+    row.insolvents > 0 ? `${row.insolvents} insoluti registrati sul cliente.` : '',
+  ].filter(Boolean)
 
   useEffect(() => {
     const handleDetailClick = (event: MouseEvent) => {
@@ -68,14 +93,20 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
     </div>
 
     <div className="stat-grid">
-      <div className="stat-card"><span>Vetture lavorate</span><strong>{row.vehicles.length}</strong><small>Storico complessivo</small></div>
-      <div className="stat-card"><span>Fatturato</span><strong>{money(row.invoiced)}</strong><small>Totale fatture</small></div>
-      <div className="stat-card"><span>Incassato</span><strong>{money(row.collected)}</strong><small>Incassi definitivi</small></div>
       <div className="stat-card"><span>Credito aperto</span><strong>{money(row.outstanding)}</strong><small>{row.open.length} fatture aperte</small></div>
       <div className="stat-card"><span>Scaduto</span><strong>{money(row.expired)}</strong><small>Da sollecitare</small></div>
       <div className="stat-card"><span>In R.I.B.A.</span><strong>{money(row.inRiba)}</strong><small>Già presentato</small></div>
-      <div className="stat-card"><span>Ritardo medio</span><strong>{row.averageDelay} gg</strong><small>Pagamenti chiusi</small></div>
-      <div className="stat-card"><span>Insoluti</span><strong>{row.insolvents}</strong><small>Eventi registrati</small></div>
+      <div className="stat-card"><span>Prossimo incasso</span><strong>{nextDueInvoice ? money(invoiceResidual(nextDueInvoice)) : money(0)}</strong><small>{nextDueInvoice?.dueDate ?? 'Nessuna scadenza'}</small></div>
+      <div className="stat-card"><span>Vetture lavorate</span><strong>{row.vehicles.length}</strong><small>Storico complessivo</small></div>
+      <div className="stat-card"><span>Fatturato</span><strong>{money(row.invoiced)}</strong><small>Totale fatture</small></div>
+      <div className="stat-card"><span>Incassato</span><strong>{money(row.collected)}</strong><small>Incassi definitivi</small></div>
+      <div className="stat-card"><span>Ritardo medio</span><strong>{row.averageDelay} gg</strong><small>{row.insolvents} insoluti registrati</small></div>
+    </div>
+
+    <div className="panel-head"><div><span className="eyebrow">CONTROLLO AUTOMATICO</span><h3>Avvisi sul cliente</h3></div></div>
+    <div className="activity">
+      {alerts.map((alert) => <div key={alert}><b>!</b><span><strong>Attenzione</strong><small>{alert}</small></span></div>)}
+      {!alerts.length && <div className="empty"><div>✓</div><p>Nessuna criticità rilevata per questo cliente.</p></div>}
     </div>
 
     <div className="panel-head"><div><span className="eyebrow">VETTURE E PAGAMENTI</span><h3>Situazione per singola vettura</h3></div></div>
@@ -84,6 +115,7 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
       <tbody>{row.vehicles.map((vehicle) => {
         const invoice = invoiceByVehicle.get(vehicle.id)
         const line = invoice?.lines.find((item) => item.vehicleId === vehicle.id)
+        const status = paymentStatus(invoice)
         return <tr key={vehicle.id}>
           <td><strong>{vehicle.plate}</strong><small>{vehicle.createdAt.slice(0, 10)}</small></td>
           <td>{vehicle.make} {vehicle.model}<small>{vehicle.color || 'Colore non indicato'}</small></td>
@@ -93,7 +125,7 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
           <td>{line ? money(line.total) : money(vehicle.expectedRevenue)}</td>
           <td>{invoice ? money(invoice.ribaAllocatedAmount) : '—'}</td>
           <td>{invoice ? money(invoiceResidual(invoice)) : '—'}</td>
-          <td><span className="tag">{invoice?.status ?? vehicle.billingStatus ?? 'Non fatturabile'}</span></td>
+          <td><span className="tag">{status.symbol} {status.label}</span></td>
         </tr>
       })}</tbody>
     </table></div>
@@ -105,7 +137,7 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
       <tbody>{row.invoices.map((invoice) => <tr key={invoice.id}>
         <td><strong>{invoice.number}</strong><small>{invoice.issueDate}</small></td>
         <td>{invoice.lines.map((line) => data.vehicles.find((vehicle) => vehicle.id === line.vehicleId)?.plate ?? line.description).join(', ')}</td>
-        <td>{invoice.dueDate}</td><td>{money(invoice.total)}</td><td>{money(invoice.collectedAmount)}</td><td>{money(invoice.ribaAllocatedAmount)}</td><td>{money(invoiceResidual(invoice))}</td><td><span className="tag">{invoice.status}</span></td>
+        <td>{invoice.dueDate}</td><td>{money(invoice.total)}</td><td>{money(invoice.collectedAmount)}</td><td>{money(invoice.ribaAllocatedAmount)}</td><td>{money(invoiceResidual(invoice))}</td><td><span className="tag">{paymentStatus(invoice).label}</span></td>
       </tr>)}</tbody>
     </table></div>
     {!row.invoices.length && <div className="empty"><div>◇</div><p>Nessuna fattura collegata a questo cliente.</p></div>}
