@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Customer, ErpData, Vehicle } from '../types'
-import { addVehicle, changeVehicleStatus, createVehicle, deleteCustomer, deleteVehicle, moveVehicleCone, normalizePlate, updateCustomer, updateVehicle } from './erp'
+import { addVehicle, changeVehicleStatus, createVehicle, defaultPlannerSettings, deleteCustomer, deleteVehicle, moveVehicleCone, normalizePlate, updateCustomer, updateVehicle } from './erp'
 
 const customer: Customer = {
   id: 'customer-1', type: 'Privato', name: 'Mario Rossi', phone: '123',
@@ -10,10 +10,16 @@ const customer: Customer = {
 const vehicle = (id: string, plate: string, coneNumber: number | null = null): Vehicle => ({
   id, plate, coneNumber, customerId: customer.id, make: 'Fiat', model: '500',
   color: 'Nero', year: '2020', vin: '', mileage: '', status: coneNumber ? 'Confermata' : 'Accettata',
+  estimatedHours: 0, workedHours: 0, plannedEntryDate: '', requestedDeliveryDate: '',
+  calculatedDeliveryDate: '', expectedRevenue: 0, expectedMargin: 0, partsStatus: 'Disponibili',
+  blockReason: '', manualPlanningDate: '',
   createdAt: '2026-01-01',
 })
 
-const state = (vehicles: Vehicle[]): ErpData => ({ customers: [customer], vehicles, coneHistory: [] })
+const state = (vehicles: Vehicle[]): ErpData => ({
+  customers: [customer], vehicles, coneHistory: [],
+  plannerSettings: structuredClone(defaultPlannerSettings), plannerAssignments: [],
+})
 
 describe('targhe', () => {
   it('normalizza maiuscole, spazi e trattini', () => {

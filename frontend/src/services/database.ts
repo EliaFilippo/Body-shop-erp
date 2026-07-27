@@ -1,10 +1,10 @@
 import type { ErpData } from '../types'
-import { emptyData, STORAGE_KEY } from './erp'
+import { defaultPlannerSettings, emptyData, STORAGE_KEY } from './erp'
 
 const DB_NAME = 'carrozzeria-elias-erp'
 const STORE = 'erp-state'
 const STATE_KEY = 'current'
-const CURRENT_VERSION = 2
+const CURRENT_VERSION = 3
 
 const readFallback = () => typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
 
@@ -25,7 +25,21 @@ function normalizeData(value: unknown): ErpData {
   if (!value || typeof value !== 'object') return structuredClone(emptyData)
   const candidate = value as Partial<ErpData>
   const customers = Array.isArray(candidate.customers) ? candidate.customers : []
-  const vehicles = Array.isArray(candidate.vehicles) ? candidate.vehicles : []
+  const vehicles = Array.isArray(candidate.vehicles)
+    ? candidate.vehicles.map((vehicle) => ({
+        ...vehicle,
+        estimatedHours: Number(vehicle.estimatedHours) || 0,
+        workedHours: Number(vehicle.workedHours) || 0,
+        plannedEntryDate: vehicle.plannedEntryDate || '',
+        requestedDeliveryDate: vehicle.requestedDeliveryDate || vehicle.deliveryDate || '',
+        calculatedDeliveryDate: vehicle.calculatedDeliveryDate || '',
+        expectedRevenue: Number(vehicle.expectedRevenue) || 0,
+        expectedMargin: Number(vehicle.expectedMargin) || 0,
+        partsStatus: vehicle.partsStatus || 'Disponibili',
+        blockReason: vehicle.blockReason || '',
+        manualPlanningDate: vehicle.manualPlanningDate || '',
+      }))
+    : []
   const coneHistory = Array.isArray(candidate.coneHistory)
     ? candidate.coneHistory.map((entry) => ({
         ...entry,
@@ -34,7 +48,18 @@ function normalizeData(value: unknown): ErpData {
           || 'Vettura rimossa',
       }))
     : []
-  return { customers, vehicles, coneHistory }
+  const rawSettings = candidate.plannerSettings
+  const plannerSettings = {
+    ...structuredClone(defaultPlannerSettings),
+    ...(rawSettings && typeof rawSettings === 'object' ? rawSettings : {}),
+    operators: Array.isArray(rawSettings?.operators) ? rawSettings.operators : [],
+    workingDays: Array.isArray(rawSettings?.workingDays) ? rawSettings.workingDays : [1, 2, 3, 4, 5],
+    holidays: Array.isArray(rawSettings?.holidays) ? rawSettings.holidays : [],
+    closures: Array.isArray(rawSettings?.closures) ? rawSettings.closures : [],
+    absences: Array.isArray(rawSettings?.absences) ? rawSettings.absences : [],
+  }
+  const plannerAssignments = Array.isArray(candidate.plannerAssignments) ? candidate.plannerAssignments : []
+  return { customers, vehicles, coneHistory, plannerSettings, plannerAssignments }
 }
 
 export async function loadDatabase(): Promise<ErpData> {
