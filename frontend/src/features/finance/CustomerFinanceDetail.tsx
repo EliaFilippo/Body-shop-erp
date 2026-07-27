@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Customer, ErpData, Invoice, Vehicle } from '../../types'
 import { invoiceResidual } from '../../services/finance'
 
@@ -23,10 +24,40 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
   data: ErpData
   onEditTerms: () => void
 }) {
+  const sectionRef = useRef<HTMLElement>(null)
+  const [highlighted, setHighlighted] = useState(false)
   const invoiceByVehicle = new Map<string, Invoice>()
   row.invoices.forEach((invoice) => invoice.lines.forEach((line) => invoiceByVehicle.set(line.vehicleId, invoice)))
 
-  return <section className="panel table-panel">
+  useEffect(() => {
+    const handleDetailClick = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const button = target.closest('button')
+      if (!button || button.textContent?.trim() !== 'Dettaglio') return
+
+      window.setTimeout(() => {
+        sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        setHighlighted(true)
+        window.setTimeout(() => setHighlighted(false), 1600)
+      }, 50)
+    }
+
+    document.addEventListener('click', handleDetailClick)
+    return () => document.removeEventListener('click', handleDetailClick)
+  }, [])
+
+  return <section
+    ref={sectionRef}
+    id="customer-finance-detail"
+    className="panel table-panel"
+    style={{
+      scrollMarginTop: '18px',
+      outline: highlighted ? '2px solid rgba(214, 178, 92, 0.9)' : '2px solid transparent',
+      boxShadow: highlighted ? '0 0 0 6px rgba(214, 178, 92, 0.12)' : undefined,
+      transition: 'outline-color 220ms ease, box-shadow 220ms ease',
+    }}
+  >
     <div className="panel-head">
       <div>
         <span className="eyebrow">SCHEDA FINANZIARIA CLIENTE</span>
