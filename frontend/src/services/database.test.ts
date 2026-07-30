@@ -13,6 +13,11 @@ const data: ErpData = {
   coneHistory: [],
   plannerSettings: { ...structuredClone(defaultPlannerSettings), monthlyRevenueGoal: 45000 },
   plannerAssignments: [],
+  invoices: [],
+  bankAccounts: [],
+  ribaBatches: [],
+  financialEvents: [],
+  financeSettings: structuredClone(emptyData.financeSettings),
 }
 
 beforeEach(async () => {
