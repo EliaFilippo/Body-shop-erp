@@ -21,6 +21,15 @@ export const emptyData: ErpData = {
   coneHistory: [],
   plannerSettings: defaultPlannerSettings,
   plannerAssignments: [],
+  invoices: [],
+  bankAccounts: [],
+  ribaBatches: [],
+  financialEvents: [],
+  financeSettings: {
+    defaultVatRate: 22,
+    defaultPaymentDays: 30,
+    minimumProjectedBalance: 0,
+  },
 }
 
 export const normalizePlate = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -51,6 +60,9 @@ function cleanCustomer(data: Omit<Customer, 'id' | 'createdAt'>) {
     email: data.email.trim(),
     taxId: data.taxId.trim().toUpperCase(),
     address: data.address.trim(),
+    usualBank: data.usualBank?.trim() || '',
+    iban: data.iban?.replace(/\s/g, '').toUpperCase() || '',
+    siaCuc: data.siaCuc?.trim().toUpperCase() || '',
   }
 }
 
@@ -112,12 +124,16 @@ export function deleteCustomer(data: ErpData, customerId: string): ErpData {
   if (data.vehicles.some((vehicle) => vehicle.customerId === customerId)) {
     throw new Error('Non puoi eliminare un cliente con veicoli collegati.')
   }
+  if (data.invoices.some((invoice) => invoice.customerId === customerId)) {
+    throw new Error('Non puoi eliminare un cliente con documenti contabili collegati.')
+  }
   return { ...data, customers: data.customers.filter((customer) => customer.id !== customerId) }
 }
 
 export function deleteVehicle(data: ErpData, vehicleId: string): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) throw new Error('Vettura non trovata.')
+  if (vehicle.invoiceId) throw new Error('Non puoi eliminare una vettura già collegata a una fattura.')
   const history = vehicle.coneNumber === null
     ? data.coneHistory
     : [event(vehicle, vehicle.coneNumber, 'Liberato', 'Vettura eliminata dall’archivio'), ...data.coneHistory]
@@ -155,7 +171,15 @@ export function changeVehicleStatus(data: ErpData, vehicleId: string, status: Ve
     ...data,
     coneHistory: history,
     vehicles: data.vehicles.map((item) =>
-      item.id === vehicleId ? { ...item, status, coneNumber } : item,
+      item.id === vehicleId
+        ? {
+            ...item,
+            status,
+            coneNumber,
+            deliveredAt: status === 'Consegnata' ? (item.deliveredAt || now()) : item.deliveredAt,
+            billingStatus: status === 'Consegnata' && !item.invoiceId ? 'Da fatturare' : item.billingStatus,
+          }
+        : item,
     ),
   }
 }
