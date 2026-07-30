@@ -19,6 +19,12 @@ const vehicle = (id: string, plate: string, coneNumber: number | null = null): V
 const state = (vehicles: Vehicle[]): ErpData => ({
   customers: [customer], vehicles, coneHistory: [],
   plannerSettings: structuredClone(defaultPlannerSettings), plannerAssignments: [],
+  invoices: [], bankAccounts: [], ribaBatches: [], financialEvents: [],
+  financeSettings: {
+    defaultVatRate: 22,
+    defaultPaymentDays: 30,
+    minimumProjectedBalance: 0,
+  },
 })
 
 describe('targhe', () => {
