@@ -1,4 +1,5 @@
-import type { ConeEvent, Customer, ErpData, PlannerSettings, Vehicle, VehicleStatus } from '../types'
+import type { ConeEvent, Customer, ErpData, PlannerSettings, Vehicle, VehicleCostEntry, VehicleStatus, VehicleStatusChange } from '../types'
+import { calculateVehicleEconomicSnapshot } from './economic'
 
 export const TOTAL_CONES = 30
 export const STORAGE_KEY = 'carrozzeria-elias-erp-v1'
@@ -13,6 +14,7 @@ export const defaultPlannerSettings: PlannerSettings = {
   absences: [],
   monthlyRevenueGoal: 0,
   monthlyMarginGoal: null,
+  monthlyGoalHistory: [],
 }
 
 export const emptyData: ErpData = {
@@ -29,6 +31,14 @@ export const emptyData: ErpData = {
     defaultVatRate: 22,
     defaultPaymentDays: 30,
     minimumProjectedBalance: 0,
+    laborHourlyCost: 45,
+    laborHoursBase: 'effettive',
+    laborOperatorById: {},
+    marginThresholds: {
+      positive: 15,
+      low: 5,
+      breakEven: 0,
+    },
   },
 }
 
@@ -120,6 +130,42 @@ export function updateVehicle(
   }
 }
 
+export function addVehicleCostEntry(
+  data: ErpData,
+  vehicleId: string,
+  input: Omit<VehicleCostEntry, 'id' | 'createdAt' | 'updatedAt'>,
+): ErpData {
+  const vehicle = data.vehicles.find((item) => item.id === vehicleId)
+  if (!vehicle) throw new Error('Vettura non trovata.')
+  const entry: VehicleCostEntry = {
+    ...input,
+    id: id(),
+    createdAt: now(),
+    updatedAt: now(),
+    total: Math.max(0, Number(input.total) || 0),
+  }
+  const nextEntries = [...(vehicle.costEntries ?? []), entry]
+  const snapshot = calculateVehicleEconomicSnapshot({ ...vehicle, costEntries: nextEntries }, data.financeSettings)
+  const history = [{
+    id: id(),
+    vehicleId,
+    action: 'aggiunta' as const,
+    previousValue: 'Nessun costo registrato',
+    newValue: `${input.description.trim()} · € ${entry.total.toLocaleString('it-IT', { minimumFractionDigits: 2 })}`,
+    user: 'Operatore ERP',
+    at: now(),
+  }, ...(vehicle.costHistory ?? [])]
+  return {
+    ...data,
+    vehicles: data.vehicles.map((item) => item.id === vehicleId ? {
+      ...item,
+      costEntries: nextEntries,
+      costHistory: history,
+      actualMargin: snapshot.realMargin,
+    } : item),
+  }
+}
+
 export function deleteCustomer(data: ErpData, customerId: string): ErpData {
   if (data.vehicles.some((vehicle) => vehicle.customerId === customerId)) {
     throw new Error('Non puoi eliminare un cliente con veicoli collegati.')
@@ -147,12 +193,27 @@ const event = (
   note: string,
 ): ConeEvent => ({ id: id(), vehicleId: vehicle.id, vehiclePlate: vehicle.plate, coneNumber, action, note, timestamp: now() })
 
+const statusHistoryEvent = (
+  vehicleId: string,
+  from: VehicleStatus,
+  to: VehicleStatus,
+  note: string,
+): VehicleStatusChange => ({
+  id: id(),
+  vehicleId,
+  from,
+  to,
+  at: now(),
+  note,
+})
+
 export function changeVehicleStatus(data: ErpData, vehicleId: string, status: VehicleStatus): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) throw new Error('Vettura non trovata.')
 
   let coneNumber = vehicle.coneNumber
   const history = [...data.coneHistory]
+  const statusHistory = [...(vehicle.statusHistory ?? [])]
 
   if (status === 'Confermata' && coneNumber === null) {
     const occupied = new Set(data.vehicles.flatMap((item) => item.coneNumber ?? []))
@@ -167,6 +228,10 @@ export function changeVehicleStatus(data: ErpData, vehicleId: string, status: Ve
     coneNumber = null
   }
 
+  if (vehicle.status !== status) {
+    statusHistory.unshift(statusHistoryEvent(vehicleId, vehicle.status, status, `Cambio stato registrato in ${status}.`))
+  }
+
   return {
     ...data,
     coneHistory: history,
@@ -178,6 +243,7 @@ export function changeVehicleStatus(data: ErpData, vehicleId: string, status: Ve
             coneNumber,
             deliveredAt: status === 'Consegnata' ? (item.deliveredAt || now()) : item.deliveredAt,
             billingStatus: status === 'Consegnata' && !item.invoiceId ? 'Da fatturare' : item.billingStatus,
+            statusHistory,
           }
         : item,
     ),

@@ -2,23 +2,26 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { Icon } from './components/Icon'
 import { Modal } from './components/Modal'
-import { addVehicle, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, TOTAL_CONES, emptyData, updateCustomer, updateVehicle } from './services/erp'
+import { addVehicle, addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, TOTAL_CONES, emptyData, updateCustomer, updateVehicle } from './services/erp'
 import { loadDatabase, saveDatabase } from './services/database'
 import { EconomicGoalPanel } from './features/dashboard/EconomicGoalPanel'
 import { PlannerPage } from './features/planner/PlannerPage'
 import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
+import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { calculateDayCapacity, calculatePlanner, remainingHours } from './services/planner'
-import { calculateEconomicSummary, vehicleEconomicImpact } from './services/economic'
+import { calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './services/economic'
 import { buildAcceptanceQuoteSummary, createAcceptanceDraft, exportAcceptancePdf, updateConsumptionLine } from './services/acceptance'
-import type { AcceptanceCase, AcceptanceLine, Customer, CustomerType, ErpData, Vehicle, VehicleStatus, View } from './types'
+import { FinancePage } from './features/finance/FinancePage'
+import type { AcceptanceCase, AcceptanceLine, Customer, CustomerType, ErpData, Vehicle, VehicleCostCategory, VehicleStatus, View } from './types'
 
 const nav: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' }, { id: 'customers', label: 'Clienti' },
   { id: 'vehicles', label: 'Veicoli' }, { id: 'cones', label: 'Gestione coni' },
   { id: 'planner', label: 'Planner intelligente' }, { id: 'planner-settings', label: 'Impostazioni Planner' },
-  { id: 'acceptance', label: 'Accettazione' },
+  { id: 'monthly-goals', label: 'Obiettivi mensili' }, { id: 'acceptance', label: 'Accettazione' },
+  { id: 'finance', label: 'Finance' },
 ]
-const statuses: VehicleStatus[] = ['Accettata', 'Confermata', 'In lavorazione', 'Pronta', 'Consegnata']
+const statuses: VehicleStatus[] = ['accettata', 'in lavorazione', 'pronta', 'consegnata', 'sospesa', 'annullata']
 const formatDate = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 
 function App() {
@@ -27,6 +30,7 @@ function App() {
   const [view, setView] = useState<View>('dashboard')
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState<{ type: 'customer'; item?: Customer } | { type: 'vehicle'; item?: Vehicle } | null>(null)
+  const [costModal, setCostModal] = useState<{ vehicleId: string } | null>(null)
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(false)
   const [notice, setNotice] = useState('')
@@ -71,6 +75,7 @@ function App() {
   }
 
   const title = nav.find((item) => item.id === view)?.label
+  const selectedCostVehicle = costModal ? data.vehicles.find((vehicle) => vehicle.id === costModal.vehicleId) : undefined
   return <div className="app-shell">
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
@@ -90,9 +95,9 @@ function App() {
             setView('customers')
             setModal({ type: 'customer' })
           }
-        }} />}
+        }} onNewCustomer={() => setModal({ type: 'customer' })} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { setData(deleteCustomer(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
-        {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => setModal({ type: 'vehicle' })} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { setData(deleteVehicle(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} updateStatus={updateStatus} customerById={customerById} />}
+        {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => setModal({ type: 'vehicle' })} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { setData(deleteVehicle(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} />}
         {view === 'cones' && <Cones data={data} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
         {view === 'planner' && <PlannerPage data={data} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onMove={(vehicleId, date) => {
           const vehicle = data.vehicles.find((item) => item.id === vehicleId)
@@ -106,6 +111,11 @@ function App() {
           setData({ ...data, plannerSettings })
           setNotice('Impostazioni Planner salvate e consegne ricalcolate.')
         }} />}
+        {view === 'monthly-goals' && <MonthlyGoalsSettingsPage data={data} onSave={(plannerSettings) => {
+          setData({ ...data, plannerSettings })
+          setNotice('Obiettivi mensili salvati e storicizzati.')
+        }} />}
+        {view === 'finance' && <FinancePage data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
         {view === 'acceptance' && <AcceptancePage data={data} customerById={customerById} onCreate={(customerId, vehicleId) => {
           const draft = createAcceptanceDraft(customerId, vehicleId, data.plannerSettings, new Date().toISOString().slice(0, 7))
           const existing = data.acceptances ?? []
@@ -127,36 +137,102 @@ function App() {
       setNotice(`Fatturato aggiunto € ${impact.addedRevenue.toLocaleString('it-IT')} · margine aggiunto € ${impact.addedMargin.toLocaleString('it-IT')} · obiettivo ${impact.newReachedPercent}% · carico ${impact.sufficient ? 'sufficiente' : 'insufficiente'}.`)
       setModal(null)
     }} setError={setError} />}
+    {selectedCostVehicle && <VehicleCostModal vehicle={selectedCostVehicle} data={data} onClose={() => setCostModal(null)} onSave={(entry) => {
+      setData(addVehicleCostEntry(data, selectedCostVehicle.id, entry))
+      setNotice(`Costo commessa registrato per ${selectedCostVehicle.plate}.`)
+      setCostModal(null)
+    }} />}
   </div>
 }
 
-function Dashboard({ data, setView, customerById, onNewVehicle }: { data: ErpData; setView: (view: View) => void; customerById: (id: string) => Customer | undefined; onNewVehicle: () => void }) {
+function Dashboard({ data, setView, customerById, onNewVehicle, onNewCustomer }: { data: ErpData; setView: (view: View) => void; customerById: (id: string) => Customer | undefined; onNewVehicle: () => void; onNewCustomer: () => void }) {
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
-  const active = data.vehicles.filter((vehicle) => vehicle.status !== 'Consegnata')
-  const ready = data.vehicles.filter((vehicle) => vehicle.status === 'Pronta')
+  const active = data.vehicles.filter((vehicle) => vehicle.status !== 'consegnata' && vehicle.status !== 'Consegnata')
+  const ready = data.vehicles.filter((vehicle) => vehicle.status === 'pronta' || vehicle.status === 'Pronta')
   const overdue = data.invoices.filter((invoice) => invoice.status !== 'Incassata' && invoice.status !== 'Stornata' && invoice.dueDate < new Date().toISOString().slice(0, 10)).length
   const economic = calculateEconomicSummary(data.vehicles, data.plannerSettings)
   const acceptanceItems = data.acceptances ?? []
   const today = new Date().toISOString().slice(0, 10)
   const dueVehicles = data.vehicles.filter((vehicle) => vehicle.requestedDeliveryDate && vehicle.requestedDeliveryDate >= today).slice(0, 5)
+  const priorityVehicles = [...data.vehicles]
+    .filter((vehicle) => vehicle.status !== 'Consegnata' && vehicle.estimatedHours > vehicle.workedHours)
+    .sort((left, right) => {
+      const dateLeft = left.requestedDeliveryDate ? new Date(`${left.requestedDeliveryDate}T12:00:00`).getTime() : Number.MAX_SAFE_INTEGER
+      const dateRight = right.requestedDeliveryDate ? new Date(`${right.requestedDeliveryDate}T12:00:00`).getTime() : Number.MAX_SAFE_INTEGER
+      const statusOrder: Record<VehicleStatus, number> = {
+        'accettata': 2,
+        'in lavorazione': 0,
+        'pronta': 3,
+        'consegnata': 99,
+        'da accettare': 2,
+        'in attesa autorizzazione': 2,
+        'da smontare': 2,
+        'preparazione': 1,
+        'verniciatura': 1,
+        'rimontaggio': 1,
+        'lucidatura': 1,
+        'lavaggio': 1,
+        'controllo qualità': 1,
+        'sospesa': 4,
+        'annullata': 5,
+        'Accettata': 2,
+        'Confermata': 1,
+        'Pronta': 3,
+        'Consegnata': 99,
+      }
+      const priorityOrder: Record<NonNullable<Vehicle['priority']>, number> = {
+        Urgente: 0,
+        Alta: 1,
+        Normale: 2,
+      }
+      const progressLeft = Math.round(left.workedHours / Math.max(1, left.estimatedHours) * 100)
+      const progressRight = Math.round(right.workedHours / Math.max(1, right.estimatedHours) * 100)
+      return dateLeft - dateRight || (statusOrder[left.status] ?? 99) - (statusOrder[right.status] ?? 99) || (priorityOrder[left.priority ?? 'Normale'] ?? 99) - (priorityOrder[right.priority ?? 'Normale'] ?? 99) || progressLeft - progressRight
+    })
+    .slice(0, 5)
+  const snapshot = calculateExecutiveDashboardSnapshot(data)
+  const [selectedKpi, setSelectedKpi] = useState<keyof typeof snapshot>('monthlyRevenue')
   const alerts = [
     overdue ? `${overdue} fatture scadute da controllare` : '',
     economic.missingRevenue > 0 ? `Obiettivo mensile ancora da raggiungere: € ${economic.missingRevenue.toLocaleString('it-IT')}` : '',
     occupied.length >= TOTAL_CONES * 0.8 ? 'Piazzale quasi saturato, valuta la consegna in ritardo' : '',
+    ...snapshot.priorityNotifications,
   ].filter(Boolean)
 
   const progressPercent = Math.min(100, Math.round((ready.length / Math.max(1, active.length)) * 100))
-  const kpiCards = [
-    { label: 'Vetture presenti', value: active.length, target: 'vehicles', hint: 'Catalogo operativo' },
-    { label: 'Clienti registrati', value: data.customers.length, target: 'customers', hint: 'Anagrafica cliente' },
-    { label: 'Coni occupati', value: occupied.length, target: 'cones', hint: `${TOTAL_CONES - occupied.length} liberi` },
-    { label: 'Pratiche accettazione', value: acceptanceItems.length, target: 'acceptance', hint: 'Workflow OCR' },
+  const rate = (value: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(value)
+  const executiveCards = [
+    { key: 'availableLiquidity', label: 'Liquidità disponibile', value: rate(snapshot.availableLiquidity), hint: 'Saldo conti attuali', detail: 'Utilizza il saldo bancario reale dell’archivio in modo persistente e non simulato.' },
+    { key: 'monthlyRevenue', label: 'Fatturato del mese', value: rate(snapshot.monthlyRevenue), hint: 'Totale fatture mese', detail: 'Somma delle fatture emesse nel mese attuale, con detail real-time in archivio.' },
+    { key: 'monthlyCollected', label: 'Incassi del mese', value: rate(snapshot.monthlyCollected), hint: 'Incassi definitivi', detail: 'Incassi registrati da eventi finanziari per il mese corrente.' },
+    { key: 'monthlyDeviation', label: 'Scostamento obiettivo', value: rate(snapshot.monthlyDeviation), hint: 'Differenza rispetto al target', detail: 'Confronto diretto tra l’obiettivo mensile e il risultato aggiornato al giorno.' },
+    { key: 'projectedEndRevenue', label: 'Previsione fine mese', value: rate(snapshot.projectedEndRevenue), hint: 'Forecast finale', detail: 'Previsione di chiusura del mese basata sugli obiettivi e la capacità rimanente.' },
+    { key: 'projectedCollections', label: 'Incassi previsti 30/60/90 gg', value: `${rate(snapshot.projectedCollections.days30)} · ${rate(snapshot.projectedCollections.days60)} · ${rate(snapshot.projectedCollections.days90)}`, hint: 'Scadenzario attivo', detail: 'Proiezione di incassi basata sulle fatture ancora aperte nel calendario.' },
+    { key: 'vehiclesPresent', label: 'Auto presenti', value: snapshot.vehiclesPresent, hint: 'Veicoli attivi', detail: 'Totale vetture non consegnate nell’archivio attuale.' },
+    { key: 'vehiclesInProgress', label: 'Auto in lavorazione', value: snapshot.vehiclesInProgress, hint: 'Stato operativo', detail: 'Veicoli con stato in lavorazione.' },
+    { key: 'vehiclesReady', label: 'Auto pronte', value: snapshot.vehiclesReady, hint: 'Rilascio immediato', detail: 'Veicoli già pronti per la consegna.' },
+    { key: 'vehiclesLate', label: 'Auto in ritardo', value: snapshot.vehiclesLate, hint: 'Scadenze superate', detail: 'Vetture con consegna richiesta già passata.' },
+    { key: 'todaysDeliveries', label: 'Consegne oggi', value: snapshot.todaysDeliveries, hint: 'Ritiro e rilascio', detail: 'Vetture con richiesta di consegna impostata per oggi.' },
+    { key: 'todaysPickups', label: 'Ritiri oggi', value: snapshot.todaysPickups, hint: 'Movimenti del giorno', detail: 'Vetture con data di consegna effettiva odierna.' },
+    { key: 'freeCones', label: 'Coni liberi', value: snapshot.freeCones, hint: 'Disponibilità piazzale', detail: 'Coni ancora disponibili per il piazzale attivo.' },
+    { key: 'occupiedCones', label: 'Coni occupati', value: snapshot.occupiedCones, hint: 'Piazzale occupato', detail: 'Coni realmente assegnati in questo momento.' },
+    { key: 'blockedVehicles', label: 'Pratiche bloccate', value: snapshot.blockedVehicles, hint: 'Watch list', detail: 'Vetture con blocco o stato ricambi non disponibili.' },
+    { key: 'missingPartsVehicles', label: 'Ricambi mancanti', value: snapshot.missingPartsVehicles, hint: 'Dipendenze produttive', detail: 'Record in cui i ricambi risultano mancanti.' },
   ] as const
 
-  return <>
-    <section className="welcome premium-welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Dashboard premium basata sui dati live dell’ERP: KPI, pratiche, agenda e notifiche.</p></div><button className="primary" onClick={onNewVehicle}><Icon name="plus" /> {data.customers.length ? 'Nuova vettura' : 'Crea il primo cliente'}</button></section>
+  const selectedCard = executiveCards.find((item) => item.key === selectedKpi) ?? executiveCards[0]
 
-    <section className="premium-kpi-grid">{kpiCards.map((card) => <button className="premium-kpi-card" key={card.label} onClick={() => setView(card.target)}><span>{card.label}</span><strong>{card.value}</strong><small>{card.hint}</small></button>)}</section>
+  return <>
+    <section className="welcome premium-welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Dashboard premium basata sui dati live dell’ERP: KPI, pratiche, agenda e notifiche.</p></div><div className="quick-links"><button className="secondary" onClick={onNewCustomer}><Icon name="plus" /> Nuovo cliente</button><button className="secondary" onClick={onNewVehicle}><Icon name="plus" /> Nuova vettura</button><button className="secondary" onClick={() => setView('finance')}><Icon name="plus" /> Nuovo incasso</button><button className="secondary" onClick={() => setView('finance')}><Icon name="plus" /> Nuova fattura</button><button className="secondary" onClick={() => setView('planner')}><Icon name="planner" /> Planner</button><button className="secondary" onClick={() => setView('cones')}><Icon name="cones" /> Coni</button></div></section>
+
+    <section className="executive-dashboard-grid">{executiveCards.map((card) => <button className="executive-kpi-card" key={card.key} onClick={() => setSelectedKpi(card.key)}><span>{card.label}</span><strong>{card.value}</strong><small>{card.hint}</small></button>)}</section>
+    <section className="executive-detail panel">
+      <div className="panel-head"><div><span className="eyebrow">DETTAGLIO KPI</span><h3>{selectedCard.label}</h3></div></div>
+      <div className="executive-detail-content">
+        <div><strong>{selectedCard.value}</strong><p>{selectedCard.detail}</p></div>
+        <ul>{snapshot.priorityNotifications.length ? snapshot.priorityNotifications.map((notice) => <li key={notice}>{notice}</li>) : <li>Nessuna notifica prioritaria attiva.</li>}</ul>
+      </div>
+    </section>
 
     <section className="premium-overview-grid">
       <div className="panel premium-panel">
@@ -172,8 +248,13 @@ function Dashboard({ data, setView, customerById, onNewVehicle }: { data: ErpDat
     <EconomicGoalPanel data={data} />
 
     <section className="dashboard-grid">
-      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">TIMELINE PRACTICA</span><h3>Ultime accettazioni</h3></div><button className="link" onClick={() => setView('acceptance')}>Apri accettazione →</button></div><div className="timeline-list">{acceptanceItems.slice(0, 5).map((item) => <div className="timeline-item" key={item.id}><b>{item.status}</b><span><strong>{customerById(item.customerId)?.name ?? 'Cliente'} · {data.vehicles.find((vehicle) => vehicle.id === item.vehicleId)?.plate ?? 'Vettura'}</strong><small>{formatDate(item.updatedAt)}</small></span></div>)}{!acceptanceItems.length && <Empty text="Nessuna pratica di accettazione da mostrare." />}</div></div>
+      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">PRIORITÀ DI OGGI</span><h3>Lavorazioni da eseguire</h3></div></div><div className="timeline-list">{priorityVehicles.map((vehicle) => <button className="timeline-item priority-card" key={vehicle.id} onClick={() => setView('vehicles')}><b>{vehicle.status}</b><span><strong>{customerById(vehicle.customerId)?.name ?? 'Cliente'} · {vehicle.plate}</strong><small>{vehicle.requestedDeliveryDate || 'Nessuna consegna prevista'} · {vehicle.priority ?? 'Normale'} · {Math.max(0, vehicle.estimatedHours - vehicle.workedHours)} h residue</small></span></button>)}{!priorityVehicles.length && <div className="empty-small">Nessuna priorità attiva per il giorno corrente.</div>}</div></div>
       <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">CENTRO NOTIFICHE</span><h3>Azioni da completare</h3></div></div><div className="notices-list">{alerts.length ? alerts.map((alert) => <div className="notice-item" key={alert}><span>•</span><strong>{alert}</strong></div>) : <div className="empty-small">Nessuna notifica attiva.</div>}</div></div>
+    </section>
+
+    <section className="dashboard-grid">
+      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">TIMELINE PRACTICA</span><h3>Ultime accettazioni</h3></div><button className="link" onClick={() => setView('acceptance')}>Apri accettazione →</button></div><div className="timeline-list">{acceptanceItems.slice(0, 5).map((item) => <div className="timeline-item" key={item.id}><b>{item.status}</b><span><strong>{customerById(item.customerId)?.name ?? 'Cliente'} · {data.vehicles.find((vehicle) => vehicle.id === item.vehicleId)?.plate ?? 'Vettura'}</strong><small>{formatDate(item.updatedAt)}</small></span></div>)}{!acceptanceItems.length && <Empty text="Nessuna pratica di accettazione da mostrare." />}</div></div>
+      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">AZIONI OPERATIVE</span><h3>Checklist rapida</h3></div></div><div className="notices-list"><div className="notice-item"><span>•</span><strong>Apri il planner per ricalcolare la consegna delle lavorazioni.</strong></div><div className="notice-item"><span>•</span><strong>Verifica i coni per il piazzale e gli spostamenti in corso.</strong></div><div className="notice-item"><span>•</span><strong>Controlla il flusso finance per fatture e incassi del mese.</strong></div></div></div>
     </section>
 
     <section className="dashboard-grid">
@@ -193,9 +274,49 @@ function Customers({ customers, data, onAdd, onEdit, onDelete }: { customers: Cu
     <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Tipo</th><th>Contatti</th><th>Codice fiscale / P.IVA</th><th>Veicoli</th><th>Azioni</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}><td><strong>{customer.name}</strong><small>{customer.address || 'Indirizzo non indicato'}</small></td><td><span className="tag">{customer.type}</span></td><td>{customer.phone}<small>{customer.email || 'Email non indicata'}</small></td><td>{customer.taxId || '—'}</td><td><b className="count">{data.vehicles.filter((vehicle) => vehicle.customerId === customer.id).length}</b></td><td><div className="row-actions"><button onClick={() => onEdit(customer)}>Modifica</button><button className="danger" onClick={() => { if (window.confirm(`Eliminare il cliente ${customer.name}?`)) onDelete(customer.id) }}>Elimina</button></div></td></tr>)}</tbody></table></div>{!customers.length && <Empty text="Nessun cliente trovato. Crea la prima anagrafica." />}</div>
 }
 
-function Vehicles({ vehicles, customers, onAdd, onEdit, onDelete, updateStatus, customerById }: { vehicles: Vehicle[]; customers: Customer[]; onAdd: () => void; onEdit: (vehicle: Vehicle) => void; onDelete: (id: string) => void; updateStatus: (id: string, status: VehicleStatus) => void; customerById: (id: string) => Customer | undefined }) {
+function Vehicles({ vehicles, customers, onAdd, onEdit, onDelete, onOpenCosts, updateStatus, customerById }: { vehicles: Vehicle[]; customers: Customer[]; onAdd: () => void; onEdit: (vehicle: Vehicle) => void; onDelete: (id: string) => void; onOpenCosts: (id: string) => void; updateStatus: (id: string, status: VehicleStatus) => void; customerById: (id: string) => Customer | undefined }) {
   return <div className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">PARCO VEICOLI</span><h3>{vehicles.length} vetture</h3></div><button className="primary" onClick={onAdd} disabled={!customers.length} title={!customers.length ? 'Crea prima un cliente' : ''}><Icon name="plus" /> Nuova vettura</button></div>
-    <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Stato operativo</th><th>Cono</th><th>Dati</th><th>Azioni</th></tr></thead><tbody>{vehicles.map((vehicle) => <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${vehicle.status.toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : '—'}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td><td><div className="row-actions"><button onClick={() => onEdit(vehicle)}>Modifica</button><button className="danger" onClick={() => onDelete(vehicle.id)}>Elimina</button></div></td></tr>)}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
+    <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Stato operativo</th><th>Cono</th><th>Dati</th><th>Azioni</th></tr></thead><tbody>{vehicles.map((vehicle) => <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${vehicle.status.toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : '—'}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td><td><div className="row-actions"><button onClick={() => onEdit(vehicle)}>Modifica</button><button onClick={() => onOpenCosts(vehicle.id)}>Costi</button><button className="danger" onClick={() => onDelete(vehicle.id)}>Elimina</button></div></td></tr>)}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
+}
+
+function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle; data: ErpData; onClose: () => void; onSave: (entry: Omit<NonNullable<Vehicle['costEntries']>[number], 'id' | 'createdAt' | 'updatedAt'>) => void }) {
+  const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
+  const snapshot = calculateVehicleEconomicSnapshot(vehicle, data.financeSettings)
+  const [form, setForm] = useState({
+    usedAt: new Date().toISOString().slice(0, 10),
+    category: 'ricambi' as VehicleCostCategory,
+    description: '',
+    supplier: '',
+    quantity: '1',
+    unit: 'pz',
+    unitCost: '0',
+    discount: '0',
+    vatRate: String(data.financeSettings.defaultVatRate ?? 22),
+    note: '',
+  })
+  const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }))
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const quantity = Math.max(0, Number(form.quantity) || 0)
+    const unitCost = Math.max(0, Number(form.unitCost) || 0)
+    const discount = Math.max(0, Number(form.discount) || 0)
+    const description = form.description.trim()
+    if (!description) return
+    onSave({
+      usedAt: form.usedAt,
+      category: form.category as VehicleCostCategory,
+      description,
+      supplier: form.supplier.trim(),
+      quantity,
+      unit: form.unit.trim() || 'pz',
+      unitCost,
+      discount,
+      total: Math.round((quantity * unitCost - discount + Number.EPSILON) * 100) / 100,
+      vatRate: Number(form.vatRate) || data.financeSettings.defaultVatRate,
+      note: form.note.trim(),
+    })
+  }
+  return <Modal title={`Materiali e costi · ${vehicle.plate}`} onClose={onClose}><div className="cost-modal"><div className="summary-grid"><div className="summary-card"><span>Ricavo previsto</span><strong>{money(snapshot.taxableRevenue)}</strong></div><div className="summary-card"><span>Costi diretti</span><strong>{money(snapshot.totalDirectCosts)}</strong></div><div className="summary-card"><span>Margine reale</span><strong>{money(snapshot.realMargin)}</strong></div><div className="summary-card"><span>Margine %</span><strong>{snapshot.grossMarginPercent}%</strong></div></div><form className="cost-form" onSubmit={submit}><label>Data<input type="date" value={form.usedAt} onChange={(event) => update('usedAt', event.target.value)} /></label><label>Categoria<select value={form.category} onChange={(event) => update('category', event.target.value)}><option value="ricambi">Ricambi</option><option value="vernice">Vernice</option><option value="trasparente">Trasparente</option><option value="fondo">Fondo</option><option value="stucco">Stucco</option><option value="carta abrasiva">Carta abrasiva</option><option value="nastro e materiale da mascheratura">Nastro e materiale da mascheratura</option><option value="minuteria">Minuteria</option><option value="materiali di lucidatura">Materiali di lucidatura</option><option value="lavorazioni esterne">Lavorazioni esterne</option><option value="lavaggio">Lavaggio</option><option value="trasporto">Trasporto</option><option value="smaltimento">Smaltimento</option><option value="altro">Altro</option></select></label><label>Descrizione<input required value={form.description} onChange={(event) => update('description', event.target.value)} /></label><label>Fornitore<input value={form.supplier} onChange={(event) => update('supplier', event.target.value)} /></label><label>Quantità<input type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label><label>Unità<input value={form.unit} onChange={(event) => update('unit', event.target.value)} /></label><label>Prezzo unitario<input type="number" min="0" step="0.01" value={form.unitCost} onChange={(event) => update('unitCost', event.target.value)} /></label><label>Sconto<input type="number" min="0" step="0.01" value={form.discount} onChange={(event) => update('discount', event.target.value)} /></label><label>IVA %<input type="number" min="0" step="1" value={form.vatRate} onChange={(event) => update('vatRate', event.target.value)} /></label><label>Nota<textarea value={form.note} onChange={(event) => update('note', event.target.value)} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Chiudi</button><button className="primary">Salva costo</button></div></form>{vehicle.costEntries?.length ? <div className="entry-list"><h4>Costi già registrati</h4>{vehicle.costEntries.slice().reverse().map((entry) => <div className="entry-item" key={entry.id}><strong>{entry.description}</strong><span>{entry.category} · {entry.quantity} {entry.unit} · {money(entry.total)}</span></div>)}</div> : <div className="empty"><div>◌</div><p>Nessun costo registrato per questa commessa.</p></div>}</div></Modal>
 }
 
 function Cones({ data, customerById, onMove }: { data: ErpData; customerById: (id: string) => Customer | undefined; onMove: (id: string, cone: number) => void }) {

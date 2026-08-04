@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Customer, ErpData, Vehicle } from '../types'
-import { addVehicle, changeVehicleStatus, createVehicle, defaultPlannerSettings, deleteCustomer, deleteVehicle, moveVehicleCone, normalizePlate, updateCustomer, updateVehicle } from './erp'
+import { addVehicle, addVehicleCostEntry, changeVehicleStatus, createVehicle, defaultPlannerSettings, deleteCustomer, deleteVehicle, moveVehicleCone, normalizePlate, updateCustomer, updateVehicle } from './erp'
 
 const customer: Customer = {
   id: 'customer-1', type: 'Privato', name: 'Mario Rossi', phone: '123',
@@ -24,6 +24,10 @@ const state = (vehicles: Vehicle[]): ErpData => ({
     defaultVatRate: 22,
     defaultPaymentDays: 30,
     minimumProjectedBalance: 0,
+    laborHourlyCost: 45,
+    laborHoursBase: 'effettive',
+    laborOperatorById: {},
+    marginThresholds: { positive: 15, low: 5, breakEven: 0 },
   },
 })
 
@@ -103,5 +107,25 @@ describe('anagrafiche operative', () => {
     const result = deleteVehicle(state([vehicle('a', 'AA111AA', 5)]), 'a')
     expect(result.vehicles).toHaveLength(0)
     expect(result.coneHistory[0]).toMatchObject({ vehiclePlate: 'AA111AA', coneNumber: 5, action: 'Liberato' })
+  })
+
+  it('aggiunge un costo commessa e aggiorna il margine reale della vettura', () => {
+    const result = addVehicleCostEntry(state([vehicle('a', 'AA111AA')]), 'a', {
+      usedAt: '2026-08-01',
+      category: 'ricambi',
+      description: 'Paraurti',
+      supplier: 'Fornitore',
+      quantity: 1,
+      unit: 'pz',
+      unitCost: 180,
+      discount: 0,
+      total: 180,
+      vatRate: 22,
+      note: 'Nuovo costo',
+    })
+    const updated = result.vehicles[0]
+    expect(updated.costEntries).toHaveLength(1)
+    expect(updated.costHistory?.[0]).toMatchObject({ action: 'aggiunta', newValue: expect.stringContaining('Paraurti') })
+    expect(updated.actualMargin).toBe(-180)
   })
 })

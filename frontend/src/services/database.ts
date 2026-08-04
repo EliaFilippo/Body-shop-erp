@@ -35,6 +35,9 @@ function normalizeData(value: unknown): ErpData {
   const plannerSettings = {
     ...structuredClone(defaultPlannerSettings),
     ...(candidate.plannerSettings && typeof candidate.plannerSettings === 'object' ? candidate.plannerSettings : {}),
+    monthlyGoalHistory: Array.isArray(candidate.plannerSettings?.monthlyGoalHistory)
+      ? candidate.plannerSettings.monthlyGoalHistory.map((entry) => ({ ...entry }))
+      : [],
   }
   const plannerAssignments = Array.isArray(candidate.plannerAssignments) ? candidate.plannerAssignments.map((entry) => ({ ...entry })) : []
   const invoices = Array.isArray(candidate.invoices) ? candidate.invoices.map((invoice) => ({ ...invoice })) : []
@@ -44,7 +47,11 @@ function normalizeData(value: unknown): ErpData {
   const financeSettings = {
     ...structuredClone(emptyData.financeSettings),
     ...(candidate.financeSettings && typeof candidate.financeSettings === 'object' ? candidate.financeSettings : {}),
-  }
+    marginThresholds: {
+      ...structuredClone(emptyData.financeSettings.marginThresholds),
+      ...(candidate.financeSettings && typeof candidate.financeSettings === 'object' && candidate.financeSettings.marginThresholds && typeof candidate.financeSettings.marginThresholds === 'object' ? candidate.financeSettings.marginThresholds : {}),
+    },
+  } as ErpData['financeSettings']
   const normalized: ErpData = {
     customers,
     vehicles,

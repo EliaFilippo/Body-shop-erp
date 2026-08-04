@@ -4,6 +4,7 @@ const paths: Record<string, string> = {
   vehicles: 'M5 17h14v-5l-2-5H7l-2 5v5Zm0 0v2m14-2v2M7 7l1-3h8l1 3M3 12h18',
   cones: 'M12 2 5 21h14L12 2Zm-3.5 12h7M10 9h4',
   planner: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v15H3V6a2 2 0 0 1 2-2Zm3 10h3v3H8v-3Z',
+  'monthly-goals': 'M4 4h16v16H4zM8 16l2-2 2 2 4-4M8 8h8',
   search: 'M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
   plus: 'M12 5v14M5 12h14',
   menu: 'M4 6h16M4 12h16M4 18h16',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { PlannerSettings, Vehicle } from '../types'
-import { calculateEconomicSummary, vehicleEconomicImpact } from './economic'
+import type { ErpData, PlannerSettings, Vehicle } from '../types'
+import { calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateMonthlyGoalProjection, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './economic'
 
 const settings: PlannerSettings = {
   operators: [{ id: 'op', name: 'Filippo', dailyHours: 8, active: true }],
@@ -14,6 +14,81 @@ const car = (id: string, revenue: number, hours: number): Vehicle => ({
   requestedDeliveryDate: '2026-07-31', calculatedDeliveryDate: '', expectedRevenue: revenue,
   expectedMargin: revenue * .3, partsStatus: 'Disponibili', blockReason: '', manualPlanningDate: '',
   createdAt: '2026-07-20T00:00:00.000Z',
+})
+
+describe('executive dashboard', () => {
+  it('calcola i KPI reali da dati persistenti e finanziari', () => {
+    const data: ErpData = {
+      customers: [], vehicles: [
+        { ...car('A', 4000, 20), status: 'In lavorazione', requestedDeliveryDate: '2026-07-27', plannedEntryDate: '2026-07-27', blockReason: 'Ricambio mancante', partsStatus: 'Mancanti', coneNumber: 1 },
+        { ...car('B', 3000, 10), status: 'Pronta', requestedDeliveryDate: '2026-07-27', plannedEntryDate: '2026-07-27', coneNumber: 2 },
+        { ...car('C', 2000, 5), status: 'Consegnata', requestedDeliveryDate: '2026-07-27', plannedEntryDate: '2026-07-27', deliveredAt: '2026-07-27T00:00:00.000Z', coneNumber: null },
+      ], rail: [],
+      coneHistory: [],
+      plannerSettings: settings,
+      plannerAssignments: [],
+      invoices: [
+        {
+          id: 'i1', customerId: 'c', number: 'F-1', issueDate: '2026-07-02', dueDate: '2026-07-30', paymentMethod: 'Bonifico', lines: [], taxableAmount: 4000, vatAmount: 880, total: 4880, collectedAmount: 3000, ribaAllocatedAmount: 0, status: 'Da incassare', notes: '', createdAt: '2026-07-02T00:00:00.000Z', updatedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ],
+      bankAccounts: [{ id: 'b1', name: 'Banca', iban: '', creditLimit: 0, blockOverLimit: false, minimumBalanceAlert: 0, currentBalance: 12500, createdAt: '2026-07-02T00:00:00.000Z' }],
+      ribaBatches: [],
+      financialEvents: [
+        { id: 'f1', type: 'Incasso definitivo', date: '2026-07-10', amount: 3000, customerId: 'c', invoiceId: 'i1', ribaBatchId: undefined, bankAccountId: 'b1', note: '', createdAt: '2026-07-10T00:00:00.000Z' },
+      ],
+      financeSettings: {
+        defaultVatRate: 22,
+        defaultPaymentDays: 30,
+        minimumProjectedBalance: 0,
+        laborHourlyCost: 45,
+        laborHoursBase: 'effettive',
+        laborOperatorById: {},
+        marginThresholds: { positive: 15, low: 5, breakEven: 0 },
+      },
+    } as ErpData
+    const result = calculateExecutiveDashboardSnapshot(data, '2026-07-27')
+    expect(result.availableLiquidity).toBe(12500)
+    expect(result.monthlyRevenue).toBe(4880)
+    expect(result.monthlyCollected).toBe(3000)
+    expect(result.vehiclesPresent).toBe(2)
+    expect(result.vehiclesInProgress).toBe(1)
+    expect(result.vehiclesReady).toBe(1)
+    expect(result.occupiedCones).toBe(2)
+    expect(result.freeCones).toBe(28)
+    expect(result.blockedVehicles).toBe(1)
+    expect(result.missingPartsVehicles).toBe(1)
+    expect(result.priorityNotifications.length).toBeGreaterThan(0)
+  })
+})
+
+describe('commessa economica', () => {
+  it('calcola ricavi, costi diretti, utile/perdita e margine percentuale per singola vettura', () => {
+    const vehicle = car('A', 4000, 20)
+    vehicle.costEntries = [{
+      id: 'ce1', usedAt: '2026-07-27', category: 'ricambi', description: 'Parafanghi', supplier: 'Fornitore', quantity: 2, unit: 'pz', unitCost: 50, discount: 0, total: 100, vatRate: 22, documentNo: 'DOC-1', note: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z',
+    }, {
+      id: 'ce2', usedAt: '2026-07-27', category: 'lavorazioni esterne', description: 'Lucidatura', supplier: 'Esterno', quantity: 1, unit: 'ora', unitCost: 120, discount: 0, total: 120, vatRate: 22, documentNo: 'DOC-2', note: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z',
+    }]
+    vehicle.workedHours = 10
+    const result = calculateVehicleEconomicSnapshot(vehicle, {
+      defaultVatRate: 22,
+      defaultPaymentDays: 30,
+      minimumProjectedBalance: 0,
+      laborHourlyCost: 1,
+      laborHoursBase: 'effettive',
+      laborOperatorById: {},
+      marginThresholds: { positive: 15, low: 5, breakEven: 0 },
+    })
+    expect(result.taxableRevenue).toBe(4000)
+    expect(result.actualMaterials).toBe(100)
+    expect(result.externalCosts).toBe(120)
+    expect(result.laborCost).toBe(10)
+    expect(result.totalDirectCosts).toBe(230)
+    expect(result.grossMargin).toBe(3770)
+    expect(result.grossMarginPercent).toBe(94.25)
+    expect(result.lossLabel).toBe('UTILI')
+  })
 })
 
 describe('obiettivo economico', () => {
@@ -34,5 +109,15 @@ describe('obiettivo economico', () => {
   it('calcola l’impatto economico di una nuova vettura', () => {
     const impact = vehicleEconomicImpact([car('A', 4000, 20)], [car('A', 4000, 20), car('B', 3000, 10)], settings, '2026-07-27')
     expect(impact).toMatchObject({ addedRevenue: 3000, addedMargin: 900, newReachedPercent: 70, sufficient: false })
+  })
+
+  it('confronta obiettivo e risultato e propone la previsione di fine mese', () => {
+    const projection = calculateMonthlyGoalProjection([car('A', 4000, 20)], settings, '2026-07-27')
+    expect(projection.goalRevenue).toBe(10000)
+    expect(projection.actualRevenue).toBe(4000)
+    expect(projection.deltaRevenue).toBe(6000)
+    expect(projection.projectedEndRevenue).toBe(10000)
+    expect(projection.remainingWorkingDays).toBe(5)
+    expect(projection.dailyRevenueNeeded).toBe(1200)
   })
 })
