@@ -1,9 +1,12 @@
-export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings' | 'finance'
+export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings' | 'acceptance' | 'finance'
 export type CustomerType = 'Privato' | 'Azienda'
 export type VehicleStatus = 'Accettata' | 'Confermata' | 'In lavorazione' | 'Pronta' | 'Consegnata'
 export type PaymentMethod = 'Bonifico' | 'R.I.B.A.' | 'Contanti' | 'POS' | 'Personalizzato'
 export type InvoiceStatus = 'Da incassare' | 'Parzialmente inserita in R.I.B.A.' | 'Inserita in R.I.B.A.' | 'Anticipata' | 'Incassata' | 'Scaduta' | 'Insoluta' | 'Contestata' | 'Stornata'
 export type RibaBatchStatus = 'Bozza' | 'Presentata' | 'Anticipata' | 'Chiusa' | 'Insoluta' | 'Stornata'
+export type AcceptanceLineKind = 'labor' | 'parts' | 'consumption' | 'external' | 'other' | 'discount' | 'surcharge'
+export type AcceptanceDocumentSide = 'front' | 'back'
+export type OcrConfidence = 'high' | 'medium' | 'low'
 
 export interface Customer {
   id: string
@@ -180,6 +183,83 @@ export interface FinanceSettings {
   minimumProjectedBalance: number
 }
 
+export interface OcrFieldDraft {
+  value: string
+  confidence: OcrConfidence
+  source: 'ocr' | 'manual'
+}
+
+export interface CustomerDocumentDraft {
+  id: string
+  side: AcceptanceDocumentSide
+  name: string
+  dataUrl: string
+  fields: {
+    name: OcrFieldDraft
+    surname: OcrFieldDraft
+    taxId: OcrFieldDraft
+    birthDate: OcrFieldDraft
+    birthPlace: OcrFieldDraft
+    residence: OcrFieldDraft
+    documentNumber: OcrFieldDraft
+    issueDate: OcrFieldDraft
+    expiryDate: OcrFieldDraft
+    issuingAuthority: OcrFieldDraft
+  }
+}
+
+export interface VehicleBookletDraft {
+  id: string
+  name: string
+  dataUrl: string
+  fields: {
+    plate: OcrFieldDraft
+    vin: OcrFieldDraft
+    make: OcrFieldDraft
+    model: OcrFieldDraft
+    firstRegistration: OcrFieldDraft
+    fuel: OcrFieldDraft
+    engineDisplacement: OcrFieldDraft
+    power: OcrFieldDraft
+    owner: OcrFieldDraft
+  }
+}
+
+export interface AcceptanceLine {
+  id: string
+  kind: AcceptanceLineKind
+  description: string
+  quantity: number
+  unitCost: number
+  unitPrice: number
+  source: 'manual' | 'auto'
+}
+
+export interface AcceptanceQuote {
+  id: string
+  monthKey: string
+  hourlyRate: number
+  productiveHours: number
+  monthlyEconomicGoal: number
+  appliedVatRate: number
+  materialPercent: number
+  lines: AcceptanceLine[]
+}
+
+export interface AcceptanceCase {
+  id: string
+  customerId: string
+  vehicleId: string
+  customerDraft: CustomerDocumentDraft[]
+  vehicleBooklet: VehicleBookletDraft[]
+  damagePhotos: string[]
+  quote: AcceptanceQuote
+  signatureDataUrl: string
+  createdAt: string
+  updatedAt: string
+  status: 'draft' | 'confirmed'
+}
+
 export interface ErpData {
   customers: Customer[]
   vehicles: Vehicle[]
@@ -191,4 +271,5 @@ export interface ErpData {
   ribaBatches: RibaBatch[]
   financialEvents: FinancialEvent[]
   financeSettings: FinanceSettings
+  acceptances?: AcceptanceCase[]
 }

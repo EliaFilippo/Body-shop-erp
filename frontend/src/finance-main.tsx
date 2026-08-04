@@ -7,7 +7,7 @@ import { loadDatabase, saveDatabase } from './services/database'
 import { emptyData } from './services/erp'
 import type { ErpData } from './types'
 
-function FinanceApp() {
+export function FinanceApp() {
   const [data, setData] = useState<ErpData>(emptyData)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')

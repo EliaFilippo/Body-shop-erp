@@ -8,13 +8,15 @@ import { EconomicGoalPanel } from './features/dashboard/EconomicGoalPanel'
 import { PlannerPage } from './features/planner/PlannerPage'
 import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { calculateDayCapacity, calculatePlanner, remainingHours } from './services/planner'
-import { vehicleEconomicImpact } from './services/economic'
-import type { Customer, CustomerType, ErpData, Vehicle, VehicleStatus, View } from './types'
+import { calculateEconomicSummary, vehicleEconomicImpact } from './services/economic'
+import { buildAcceptanceQuoteSummary, createAcceptanceDraft, exportAcceptancePdf, updateConsumptionLine } from './services/acceptance'
+import type { AcceptanceCase, AcceptanceLine, Customer, CustomerType, ErpData, Vehicle, VehicleStatus, View } from './types'
 
 const nav: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' }, { id: 'customers', label: 'Clienti' },
   { id: 'vehicles', label: 'Veicoli' }, { id: 'cones', label: 'Gestione coni' },
   { id: 'planner', label: 'Planner intelligente' }, { id: 'planner-settings', label: 'Impostazioni Planner' },
+  { id: 'acceptance', label: 'Accettazione' },
 ]
 const statuses: VehicleStatus[] = ['Accettata', 'Confermata', 'In lavorazione', 'Pronta', 'Consegnata']
 const formatDate = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
@@ -104,6 +106,16 @@ function App() {
           setData({ ...data, plannerSettings })
           setNotice('Impostazioni Planner salvate e consegne ricalcolate.')
         }} />}
+        {view === 'acceptance' && <AcceptancePage data={data} customerById={customerById} onCreate={(customerId, vehicleId) => {
+          const draft = createAcceptanceDraft(customerId, vehicleId, data.plannerSettings, new Date().toISOString().slice(0, 7))
+          const existing = data.acceptances ?? []
+          setData({ ...data, acceptances: [draft, ...existing] })
+          setNotice('Nuova pratica di accettazione creata e salvata localmente.')
+        }} onSave={(acceptance) => {
+          const existing = data.acceptances ?? []
+          setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
+          setNotice('Pratica di accettazione aggiornata.')
+        }} />}
       </div>
     </main>
 
@@ -122,17 +134,56 @@ function Dashboard({ data, setView, customerById, onNewVehicle }: { data: ErpDat
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
   const active = data.vehicles.filter((vehicle) => vehicle.status !== 'Consegnata')
   const ready = data.vehicles.filter((vehicle) => vehicle.status === 'Pronta')
-  const cards = [
-    ['Vetture presenti', active.length, 'vehicles'], ['Clienti registrati', data.customers.length, 'customers'],
-    ['Coni occupati', occupied.length, 'cones'], ['Vetture pronte', ready.length, 'vehicles'],
+  const overdue = data.invoices.filter((invoice) => invoice.status !== 'Incassata' && invoice.status !== 'Stornata' && invoice.dueDate < new Date().toISOString().slice(0, 10)).length
+  const economic = calculateEconomicSummary(data.vehicles, data.plannerSettings)
+  const acceptanceItems = data.acceptances ?? []
+  const today = new Date().toISOString().slice(0, 10)
+  const dueVehicles = data.vehicles.filter((vehicle) => vehicle.requestedDeliveryDate && vehicle.requestedDeliveryDate >= today).slice(0, 5)
+  const alerts = [
+    overdue ? `${overdue} fatture scadute da controllare` : '',
+    economic.missingRevenue > 0 ? `Obiettivo mensile ancora da raggiungere: € ${economic.missingRevenue.toLocaleString('it-IT')}` : '',
+    occupied.length >= TOTAL_CONES * 0.8 ? 'Piazzale quasi saturato, valuta la consegna in ritardo' : '',
+  ].filter(Boolean)
+
+  const progressPercent = Math.min(100, Math.round((ready.length / Math.max(1, active.length)) * 100))
+  const kpiCards = [
+    { label: 'Vetture presenti', value: active.length, target: 'vehicles', hint: 'Catalogo operativo' },
+    { label: 'Clienti registrati', value: data.customers.length, target: 'customers', hint: 'Anagrafica cliente' },
+    { label: 'Coni occupati', value: occupied.length, target: 'cones', hint: `${TOTAL_CONES - occupied.length} liberi` },
+    { label: 'Pratiche accettazione', value: acceptanceItems.length, target: 'acceptance', hint: 'Workflow OCR' },
   ] as const
+
   return <>
-    <section className="welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Tutto ciò che serve per tenere sotto controllo accettazione, vetture e piazzale.</p></div><button className="primary" onClick={onNewVehicle}><Icon name="plus" /> {data.customers.length ? 'Nuova vettura' : 'Crea il primo cliente'}</button></section>
-    <section className="stat-grid">{cards.map(([label, value, target]) => <button className="stat-card" key={label} onClick={() => setView(target)}><span>{label}</span><strong>{value}</strong><small>{label === 'Coni occupati' ? `${TOTAL_CONES - occupied.length} coni liberi` : 'Vedi dettaglio →'}</small></button>)}</section>
+    <section className="welcome premium-welcome"><div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Buon lavoro, Filippo.</h2><p>Dashboard premium basata sui dati live dell’ERP: KPI, pratiche, agenda e notifiche.</p></div><button className="primary" onClick={onNewVehicle}><Icon name="plus" /> {data.customers.length ? 'Nuova vettura' : 'Crea il primo cliente'}</button></section>
+
+    <section className="premium-kpi-grid">{kpiCards.map((card) => <button className="premium-kpi-card" key={card.label} onClick={() => setView(card.target)}><span>{card.label}</span><strong>{card.value}</strong><small>{card.hint}</small></button>)}</section>
+
+    <section className="premium-overview-grid">
+      <div className="panel premium-panel">
+        <div className="panel-head"><div><span className="eyebrow">AVANZAMENTO</span><h3>Obiettivo mese</h3></div><button className="link" onClick={() => setView('planner')}>Apri planner →</button></div>
+        <div className="premium-progress"><div className="premium-progress-track"><i style={{ width: `${economic.reachedPercent}%` }} /></div><div className="premium-progress-meta"><strong>{economic.reachedPercent}%</strong><span>{economic.plannedRevenue.toLocaleString('it-IT')} € / {economic.goal.toLocaleString('it-IT')} €</span></div></div>
+      </div>
+      <div className="panel premium-panel">
+        <div className="panel-head"><div><span className="eyebrow">AGENDA GIORNALIERA</span><h3>Consegne e inizio jobs</h3></div></div>
+        <div className="agenda-list">{dueVehicles.map((vehicle) => <div key={vehicle.id}><strong>{vehicle.plate}</strong><span>{customerById(vehicle.customerId)?.name ?? 'Cliente'} · {vehicle.requestedDeliveryDate}</span></div>)}{!dueVehicles.length && <div className="empty-small">Nessuna consegna pianificata per oggi.</div>}</div>
+      </div>
+    </section>
+
     <EconomicGoalPanel data={data} />
+
+    <section className="dashboard-grid">
+      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">TIMELINE PRACTICA</span><h3>Ultime accettazioni</h3></div><button className="link" onClick={() => setView('acceptance')}>Apri accettazione →</button></div><div className="timeline-list">{acceptanceItems.slice(0, 5).map((item) => <div className="timeline-item" key={item.id}><b>{item.status}</b><span><strong>{customerById(item.customerId)?.name ?? 'Cliente'} · {data.vehicles.find((vehicle) => vehicle.id === item.vehicleId)?.plate ?? 'Vettura'}</strong><small>{formatDate(item.updatedAt)}</small></span></div>)}{!acceptanceItems.length && <Empty text="Nessuna pratica di accettazione da mostrare." />}</div></div>
+      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">CENTRO NOTIFICHE</span><h3>Azioni da completare</h3></div></div><div className="notices-list">{alerts.length ? alerts.map((alert) => <div className="notice-item" key={alert}><span>•</span><strong>{alert}</strong></div>) : <div className="empty-small">Nessuna notifica attiva.</div>}</div></div>
+    </section>
+
     <section className="dashboard-grid">
       <div className="panel"><div className="panel-head"><div><span className="eyebrow">PIAZZALE</span><h3>Stato dei 30 coni</h3></div><button className="link" onClick={() => setView('cones')}>Gestisci coni →</button></div><div className="mini-cones">{Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).map((number) => { const vehicle = occupied.find((item) => item.coneNumber === number); return <div title={vehicle?.plate ?? 'Libero'} className={vehicle ? 'busy' : ''} key={number}>{number}</div> })}</div><div className="legend"><span><i /> Liberi ({TOTAL_CONES - occupied.length})</span><span><i className="busy" /> Occupati ({occupied.length})</span></div></div>
+      <div className="panel"><div className="panel-head"><div><span className="eyebrow">ASSISTENTE AI</span><h3>Consigli live</h3></div></div><div className="activity">{alerts.length ? alerts.map((alert) => <div key={alert}><b>AI</b><span><strong>Analisi continua</strong><small>{alert}</small></span></div>) : <div className="empty-small">L’Assistente AI non rileva azioni urgenti.</div>}{!ready.length && <div className="empty-small">Nessuna vettura pronta per il rilascio oggi.</div>}</div></div>
+    </section>
+
+    <section className="dashboard-grid">
       <div className="panel"><div className="panel-head"><div><span className="eyebrow">ATTIVITÀ RECENTI</span><h3>Ultime assegnazioni</h3></div></div><div className="activity">{data.coneHistory.slice(0, 5).map((item) => { const vehicle = data.vehicles.find((v) => v.id === item.vehicleId); return <div key={item.id}><b>{item.coneNumber}</b><span><strong>{item.vehiclePlate}</strong><small>{item.action}{vehicle ? ` · ${customerById(vehicle.customerId)?.name ?? ''}` : ''}</small></span><time>{formatDate(item.timestamp)}</time></div> })}{!data.coneHistory.length && <Empty text="Le assegnazioni dei coni compariranno qui." />}</div></div>
+      <div className="panel premium-panel"><div className="panel-head"><div><span className="eyebrow">PROGRESSO OPERATIVO</span><h3>Preparazione pronta per rilascio</h3></div></div><div className="premium-progress"><div className="premium-progress-track"><i style={{ width: `${progressPercent}%` }} /></div><div className="premium-progress-meta"><strong>{progressPercent}%</strong><span>{ready.length} vetture pronte · {active.length} in corso</span></div></div></div>
     </section>
   </>
 }
@@ -181,6 +232,179 @@ function VehicleForm({ vehicle, customers, onClose, onSave, setError }: { vehicl
   return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" required defaultValue={vehicle?.make} /></label><label>Modello<input name="model" required defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>VIN<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label>{!vehicle && <label>Stato iniziale<select name="status">{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>}<label>Priorità<select name="priority" defaultValue={vehicle?.priority ?? 'Normale'}><option>Normale</option><option>Alta</option><option>Urgente</option></select></label>
     <div className="form-section-title">Pianificazione produttiva</div><label>Ore totali preventivate<input name="estimatedHours" type="number" min="0" step="0.25" required defaultValue={vehicle?.estimatedHours ?? 0} /></label><label>Ore già lavorate<input name="workedHours" type="number" min="0" step="0.25" required defaultValue={vehicle?.workedHours ?? 0} /></label><label>Ore rimanenti<input readOnly value={Math.max(0, (vehicle?.estimatedHours ?? 0) - (vehicle?.workedHours ?? 0))} title="Calcolate automaticamente al salvataggio" /></label><label>Ingresso previsto<input name="plannedEntryDate" type="date" defaultValue={vehicle?.plannedEntryDate} /></label><label>Data richiesta dal cliente<input name="requestedDeliveryDate" type="date" defaultValue={vehicle?.requestedDeliveryDate || vehicle?.deliveryDate} /></label><label>Consegna calcolata<input readOnly value={vehicle?.calculatedDeliveryDate || 'Ricalcolata nel Planner'} /></label>
     <div className="form-section-title">Valore e disponibilità</div><label>Ricavo previsto (€)<input name="expectedRevenue" type="number" min="0" step="0.01" defaultValue={vehicle?.expectedRevenue ?? 0} /></label><label>Margine previsto (€)<input name="expectedMargin" type="number" min="0" step="0.01" defaultValue={vehicle?.expectedMargin ?? 0} /></label><label>Stato ricambi<select name="partsStatus" defaultValue={vehicle?.partsStatus ?? 'Disponibili'}><option>Disponibili</option><option>Ordinati</option><option>Mancanti</option></select></label><label>Motivo di blocco<input name="blockReason" defaultValue={vehicle?.blockReason} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva vettura</button></div></form></Modal>
+}
+
+function AcceptancePage({ data, customerById, onCreate, onSave }: { data: ErpData; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => void; onSave: (acceptance: AcceptanceCase) => void }) {
+  const acceptances = useMemo(() => data.acceptances ?? [], [data.acceptances])
+  const [selectedId, setSelectedId] = useState<string>('')
+  const selected = acceptances.find((item) => item.id === selectedId) ?? acceptances[0]
+
+  useEffect(() => {
+    if (!selectedId && acceptances[0]) setSelectedId(acceptances[0].id)
+  }, [acceptances, selectedId])
+
+  const createFromFirst = () => {
+    if (!data.customers.length || !data.vehicles.length) return
+    onCreate(data.customers[0].id, data.vehicles[0].id)
+    setSelectedId(acceptances[0]?.id ?? '')
+  }
+
+  return <section className="panel"><div className="panel-head"><div><span className="eyebrow">ACCETTAZIONE</span><h3>{acceptances.length} pratiche salvate</h3></div><button className="primary" onClick={createFromFirst}>Nuova pratica</button></div>
+    <div className="acceptance-layout">
+      <div className="selection-stack">{acceptances.map((acceptance) => {
+        const customer = customerById(acceptance.customerId)
+        const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
+        return <button className={selected?.id === acceptance.id ? 'active acceptance-card' : 'acceptance-card'} key={acceptance.id} onClick={() => setSelectedId(acceptance.id)}>
+          <strong>{customer?.name ?? 'Cliente non trovato'}</strong>
+          <small>{vehicle?.plate ?? 'Vettura non trovata'}</small>
+          <span>{acceptance.status}</span>
+        </button>
+      })}{!acceptances.length && <Empty text="Nessuna pratica di accettazione ancora salvata." />}</div>
+      {selected && <AcceptanceEditor acceptance={selected} data={data} customerById={customerById} onSave={onSave} />}
+    </div>
+  </section>
+}
+
+function AcceptanceEditor({ acceptance, data, customerById, onSave }: { acceptance: AcceptanceCase; data: ErpData; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void }) {
+  const quote = acceptance.quote
+  const summary = buildAcceptanceQuoteSummary(quote)
+  const customer = customerById(acceptance.customerId)
+  const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
+  const [manualCustomer, setManualCustomer] = useState(customer?.name ?? '')
+  const [manualPlate, setManualPlate] = useState(vehicle?.plate ?? '')
+  const [manualLaborHours, setManualLaborHours] = useState(8)
+  const documentFields = Object.entries(acceptance.customerDraft[0]?.fields ?? {}) as Array<[string, { value: string; confidence: string; source: 'ocr' | 'manual' }]>
+  const bookletFields = Object.entries(acceptance.vehicleBooklet[0]?.fields ?? {}) as Array<[string, { value: string; confidence: string; source: 'ocr' | 'manual' }]>
+
+  const updateLine = (lineId: string, field: keyof AcceptanceLine, value: string | number) => {
+    const nextLines = quote.lines.map((line) => line.id === lineId ? { ...line, [field]: value } : line)
+    onSave({ ...acceptance, quote: { ...quote, lines: nextLines }, updatedAt: new Date().toISOString() })
+  }
+
+  const updateDocumentField = (field: string, value: string) => {
+    const draft = acceptance.customerDraft[0]
+    if (!draft) return
+    const nextDraft = {
+      ...draft,
+      fields: {
+        ...draft.fields,
+        [field]: {
+          ...draft.fields[field as keyof typeof draft.fields],
+          value,
+          source: 'manual',
+        },
+      },
+    }
+    onSave({ ...acceptance, customerDraft: [nextDraft], updatedAt: new Date().toISOString() })
+  }
+
+  const updateBookletField = (field: string, value: string) => {
+    const draft = acceptance.vehicleBooklet[0]
+    if (!draft) return
+    const nextDraft = {
+      ...draft,
+      fields: {
+        ...draft.fields,
+        [field]: {
+          ...draft.fields[field as keyof typeof draft.fields],
+          value,
+          source: 'manual',
+        },
+      },
+    }
+    onSave({ ...acceptance, vehicleBooklet: [nextDraft], updatedAt: new Date().toISOString() })
+  }
+
+  const handleFile = (event: React.ChangeEvent<HTMLInputElement>, target: 'document' | 'booklet' | 'damage') => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      if (target === 'document') {
+        onSave({
+          ...acceptance,
+          customerDraft: [{ ...acceptance.customerDraft[0], dataUrl, name: file.name }],
+          updatedAt: new Date().toISOString(),
+        })
+      }
+      if (target === 'booklet') {
+        onSave({
+          ...acceptance,
+          vehicleBooklet: [{ ...acceptance.vehicleBooklet[0], dataUrl, name: file.name }],
+          updatedAt: new Date().toISOString(),
+        })
+      }
+      if (target === 'damage') {
+        onSave({
+          ...acceptance,
+          damagePhotos: [...acceptance.damagePhotos, dataUrl],
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const persistQuote = () => {
+    const laborHours = Math.max(0, Number(manualLaborHours) || 0)
+    const defaultQuote = createAcceptanceDraft(acceptance.customerId, acceptance.vehicleId, data.plannerSettings, acceptance.quote.monthKey)
+    const baseQuote = { ...defaultQuote.quote, ...quote, hourlyRate: quote.hourlyRate, productiveHours: quote.productiveHours, lines: quote.lines }
+    const modified = { ...acceptance, quote: { ...baseQuote, lines: baseQuote.lines.map((line) => line.kind === 'labor' ? { ...line, quantity: laborHours } : line) }, updatedAt: new Date().toISOString() }
+    modified.quote = updateConsumptionLine(modified.quote, 0.2)
+    onSave(modified)
+  }
+
+  const downloadPdf = () => {
+    const pdfText = exportAcceptancePdf(acceptance)
+    const blob = new Blob([pdfText], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `accettazione-${acceptance.id}.pdf`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return <div className="acceptance-editor"><div className="panel"><div className="panel-head"><div><span className="eyebrow">CONTENUTO PRATICA</span><h3>{customer?.name ?? 'Cliente'} · {vehicle?.plate ?? 'Vettura'}</h3></div><button className="secondary" onClick={downloadPdf}>Genera PDF</button></div>
+    <div className="form-grid">
+      <label>Documento identità<input type="file" accept="image/*" onChange={(event) => handleFile(event, 'document')} /></label>
+      <label>Libretto<input type="file" accept="image/*" onChange={(event) => handleFile(event, 'booklet')} /></label>
+      <label>Danni foto<input type="file" accept="image/*" onChange={(event) => handleFile(event, 'damage')} /></label>
+      <label>Cliente confermato<input value={manualCustomer} onChange={(event) => setManualCustomer(event.target.value)} /></label>
+      <label>Targa confermata<input value={manualPlate} onChange={(event) => setManualPlate(event.target.value)} /></label>
+      <label>Ore manodopera<input type="number" min="0" step="0.25" value={manualLaborHours} onChange={(event) => setManualLaborHours(Number(event.target.value))} /></label>
+      <button className="primary" onClick={persistQuote}>Aggiorna preventivo</button>
+    </div>
+    <div className="preview-grid">
+      <div className="preview-card"><h4>Documento ID</h4>{acceptance.customerDraft[0]?.dataUrl ? <img src={acceptance.customerDraft[0].dataUrl} alt="Documento ID" /> : <p>Carica documento fronte/retro per il flusso OCR.</p>}</div>
+      <div className="preview-card"><h4>Libretto</h4>{acceptance.vehicleBooklet[0]?.dataUrl ? <img src={acceptance.vehicleBooklet[0].dataUrl} alt="Libretto" /> : <p>Carica il libretto per l’inserimento dati veicolo.</p>}</div>
+      <div className="preview-card"><h4>Danni</h4>{acceptance.damagePhotos.length ? acceptance.damagePhotos.map((photo, index) => <img src={photo} alt={`Danno ${index + 1}`} key={`${photo}-${index}`} />) : <p>Nessuna foto danno allegata.</p>}</div>
+    </div>
+    <div className="ocr-review-grid">
+      <div className="preview-card">
+        <h4>Conferma dati documento</h4>
+        <div className="ocr-field-grid">{documentFields.map(([field, draft]) => <label key={field}><span>{field}</span><input value={draft.value} onChange={(event) => updateDocumentField(field, event.target.value)} /><small>{draft.confidence} · {draft.source}</small></label>)}</div>
+      </div>
+      <div className="preview-card">
+        <h4>Conferma dati libretto</h4>
+        <div className="ocr-field-grid">{bookletFields.map(([field, draft]) => <label key={field}><span>{field}</span><input value={draft.value} onChange={(event) => updateBookletField(field, event.target.value)} /><small>{draft.confidence} · {draft.source}</small></label>)}</div>
+      </div>
+    </div>
+    <div className="quote-grid">
+      {quote.lines.map((line) => <div className="quote-row" key={line.id}><input value={line.description} onChange={(event) => updateLine(line.id, 'description', event.target.value)} /><input type="number" value={line.quantity} onChange={(event) => updateLine(line.id, 'quantity', Number(event.target.value))} /><input type="number" value={line.unitPrice} onChange={(event) => updateLine(line.id, 'unitPrice', Number(event.target.value))} /></div>)}
+    </div>
+    <div className="quote-summary">
+      <div><span>Ore preventivate</span><strong>{summary.labor.lines}</strong></div>
+      <div><span>Tariffa oraria</span><strong>€ {quote.hourlyRate.toFixed(2)}</strong></div>
+      <div><span>Imponibile</span><strong>€ {summary.taxableAmount.toFixed(2)}</strong></div>
+      <div><span>IVA</span><strong>€ {summary.vatAmount.toFixed(2)}</strong></div>
+      <div><span>Totale</span><strong>€ {summary.total.toFixed(2)}</strong></div>
+      <div><span>Costi vivi</span><strong>€ {summary.costLive.toFixed(2)}</strong></div>
+      <div><span>Margine previsto</span><strong>€ {summary.marginEuro.toFixed(2)}</strong></div>
+      <div><span>Margine %</span><strong>{summary.marginPercent}%</strong></div>
+    </div>
+  </div></div>
 }
 
 function Empty({ text }: { text: string }) { return <div className="empty"><div>◇</div><p>{text}</p></div> }
