@@ -4,7 +4,7 @@ import { defaultPlannerSettings, emptyData, STORAGE_KEY } from './erp'
 const DB_NAME = 'carrozzeria-elias-erp'
 const STORE = 'erp-state'
 const STATE_KEY = 'current'
-const CURRENT_VERSION = 4
+const CURRENT_VERSION = 5
 
 const readFallback = () => typeof localStorage === 'undefined' ? null : localStorage.getItem(STORAGE_KEY)
 
@@ -24,64 +24,35 @@ function openDatabase(): Promise<IDBDatabase> {
 function normalizeData(value: unknown): ErpData {
   if (!value || typeof value !== 'object') return structuredClone(emptyData)
   const candidate = value as Partial<ErpData>
-  const customers = Array.isArray(candidate.customers)
-    ? candidate.customers.map((customer) => ({
-        ...customer,
-        usualPaymentMethod: customer.usualPaymentMethod || 'Bonifico',
-        paymentDays: Number(customer.paymentDays) || 30,
-        endOfMonth: Boolean(customer.endOfMonth),
-        usualBank: customer.usualBank || '',
-        iban: customer.iban || '',
-        siaCuc: customer.siaCuc || '',
-        ribaBankId: customer.ribaBankId || '',
-      }))
-    : []
-  const vehicles = Array.isArray(candidate.vehicles)
-    ? candidate.vehicles.map((vehicle) => ({
-        ...vehicle,
-        estimatedHours: Number(vehicle.estimatedHours) || 0,
-        workedHours: Number(vehicle.workedHours) || 0,
-        plannedEntryDate: vehicle.plannedEntryDate || '',
-        requestedDeliveryDate: vehicle.requestedDeliveryDate || vehicle.deliveryDate || '',
-        calculatedDeliveryDate: vehicle.calculatedDeliveryDate || '',
-        expectedRevenue: Number(vehicle.expectedRevenue) || 0,
-        expectedMargin: Number(vehicle.expectedMargin) || 0,
-        partsStatus: vehicle.partsStatus || 'Disponibili',
-        blockReason: vehicle.blockReason || '',
-        manualPlanningDate: vehicle.manualPlanningDate || '',
-        invoiceId: vehicle.invoiceId || null,
-        deliveredAt: vehicle.deliveredAt || '',
-        billingStatus: vehicle.billingStatus || (vehicle.status === 'Consegnata' ? 'Da fatturare' : 'Non fatturabile'),
-      }))
-    : []
+  const customers = Array.isArray(candidate.customers) ? candidate.customers.map((customer) => ({ ...customer })) : []
+  const vehicles = Array.isArray(candidate.vehicles) ? candidate.vehicles.map((vehicle) => ({ ...vehicle })) : []
   const coneHistory = Array.isArray(candidate.coneHistory)
     ? candidate.coneHistory.map((entry) => ({
         ...entry,
-        vehiclePlate: entry.vehiclePlate
-          || vehicles.find((vehicle) => vehicle.id === entry.vehicleId)?.plate
-          || 'Vettura rimossa',
+        vehiclePlate: entry.vehiclePlate || vehicles.find((vehicle) => vehicle.id === entry.vehicleId)?.plate || 'Vettura rimossa',
       }))
     : []
-  const rawSettings = candidate.plannerSettings
   const plannerSettings = {
     ...structuredClone(defaultPlannerSettings),
-    ...(rawSettings && typeof rawSettings === 'object' ? rawSettings : {}),
-    operators: Array.isArray(rawSettings?.operators) ? rawSettings.operators : [],
-    workingDays: Array.isArray(rawSettings?.workingDays) ? rawSettings.workingDays : [1, 2, 3, 4, 5],
-    holidays: Array.isArray(rawSettings?.holidays) ? rawSettings.holidays : [],
-    closures: Array.isArray(rawSettings?.closures) ? rawSettings.closures : [],
-    absences: Array.isArray(rawSettings?.absences) ? rawSettings.absences : [],
+    ...(candidate.plannerSettings && typeof candidate.plannerSettings === 'object' ? candidate.plannerSettings : {}),
+    monthlyGoalHistory: Array.isArray(candidate.plannerSettings?.monthlyGoalHistory)
+      ? candidate.plannerSettings.monthlyGoalHistory.map((entry) => ({ ...entry }))
+      : [],
   }
-  const plannerAssignments = Array.isArray(candidate.plannerAssignments) ? candidate.plannerAssignments : []
-  const invoices = Array.isArray(candidate.invoices) ? candidate.invoices : []
-  const bankAccounts = Array.isArray(candidate.bankAccounts) ? candidate.bankAccounts : []
-  const ribaBatches = Array.isArray(candidate.ribaBatches) ? candidate.ribaBatches : []
-  const financialEvents = Array.isArray(candidate.financialEvents) ? candidate.financialEvents : []
+  const plannerAssignments = Array.isArray(candidate.plannerAssignments) ? candidate.plannerAssignments.map((entry) => ({ ...entry })) : []
+  const invoices = Array.isArray(candidate.invoices) ? candidate.invoices.map((invoice) => ({ ...invoice })) : []
+  const bankAccounts = Array.isArray(candidate.bankAccounts) ? candidate.bankAccounts.map((item) => ({ ...item })) : []
+  const ribaBatches = Array.isArray(candidate.ribaBatches) ? candidate.ribaBatches.map((item) => ({ ...item })) : []
+  const financialEvents = Array.isArray(candidate.financialEvents) ? candidate.financialEvents.map((item) => ({ ...item })) : []
   const financeSettings = {
     ...structuredClone(emptyData.financeSettings),
     ...(candidate.financeSettings && typeof candidate.financeSettings === 'object' ? candidate.financeSettings : {}),
-  }
-  return {
+    marginThresholds: {
+      ...structuredClone(emptyData.financeSettings.marginThresholds),
+      ...(candidate.financeSettings && typeof candidate.financeSettings === 'object' && candidate.financeSettings.marginThresholds && typeof candidate.financeSettings.marginThresholds === 'object' ? candidate.financeSettings.marginThresholds : {}),
+    },
+  } as ErpData['financeSettings']
+  const normalized: ErpData = {
     customers,
     vehicles,
     coneHistory,
@@ -93,6 +64,8 @@ function normalizeData(value: unknown): ErpData {
     financialEvents,
     financeSettings,
   }
+  if (Array.isArray(candidate.acceptances)) normalized.acceptances = candidate.acceptances.map((item) => ({ ...item, quote: item.quote ? { ...item.quote, lines: item.quote.lines.map((line) => ({ ...line })) } : item.quote }))
+  return normalized
 }
 
 export async function loadDatabase(): Promise<ErpData> {

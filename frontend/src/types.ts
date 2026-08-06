@@ -1,13 +1,36 @@
-export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings' | 'finance'
-export type CustomerType = 'Privato' | 'Azienda'
-export type VehicleStatus = 'Accettata' | 'Confermata' | 'In lavorazione' | 'Pronta' | 'Consegnata'
+export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings' | 'monthly-goals' | 'acceptance' | 'finance'
+export type CustomerType = 'Concessionario' | 'Privato' | 'Assicurazione' | 'Società' | 'Azienda'
+export type VehicleStatus =
+  | 'da accettare'
+  | 'accettata'
+  | 'in attesa autorizzazione'
+  | 'da smontare'
+  | 'in lavorazione'
+  | 'preparazione'
+  | 'verniciatura'
+  | 'rimontaggio'
+  | 'lucidatura'
+  | 'lavaggio'
+  | 'controllo qualità'
+  | 'pronta'
+  | 'consegnata'
+  | 'sospesa'
+  | 'annullata'
+  | 'Accettata'
+  | 'Confermata'
+  | 'Pronta'
+  | 'Consegnata'
 export type PaymentMethod = 'Bonifico' | 'R.I.B.A.' | 'Contanti' | 'POS' | 'Personalizzato'
 export type InvoiceStatus = 'Da incassare' | 'Parzialmente inserita in R.I.B.A.' | 'Inserita in R.I.B.A.' | 'Anticipata' | 'Incassata' | 'Scaduta' | 'Insoluta' | 'Contestata' | 'Stornata'
 export type RibaBatchStatus = 'Bozza' | 'Presentata' | 'Anticipata' | 'Chiusa' | 'Insoluta' | 'Stornata'
+export type AcceptanceLineKind = 'labor' | 'parts' | 'consumption' | 'external' | 'other' | 'discount' | 'surcharge'
+export type AcceptanceDocumentSide = 'front' | 'back'
+export type OcrConfidence = 'high' | 'medium' | 'low'
 
 export interface Customer {
   id: string
   type: CustomerType
+  category?: CustomerType
   name: string
   phone: string
   email: string
@@ -16,11 +39,51 @@ export interface Customer {
   usualPaymentMethod?: PaymentMethod
   paymentDays?: number
   endOfMonth?: boolean
+  priority?: 'Normale' | 'Alta' | 'Urgente'
   usualBank?: string
   iban?: string
   siaCuc?: string
   ribaBankId?: string
   createdAt: string
+}
+
+export type VehicleCostCategory = 'vernice' | 'trasparente' | 'fondo' | 'stucco' | 'carta abrasiva' | 'nastro e materiale da mascheratura' | 'minuteria' | 'ricambi' | 'materiali di lucidatura' | 'lavorazioni esterne' | 'lavaggio' | 'trasporto' | 'smaltimento' | 'altro'
+
+export interface VehicleCostEntry {
+  id: string
+  usedAt: string
+  category: VehicleCostCategory
+  description: string
+  supplier?: string
+  quantity: number
+  unit: string
+  unitCost: number
+  discount: number
+  total: number
+  vatRate: number
+  documentNo?: string
+  note?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VehicleEconomicChange {
+  id: string
+  vehicleId: string
+  action: 'aggiunta' | 'modifica' | 'eliminazione'
+  previousValue: string
+  newValue: string
+  user: string
+  at: string
+}
+
+export interface VehicleStatusChange {
+  id: string
+  vehicleId: string
+  from: VehicleStatus
+  to: VehicleStatus
+  at: string
+  note: string
 }
 
 export interface Vehicle {
@@ -29,14 +92,17 @@ export interface Vehicle {
   plate: string
   make: string
   model: string
+  version?: string
   color: string
   year: string
   vin: string
+  chassisNumber?: string
   mileage: string
   status: VehicleStatus
   coneNumber: number | null
   priority?: 'Normale' | 'Alta' | 'Urgente'
   deliveryDate?: string
+  entryDate?: string
   estimatedHours: number
   workedHours: number
   plannedEntryDate: string
@@ -44,12 +110,21 @@ export interface Vehicle {
   calculatedDeliveryDate: string
   expectedRevenue: number
   expectedMargin: number
+  agreementAmount?: number
+  materialsCost?: number
+  externalCosts?: number
+  actualMargin?: number
+  notes?: string
   partsStatus: 'Disponibili' | 'Ordinati' | 'Mancanti'
   blockReason: string
   manualPlanningDate: string
   invoiceId?: string | null
   deliveredAt?: string
   billingStatus?: 'Non fatturabile' | 'Da fatturare' | 'Fatturata'
+  assignedEmployees?: string[]
+  costEntries?: VehicleCostEntry[]
+  costHistory?: VehicleEconomicChange[]
+  statusHistory?: VehicleStatusChange[]
   createdAt: string
 }
 
@@ -69,6 +144,17 @@ export interface PlannerAbsence {
   reason: string
 }
 
+export interface MonthlyGoalRecord {
+  id: string
+  monthKey: string
+  revenueGoal: number
+  revenueActual: number
+  marginGoal: number | null
+  marginActual: number
+  forecastRevenue: number
+  updatedAt: string
+}
+
 export interface PlannerSettings {
   operators: PlannerOperator[]
   workingDays: number[]
@@ -79,6 +165,7 @@ export interface PlannerSettings {
   absences: PlannerAbsence[]
   monthlyRevenueGoal: number
   monthlyMarginGoal: number | null
+  monthlyGoalHistory?: MonthlyGoalRecord[]
 }
 
 export interface PlannerAssignment {
@@ -178,6 +265,91 @@ export interface FinanceSettings {
   defaultVatRate: number
   defaultPaymentDays: number
   minimumProjectedBalance: number
+  laborHourlyCost?: number
+  laborHoursBase?: 'preventivate' | 'effettive'
+  laborOperatorById?: Record<string, number>
+  marginThresholds?: {
+    positive?: number
+    low?: number
+    breakEven?: number
+  }
+}
+
+export interface OcrFieldDraft {
+  value: string
+  confidence: OcrConfidence
+  source: 'ocr' | 'manual'
+}
+
+export interface CustomerDocumentDraft {
+  id: string
+  side: AcceptanceDocumentSide
+  name: string
+  dataUrl: string
+  fields: {
+    name: OcrFieldDraft
+    surname: OcrFieldDraft
+    taxId: OcrFieldDraft
+    birthDate: OcrFieldDraft
+    birthPlace: OcrFieldDraft
+    residence: OcrFieldDraft
+    documentNumber: OcrFieldDraft
+    issueDate: OcrFieldDraft
+    expiryDate: OcrFieldDraft
+    issuingAuthority: OcrFieldDraft
+  }
+}
+
+export interface VehicleBookletDraft {
+  id: string
+  name: string
+  dataUrl: string
+  fields: {
+    plate: OcrFieldDraft
+    vin: OcrFieldDraft
+    make: OcrFieldDraft
+    model: OcrFieldDraft
+    firstRegistration: OcrFieldDraft
+    fuel: OcrFieldDraft
+    engineDisplacement: OcrFieldDraft
+    power: OcrFieldDraft
+    owner: OcrFieldDraft
+  }
+}
+
+export interface AcceptanceLine {
+  id: string
+  kind: AcceptanceLineKind
+  description: string
+  quantity: number
+  unitCost: number
+  unitPrice: number
+  source: 'manual' | 'auto'
+}
+
+export interface AcceptanceQuote {
+  id: string
+  monthKey: string
+  hourlyRate: number
+  productiveHours: number
+  monthlyEconomicGoal: number
+  appliedVatRate: number
+  materialPercent: number
+  lines: AcceptanceLine[]
+}
+
+export interface AcceptanceCase {
+  id: string
+  customerId: string
+  vehicleId: string
+  customerDraft: CustomerDocumentDraft[]
+  vehicleBooklet: VehicleBookletDraft[]
+  damagePhotos: string[]
+  quote: AcceptanceQuote
+  signatureDataUrl: string
+  createdAt: string
+  updatedAt: string
+  status: 'draft' | 'confirmed'
 }
 
 export interface ErpData {
@@ -191,4 +363,5 @@ export interface ErpData {
   ribaBatches: RibaBatch[]
   financialEvents: FinancialEvent[]
   financeSettings: FinanceSettings
+  acceptances?: AcceptanceCase[]
 }
