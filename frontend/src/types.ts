@@ -338,6 +338,35 @@ export interface AcceptanceQuote {
   lines: AcceptanceLine[]
 }
 
+export interface AcceptanceChecklistItem {
+  id: string
+  label: string
+  checked: boolean
+}
+
+export interface AcceptanceIntakeData {
+  mileage: string
+  fuelLevel: string
+  occurredAt: string
+  operator: string
+  damageDescription: string
+  accessories: string[]
+  customerNotes: string
+  checklist: AcceptanceChecklistItem[]
+  signatureDataUrl: string
+}
+
+export interface AcceptancePhotoEntry {
+  id: string
+  acceptanceId: string
+  vehicleId: string
+  category: 'ingresso' | 'danni' | 'lavorazione' | 'fine lavori' | 'consegna'
+  name: string
+  dataUrl: string
+  caption: string
+  createdAt: string
+}
+
 export interface AcceptanceCase {
   id: string
   customerId: string
@@ -347,6 +376,8 @@ export interface AcceptanceCase {
   damagePhotos: string[]
   quote: AcceptanceQuote
   signatureDataUrl: string
+  intake?: AcceptanceIntakeData
+  photos?: AcceptancePhotoEntry[]
   createdAt: string
   updatedAt: string
   status: 'draft' | 'confirmed'

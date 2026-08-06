@@ -1,6 +1,9 @@
 import type {
   AcceptanceCase,
+  AcceptanceChecklistItem,
+  AcceptanceIntakeData,
   AcceptanceLine,
+  AcceptancePhotoEntry,
   AcceptanceQuote,
   CustomerDocumentDraft,
   PlannerSettings,
@@ -162,6 +165,15 @@ export function createEmptyBookletDraft(): VehicleBookletDraft[] {
   ]
 }
 
+function createChecklist(): AcceptanceChecklistItem[] {
+  return [
+    { id: crypto.randomUUID(), label: 'Danni registrati', checked: false },
+    { id: crypto.randomUUID(), label: 'Accessori verificati', checked: false },
+    { id: crypto.randomUUID(), label: 'Foto caricate', checked: false },
+    { id: crypto.randomUUID(), label: 'Firma cliente acquisita', checked: false },
+  ]
+}
+
 export function createAcceptanceDraft(
   customerId: string,
   vehicleId: string,
@@ -169,6 +181,17 @@ export function createAcceptanceDraft(
   monthKey: string,
 ): AcceptanceCase {
   const quote = createDefaultQuote(settings, monthKey, 8)
+  const intake: AcceptanceIntakeData = {
+    mileage: '',
+    fuelLevel: '',
+    occurredAt: new Date().toISOString(),
+    operator: '',
+    damageDescription: '',
+    accessories: [],
+    customerNotes: '',
+    checklist: createChecklist(),
+    signatureDataUrl: '',
+  }
   return {
     id: crypto.randomUUID(),
     customerId,
@@ -178,9 +201,54 @@ export function createAcceptanceDraft(
     damagePhotos: [],
     quote,
     signatureDataUrl: '',
+    intake,
+    photos: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     status: 'draft',
+  }
+}
+
+export function createPhotoArchiveEntry(
+  acceptanceId: string,
+  vehicleId: string,
+  category: AcceptancePhotoEntry['category'],
+  name: string,
+  dataUrl: string,
+  caption = '',
+): AcceptancePhotoEntry {
+  return {
+    id: crypto.randomUUID(),
+    acceptanceId,
+    vehicleId,
+    category,
+    name,
+    dataUrl,
+    caption,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+export function toggleAcceptanceChecklistItem(acceptance: AcceptanceCase, itemId: string): AcceptanceCase {
+  const intake = acceptance.intake
+  if (!intake) return acceptance
+  return {
+    ...acceptance,
+    intake: {
+      ...intake,
+      checklist: intake.checklist.map((item) => item.id === itemId ? { ...item, checked: !item.checked } : item),
+    },
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+export function appendAcceptancePhotoEntry(acceptance: AcceptanceCase, photo: AcceptancePhotoEntry): AcceptanceCase {
+  const nextPhotos = [...(acceptance.photos ?? []), photo]
+  return {
+    ...acceptance,
+    photos: nextPhotos,
+    damagePhotos: [...new Set([...(acceptance.damagePhotos ?? []), photo.dataUrl])],
+    updatedAt: new Date().toISOString(),
   }
 }
 

@@ -10,7 +10,7 @@ import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { calculateDayCapacity, calculatePlanner, remainingHours } from './services/planner'
 import { calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './services/economic'
-import { buildAcceptanceQuoteSummary, createAcceptanceDraft, exportAcceptancePdf, updateConsumptionLine } from './services/acceptance'
+import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createPhotoArchiveEntry, exportAcceptancePdf, toggleAcceptanceChecklistItem, updateConsumptionLine } from './services/acceptance'
 import { FinancePage } from './features/finance/FinancePage'
 import type { AcceptanceCase, AcceptanceLine, Customer, CustomerType, ErpData, Vehicle, VehicleCostCategory, VehicleStatus, View } from './types'
 
@@ -391,15 +391,31 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave }: { acceptan
   const summary = buildAcceptanceQuoteSummary(quote)
   const customer = customerById(acceptance.customerId)
   const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
-  const [manualCustomer, setManualCustomer] = useState(customer?.name ?? '')
-  const [manualPlate, setManualPlate] = useState(vehicle?.plate ?? '')
+  const intake = acceptance.intake ?? {
+    mileage: '',
+    fuelLevel: '',
+    occurredAt: new Date().toISOString(),
+    operator: '',
+    damageDescription: '',
+    accessories: [],
+    customerNotes: '',
+    checklist: [],
+    signatureDataUrl: '',
+  }
   const [manualLaborHours, setManualLaborHours] = useState(8)
+  const [accessoryInput, setAccessoryInput] = useState('')
+  const [archiveCaption, setArchiveCaption] = useState('')
+  const [archiveCategory, setArchiveCategory] = useState<'ingresso' | 'danni' | 'lavorazione' | 'fine lavori' | 'consegna'>('danni')
   const documentFields = Object.entries(acceptance.customerDraft[0]?.fields ?? {}) as Array<[string, { value: string; confidence: string; source: 'ocr' | 'manual' }]>
   const bookletFields = Object.entries(acceptance.vehicleBooklet[0]?.fields ?? {}) as Array<[string, { value: string; confidence: string; source: 'ocr' | 'manual' }]>
 
   const updateLine = (lineId: string, field: keyof AcceptanceLine, value: string | number) => {
     const nextLines = quote.lines.map((line) => line.id === lineId ? { ...line, [field]: value } : line)
     onSave({ ...acceptance, quote: { ...quote, lines: nextLines }, updatedAt: new Date().toISOString() })
+  }
+
+  const updateIntake = (field: 'mileage' | 'fuelLevel' | 'occurredAt' | 'operator' | 'damageDescription' | 'accessories' | 'customerNotes' | 'signatureDataUrl', value: string | string[]) => {
+    onSave({ ...acceptance, intake: { ...intake, [field]: value }, updatedAt: new Date().toISOString() })
   }
 
   const updateDocumentField = (field: string, value: string) => {
@@ -457,12 +473,23 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave }: { acceptan
         })
       }
       if (target === 'damage') {
-        onSave({
-          ...acceptance,
-          damagePhotos: [...acceptance.damagePhotos, dataUrl],
-          updatedAt: new Date().toISOString(),
-        })
+        const photo = createPhotoArchiveEntry(acceptance.id, acceptance.vehicleId, 'danni', file.name, dataUrl, 'Foto danni')
+        onSave(appendAcceptancePhotoEntry(acceptance, photo))
       }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleArchivePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      const photo = createPhotoArchiveEntry(acceptance.id, acceptance.vehicleId, archiveCategory, file.name, dataUrl, archiveCaption || 'Foto archivio')
+      onSave(appendAcceptancePhotoEntry(acceptance, photo))
+      setArchiveCaption('')
+      event.target.value = ''
     }
     reader.readAsDataURL(file)
   }
@@ -487,20 +514,70 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave }: { acceptan
     URL.revokeObjectURL(url)
   }
 
+  const captureSignature = () => {
+    const text = intake.operator || customer?.name || 'Cliente'
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="220"><rect width="100%" height="100%" fill="#fff"/><line x1="40" y1="160" x2="560" y2="160" stroke="#111" stroke-width="3"/><text x="40" y="120" font-family="Arial" font-size="34">${text}</text></svg>`
+    const dataUrl = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+    updateIntake('signatureDataUrl', dataUrl)
+  }
+
+  const toggleChecklistItem = (itemId: string) => {
+    onSave(toggleAcceptanceChecklistItem(acceptance, itemId))
+  }
+
+  const addAccessory = () => {
+    const trimmed = accessoryInput.trim()
+    if (!trimmed) return
+    updateIntake('accessories', [...(intake.accessories ?? []), trimmed])
+    setAccessoryInput('')
+  }
+
+  const removeAccessory = (accessory: string) => {
+    updateIntake('accessories', (intake.accessories ?? []).filter((item) => item !== accessory))
+  }
+
+  const removePhotoEntry = (photoId: string) => {
+    const nextPhotos = (acceptance.photos ?? []).filter((photo) => photo.id !== photoId)
+    onSave({ ...acceptance, photos: nextPhotos, damagePhotos: [...new Set((acceptance.damagePhotos ?? []).filter((dataUrl) => !nextPhotos.some((photo) => photo.dataUrl === dataUrl)))], updatedAt: new Date().toISOString() })
+  }
+
   return <div className="acceptance-editor"><div className="panel"><div className="panel-head"><div><span className="eyebrow">CONTENUTO PRATICA</span><h3>{customer?.name ?? 'Cliente'} · {vehicle?.plate ?? 'Vettura'}</h3></div><button className="secondary" onClick={downloadPdf}>Genera PDF</button></div>
     <div className="form-grid">
       <label>Documento identità<input type="file" accept="image/*" onChange={(event) => handleFile(event, 'document')} /></label>
       <label>Libretto<input type="file" accept="image/*" onChange={(event) => handleFile(event, 'booklet')} /></label>
       <label>Danni foto<input type="file" accept="image/*" onChange={(event) => handleFile(event, 'damage')} /></label>
-      <label>Cliente confermato<input value={manualCustomer} onChange={(event) => setManualCustomer(event.target.value)} /></label>
-      <label>Targa confermata<input value={manualPlate} onChange={(event) => setManualPlate(event.target.value)} /></label>
       <label>Ore manodopera<input type="number" min="0" step="0.25" value={manualLaborHours} onChange={(event) => setManualLaborHours(Number(event.target.value))} /></label>
       <button className="primary" onClick={persistQuote}>Aggiorna preventivo</button>
+    </div>
+    <div className="intake-grid">
+      <label>Chilometraggio<input value={intake.mileage} onChange={(event) => updateIntake('mileage', event.target.value)} /></label>
+      <label>Livello carburante<input value={intake.fuelLevel} onChange={(event) => updateIntake('fuelLevel', event.target.value)} /></label>
+      <label>Data e ora ingresso<input type="datetime-local" value={intake.occurredAt ? new Date(intake.occurredAt).toISOString().slice(0, 16) : ''} onChange={(event) => updateIntake('occurredAt', new Date(event.target.value).toISOString())} /></label>
+      <label>Operatore<input value={intake.operator} onChange={(event) => updateIntake('operator', event.target.value)} /></label>
+      <label className="full">Descrizione danni<textarea rows={3} value={intake.damageDescription} onChange={(event) => updateIntake('damageDescription', event.target.value)} /></label>
+      <label className="full">Accessori<div className="accessory-row"><input value={accessoryInput} onChange={(event) => setAccessoryInput(event.target.value)} placeholder="Aggiungi accessorio" /><button type="button" className="secondary" onClick={addAccessory}>Aggiungi</button></div>{(intake.accessories ?? []).length ? <div className="accessory-list">{(intake.accessories ?? []).map((accessory) => <span key={accessory}>{accessory}<button type="button" onClick={() => removeAccessory(accessory)}>×</button></span>)}</div> : <small>Nessun accessorio registrato.</small>}</label>
+      <label className="full">Note cliente<textarea rows={3} value={intake.customerNotes} onChange={(event) => updateIntake('customerNotes', event.target.value)} /></label>
+      <div className="preview-card checklist-card"><h4>Checklist accettazione</h4><div className="checklist-list">{(intake.checklist ?? []).map((item) => <label key={item.id}><input type="checkbox" checked={item.checked} onChange={() => toggleChecklistItem(item.id)} />{item.label}</label>)}</div></div>
+      <div className="preview-card signature-card"><h4>Firma digitale</h4><button type="button" className="secondary" onClick={captureSignature}>Crea firma demo</button>{intake.signatureDataUrl ? <img src={intake.signatureDataUrl} alt="Firma digitale" /> : <p>Nessuna firma salvata.</p>}</div>
     </div>
     <div className="preview-grid">
       <div className="preview-card"><h4>Documento ID</h4>{acceptance.customerDraft[0]?.dataUrl ? <img src={acceptance.customerDraft[0].dataUrl} alt="Documento ID" /> : <p>Carica documento fronte/retro per il flusso OCR.</p>}</div>
       <div className="preview-card"><h4>Libretto</h4>{acceptance.vehicleBooklet[0]?.dataUrl ? <img src={acceptance.vehicleBooklet[0].dataUrl} alt="Libretto" /> : <p>Carica il libretto per l’inserimento dati veicolo.</p>}</div>
       <div className="preview-card"><h4>Danni</h4>{acceptance.damagePhotos.length ? acceptance.damagePhotos.map((photo, index) => <img src={photo} alt={`Danno ${index + 1}`} key={`${photo}-${index}`} />) : <p>Nessuna foto danno allegata.</p>}</div>
+    </div>
+    <div className="preview-grid">
+      <div className="preview-card archive-card">
+        <h4>Archivio fotografico</h4>
+        <div className="archive-form">
+          <label>Categoria<select value={archiveCategory} onChange={(event) => setArchiveCategory(event.target.value as 'ingresso' | 'danni' | 'lavorazione' | 'fine lavori' | 'consegna')}><option value="ingresso">Ingresso</option><option value="danni">Danni</option><option value="lavorazione">Lavorazione</option><option value="fine lavori">Fine lavori</option><option value="consegna">Consegna</option></select></label>
+          <label>Didascalia<input value={archiveCaption} onChange={(event) => setArchiveCaption(event.target.value)} placeholder="Inserisci didascalia" /></label>
+          <label>Carica foto<input type="file" accept="image/*" onChange={handleArchivePhoto} /></label>
+        </div>
+        <div className="photo-list">{(acceptance.photos ?? []).map((photo) => <div className="photo-item" key={photo.id}><img src={photo.dataUrl} alt={photo.name} /><div><strong>{photo.name}</strong><small>{photo.category} · {photo.caption || 'Nessuna didascalia'}</small></div><button type="button" className="danger" onClick={() => removePhotoEntry(photo.id)}>Elimina</button></div>)}</div>
+        {!acceptance.photos?.length && <p>Nessuna foto nell’archivio.</p>}
+      </div>
+      <div className="preview-card"><h4>Conferma dati documento</h4><div className="ocr-field-grid">{documentFields.map(([field, draft]) => <label key={field}><span>{field}</span><input value={draft.value} onChange={(event) => updateDocumentField(field, event.target.value)} /><small>{draft.confidence} · {draft.source}</small></label>)}</div></div>
+      <div className="preview-card"><h4>Conferma dati libretto</h4><div className="ocr-field-grid">{bookletFields.map(([field, draft]) => <label key={field}><span>{field}</span><input value={draft.value} onChange={(event) => updateBookletField(field, event.target.value)} /><small>{draft.confidence} · {draft.source}</small></label>)}</div></div>
     </div>
     <div className="ocr-review-grid">
       <div className="preview-card">

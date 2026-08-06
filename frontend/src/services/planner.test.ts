@@ -5,6 +5,7 @@ import {
   calculatePlanner,
   capacityWithAssignments,
   isWorkingDay,
+  moveVehiclePlanningDate,
   moveVehicleWork,
 } from './planner'
 
@@ -85,6 +86,11 @@ describe('consegne e semafori', () => {
     const result = calculatePlanner([blocked], settings, '2026-07-26').vehicles[0]
     expect(result.blocked).toBe(true)
     expect(result.assignments).toEqual([])
+  })
+
+  it('sposta il carico su una nuova data mantenendo le ore assegnate', () => {
+    const result = moveVehiclePlanningDate([{ vehicleId: 'v', date: '2026-07-28', protectedHours: 8, normalHours: 0 }], 'v', '2026-07-29', settings)
+    expect(result.assignments[0]).toMatchObject({ vehicleId: 'v', date: '2026-07-29', protectedHours: 8 })
   })
 
   it('richiede conferma quando uno spostamento supera la capacità', () => {
