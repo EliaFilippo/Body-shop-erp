@@ -29,6 +29,13 @@ const data: ErpData = {
     email: '',
     logoText: 'ELIAS',
   },
+  production: {
+    jobs: [],
+    phaseHistory: [],
+    workLogs: [],
+    reports: [],
+    identities: [{ role: 'production', operatorId: 'tablet-operator', operatorName: 'Operatore Produzione' }],
+  },
   financeSettings: structuredClone(emptyData.financeSettings),
 }
 

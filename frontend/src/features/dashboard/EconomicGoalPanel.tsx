@@ -1,21 +1,28 @@
-import { calculateEconomicSummary } from '../../services/economic'
+import { calculateEconomicGoalSnapshot } from '../../services/economic'
 import type { ErpData } from '../../types'
 import { CapacityBar } from '../../components/CapacityBar'
 
 const euro = (value: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(value)
 
 export function EconomicGoalPanel({ data }: { data: ErpData }) {
-  const summary = calculateEconomicSummary(data.vehicles, data.plannerSettings)
+  const snapshot = calculateEconomicGoalSnapshot(data)
   return <section className="panel economic-panel">
-    <div className="panel-head"><div><span className="eyebrow">OBIETTIVO DEL MESE</span><h3>{euro(summary.goal)}</h3></div><b className={summary.sufficient ? 'goal-ok' : 'goal-gap'}>{summary.sufficient ? 'Carico sufficiente' : 'Carico insufficiente'}</b></div>
-    <CapacityBar percent={summary.reachedPercent} />
+    <div className="panel-head"><div><span className="eyebrow">OBIETTIVO DEL MESE</span><h3>{euro(snapshot.appliedRevenueGoal)}</h3></div><b className={snapshot.status === 'ok' ? 'goal-ok' : snapshot.status === 'warning' ? 'goal-gap' : 'goal-critical'}>{snapshot.status === 'ok' ? 'In linea' : snapshot.status === 'warning' ? 'Attenzione' : 'In ritardo'}</b></div>
+    <CapacityBar percent={snapshot.progressPercent} />
     <div className="economic-grid">
-      <div><span>Fatturato programmato</span><strong>{euro(summary.plannedRevenue)}</strong></div>
-      <div><span>Margine programmato</span><strong>{euro(summary.plannedMargin)}</strong></div>
-      <div><span>Importo mancante</span><strong>{euro(summary.missingRevenue)}</strong></div>
-      <div><span>Giorni lavorativi residui</span><strong>{summary.remainingWorkingDays}</strong></div>
-      <div><span>Media giornaliera necessaria</span><strong>{euro(summary.dailyRevenueNeeded)}</strong></div>
-      <div><span>Ore produttive necessarie</span><strong>{summary.productiveHoursNeeded === null ? 'Non calcolabile' : `${summary.productiveHoursNeeded} h`}</strong></div>
+      <div><span>Obiettivo suggerito</span><strong>{euro(snapshot.suggestedRevenueGoal)}</strong></div>
+      <div><span>Fatturato realizzato</span><strong>{euro(snapshot.revenueRealized)}</strong></div>
+      <div><span>Fabbisogno residuo</span><strong>{euro(snapshot.residualNeed)}</strong></div>
+      <div><span>Costi totali del periodo</span><strong>{euro(snapshot.totalCosts)}</strong></div>
+      <div><span>Media giornaliera necessaria</span><strong>{euro(snapshot.dailyRevenueNeed)}</strong></div>
+      <div><span>Media settimanale necessaria</span><strong>{euro(snapshot.weeklyRevenueNeed)}</strong></div>
+    </div>
+    <div className="goal-chart goal-chart-compact">
+      {snapshot.chart.slice(-8).map((point) => {
+        const actualHeight = snapshot.appliedRevenueGoal ? Math.max(6, Math.min(100, (point.actualRevenue / snapshot.appliedRevenueGoal) * 100)) : 0
+        const targetHeight = snapshot.appliedRevenueGoal ? Math.max(6, Math.min(100, (point.targetRevenue / snapshot.appliedRevenueGoal) * 100)) : 0
+        return <div className="goal-chart-bar" key={point.date}><div className="goal-chart-track"><i className="actual" style={{ height: `${actualHeight}%` }} /><i className="target" style={{ height: `${targetHeight}%` }} /></div><small>{point.label}</small></div>
+      })}
     </div>
   </section>
 }

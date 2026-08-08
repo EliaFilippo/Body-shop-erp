@@ -38,6 +38,14 @@ function normalizeData(value: unknown): ErpData {
     monthlyGoalHistory: Array.isArray(candidate.plannerSettings?.monthlyGoalHistory)
       ? candidate.plannerSettings.monthlyGoalHistory.map((entry) => ({ ...entry }))
       : [],
+    monthlyRevenueGoalMode: candidate.plannerSettings?.monthlyRevenueGoalMode ?? 'automatic',
+    monthlyRevenueGoalSuggested: Number(candidate.plannerSettings?.monthlyRevenueGoalSuggested ?? candidate.plannerSettings?.monthlyRevenueGoal ?? 0),
+    monthlyRevenueGoalManual: candidate.plannerSettings?.monthlyRevenueGoalManual ?? null,
+    ownerWithdrawalAmount: Number(candidate.plannerSettings?.ownerWithdrawalAmount ?? defaultPlannerSettings.ownerWithdrawalAmount),
+    ownerWithdrawalPlannedDate: String(candidate.plannerSettings?.ownerWithdrawalPlannedDate ?? defaultPlannerSettings.ownerWithdrawalPlannedDate),
+    ownerWithdrawalSettledMonthKey: candidate.plannerSettings?.ownerWithdrawalSettledMonthKey ?? null,
+    ownerWithdrawalSettledAt: candidate.plannerSettings?.ownerWithdrawalSettledAt ?? null,
+    economicSafetyMarginPercent: Number(candidate.plannerSettings?.economicSafetyMarginPercent ?? defaultPlannerSettings.economicSafetyMarginPercent),
   }
   const plannerAssignments = Array.isArray(candidate.plannerAssignments) ? candidate.plannerAssignments.map((entry) => ({ ...entry })) : []
   const invoices = Array.isArray(candidate.invoices) ? candidate.invoices.map((invoice) => ({ ...invoice })) : []
@@ -54,6 +62,15 @@ function normalizeData(value: unknown): ErpData {
     ...structuredClone(emptyData.companyProfile),
     ...(candidate.companyProfile && typeof candidate.companyProfile === 'object' ? candidate.companyProfile : {}),
   } as ErpData['companyProfile']
+  const production = {
+    ...structuredClone(emptyData.production),
+    ...(candidate.production && typeof candidate.production === 'object' ? candidate.production : {}),
+    jobs: Array.isArray(candidate.production?.jobs) ? candidate.production.jobs.map((item) => ({ ...item, assignedWorks: Array.isArray(item.assignedWorks) ? [...item.assignedWorks] : [] })) : [],
+    phaseHistory: Array.isArray(candidate.production?.phaseHistory) ? candidate.production.phaseHistory.map((item) => ({ ...item })) : [],
+    workLogs: Array.isArray(candidate.production?.workLogs) ? candidate.production.workLogs.map((item) => ({ ...item })) : [],
+    reports: Array.isArray(candidate.production?.reports) ? candidate.production.reports.map((item) => ({ ...item })) : [],
+    identities: Array.isArray(candidate.production?.identities) ? candidate.production.identities.map((item) => ({ ...item })) : structuredClone(emptyData.production?.identities ?? []),
+  } as ErpData['production']
   const financeSettings = {
     ...structuredClone(emptyData.financeSettings),
     ...(candidate.financeSettings && typeof candidate.financeSettings === 'object' ? candidate.financeSettings : {}),
@@ -76,6 +93,7 @@ function normalizeData(value: unknown): ErpData {
     communications,
     documentCounters,
     companyProfile,
+    production,
     financeSettings,
   }
   if (Array.isArray(candidate.acceptances)) normalized.acceptances = candidate.acceptances.map((item) => ({ ...item, quote: item.quote ? { ...item.quote, lines: item.quote.lines.map((line) => ({ ...line })) } : item.quote }))

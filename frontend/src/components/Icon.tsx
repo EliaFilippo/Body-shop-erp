@@ -1,5 +1,6 @@
 const paths: Record<string, string> = {
   dashboard: 'M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z',
+  'today-shop': 'M3 4h18v16H3V4Zm4 4h10v2H7V8Zm0 4h7v2H7v-2Zm10 2a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z',
   customers: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
   vehicles: 'M5 17h14v-5l-2-5H7l-2 5v5Zm0 0v2m14-2v2M7 7l1-3h8l1 3M3 12h18',
   cones: 'M12 2 5 21h14L12 2Zm-3.5 12h7M10 9h4',

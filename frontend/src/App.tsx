@@ -12,10 +12,12 @@ import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot, 
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createPhotoArchiveEntry, exportAcceptancePdf, toggleAcceptanceChecklistItem, updateConsumptionLine } from './services/acceptance'
 import { FinancePage } from './features/finance/FinancePage'
+import { TodayShopPage } from './features/production/TodayShopPage'
+import { buildTodayInShopSnapshot, openProductionReports, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
 import type { AcceptanceCase, AcceptanceLine, Customer, CustomerType, ErpData, Vehicle, VehicleCostCategory, VehicleStatus, View } from './types'
 
 const nav: { id: View; label: string }[] = [
-  { id: 'dashboard', label: 'Dashboard' }, { id: 'customers', label: 'Clienti' },
+  { id: 'dashboard', label: 'Dashboard' }, { id: 'today-shop', label: 'Oggi in carrozzeria' }, { id: 'customers', label: 'Clienti' },
   { id: 'vehicles', label: 'Veicoli' }, { id: 'cones', label: 'Gestione coni' },
   { id: 'planner', label: 'Planner intelligente' }, { id: 'planner-settings', label: 'Impostazioni Planner' },
   { id: 'monthly-goals', label: 'Obiettivi mensili' }, { id: 'acceptance', label: 'Accettazione' },
@@ -47,22 +49,28 @@ function App() {
   }, [data, databaseReady])
   useEffect(() => {
     if (!databaseReady) return
-    const result = calculatePlanner(data.vehicles, data.plannerSettings)
+    const syncedForProduction = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(data))
+    const result = calculatePlanner(syncedForProduction.vehicles, syncedForProduction.plannerSettings)
     const calculated = new Map(result.vehicles.map((item) => [item.vehicleId, item.calculatedDeliveryDate]))
-    const vehicles = data.vehicles.map((vehicle) => ({
+    const vehicles = syncedForProduction.vehicles.map((vehicle) => ({
       ...vehicle,
       calculatedDeliveryDate: calculated.get(vehicle.id) ?? '',
     }))
-    const unchangedVehicles = vehicles.every((vehicle, index) =>
-      vehicle.calculatedDeliveryDate === data.vehicles[index].calculatedDeliveryDate,
+    const unchangedVehicles = vehicles.every((vehicle, index) => {
+      const current = data.vehicles[index]
+      return vehicle.calculatedDeliveryDate === current.calculatedDeliveryDate
+        && vehicle.workedHours === current.workedHours
+    }
     )
+    const unchangedProduction = JSON.stringify(syncedForProduction.production) === JSON.stringify(data.production)
     const unchangedAssignments = JSON.stringify(result.assignments) === JSON.stringify(data.plannerAssignments)
-    if (!unchangedVehicles || !unchangedAssignments) setData((current) => ({
+    if (!unchangedVehicles || !unchangedAssignments || !unchangedProduction) setData((current) => ({
       ...current,
       vehicles,
       plannerAssignments: result.assignments,
+      production: syncedForProduction.production,
     }))
-  }, [data.vehicles, data.plannerSettings, data.plannerAssignments, databaseReady])
+  }, [data, data.vehicles, data.plannerSettings, data.plannerAssignments, databaseReady])
 
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
@@ -96,6 +104,10 @@ function App() {
             setModal({ type: 'customer' })
           }
         }} onNewCustomer={() => setModal({ type: 'customer' })} />}
+        {view === 'today-shop' && <TodayShopPage data={data} customerById={customerById} onOpenPlanner={() => setView('planner')} onOpenVehicles={() => setView('vehicles')} onOpenPractice={(plate) => {
+          setView('vehicles')
+          setQuery(plate)
+        }} onChange={setData} setNotice={setNotice} setError={setError} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { setData(deleteCustomer(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
         {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => setModal({ type: 'vehicle' })} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { setData(deleteVehicle(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} />}
         {view === 'cones' && <Cones data={data} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
@@ -210,12 +222,16 @@ function Dashboard({ data, setView, onNewVehicle, onNewCustomer }: { data: ErpDa
   ).length
   const imminentInvoices = openInvoices.filter((invoice) => invoice.dueDate >= today && invoice.dueDate <= imminentLimit).length
   const imminentRiba = data.ribaBatches.filter((batch) => !['Chiusa', 'Stornata'].includes(batch.status) && batch.dueDate >= today && batch.dueDate <= imminentLimit).length
+  const productionSnapshot = buildTodayInShopSnapshot(data)
+  const productionOpenReports = openProductionReports(data).length
   const attentionItems = [
     { id: 'late-vehicles', label: 'Auto in ritardo', count: snapshot.vehiclesLate, detail: 'Verifica priorità e capacità residua del planner.', action: () => setView('vehicles') },
     { id: 'risk-deliveries', label: 'Consegne a rischio', count: deliveriesAtRisk, detail: 'Consegne nei prossimi 2 giorni con ore residue > 0.', action: () => setView('planner') },
     { id: 'to-invoice', label: 'Fatture da emettere', count: invoicesToIssue, detail: 'Vetture consegnate senza fattura collegata.', action: () => setView('finance') },
     { id: 'riba-deadlines', label: 'RIBA / scadenze imminenti', count: imminentInvoices + imminentRiba, detail: 'Scadenze finanziarie nei prossimi 7 giorni.', action: () => setView('finance') },
     { id: 'blocked', label: 'Pratiche bloccate', count: snapshot.blockedVehicles, detail: 'Pratiche ferme per ricambi mancanti o blocchi operativi.', action: () => setView('vehicles') },
+    { id: 'production-alerts', label: 'Segnalazioni produzione', count: productionOpenReports, detail: 'Richieste operative inviate dai tablet reparto.', action: () => setView('today-shop') },
+    { id: 'production-overdue', label: 'Produzione in ritardo', count: productionSnapshot.overdue, detail: 'Lavorazioni oltre la data promessa cliente.', action: () => setView('today-shop') },
   ].filter((item) => item.count > 0)
 
   return <>

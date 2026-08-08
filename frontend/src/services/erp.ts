@@ -13,6 +13,14 @@ export const defaultPlannerSettings: PlannerSettings = {
   closures: [],
   absences: [],
   monthlyRevenueGoal: 0,
+  monthlyRevenueGoalMode: 'automatic',
+  monthlyRevenueGoalSuggested: 0,
+  monthlyRevenueGoalManual: null,
+  ownerWithdrawalAmount: 3000,
+  ownerWithdrawalPlannedDate: new Date().toISOString().slice(0, 10),
+  ownerWithdrawalSettledMonthKey: null,
+  ownerWithdrawalSettledAt: null,
+  economicSafetyMarginPercent: 10,
   monthlyMarginGoal: null,
   monthlyGoalHistory: [],
 }
@@ -41,6 +49,19 @@ export const emptyData: ErpData = {
     phone: '',
     email: '',
     logoText: 'ELIAS',
+  },
+  production: {
+    jobs: [],
+    phaseHistory: [],
+    workLogs: [],
+    reports: [],
+    identities: [
+      {
+        role: 'production',
+        operatorId: 'tablet-operator',
+        operatorName: 'Operatore Produzione',
+      },
+    ],
   },
   financeSettings: {
     defaultVatRate: 22,

@@ -1,8 +1,58 @@
 import type { ErpData, FinancialEvent, Invoice, PaymentMethod, RibaBatch } from '../types'
+import { ownerWithdrawalPlannedDateForMonth } from './economic'
 
 const id = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+const todayKey = () => new Date().toISOString().slice(0, 10)
+
+export interface OwnerWithdrawalSnapshot {
+  monthKey: string
+  amount: number
+  plannedDate: string
+  settled: boolean
+  settledAt: string | null
+}
+
+export function calculateOwnerWithdrawalSnapshot(data: ErpData, referenceDate = todayKey()): OwnerWithdrawalSnapshot {
+  const monthKey = referenceDate.slice(0, 7)
+  const amount = roundMoney(Math.max(0, Number(data.plannerSettings.ownerWithdrawalAmount ?? 0)))
+  const plannedDate = ownerWithdrawalPlannedDateForMonth(data.plannerSettings, referenceDate)
+  const settled = data.plannerSettings.ownerWithdrawalSettledMonthKey === monthKey
+  return {
+    monthKey,
+    amount,
+    plannedDate,
+    settled,
+    settledAt: settled ? data.plannerSettings.ownerWithdrawalSettledAt ?? null : null,
+  }
+}
+
+export function updateOwnerWithdrawal(
+  data: ErpData,
+  input: { amount: number; plannedDate: string },
+): ErpData {
+  return {
+    ...data,
+    plannerSettings: {
+      ...data.plannerSettings,
+      ownerWithdrawalAmount: roundMoney(Math.max(0, Number(input.amount) || 0)),
+      ownerWithdrawalPlannedDate: input.plannedDate,
+    },
+  }
+}
+
+export function markOwnerWithdrawalSettled(data: ErpData, referenceDate = todayKey()): ErpData {
+  const monthKey = referenceDate.slice(0, 7)
+  return {
+    ...data,
+    plannerSettings: {
+      ...data.plannerSettings,
+      ownerWithdrawalSettledMonthKey: monthKey,
+      ownerWithdrawalSettledAt: now(),
+    },
+  }
+}
 
 export const invoiceResidual = (invoice: Invoice) => roundMoney(Math.max(0, invoice.total - invoice.collectedAmount - invoice.ribaAllocatedAmount))
 

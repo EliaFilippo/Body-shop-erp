@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { ErpData, PlannerSettings, Vehicle } from '../types'
-import { calculateCostLineSummary, calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateMonthlyGoalProjection, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './economic'
+import { calculateCostLineSummary, calculateEconomicGoalSnapshot, calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateMonthlyGoalProjection, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './economic'
 
 const settings: PlannerSettings = {
   operators: [{ id: 'op', name: 'Filippo', dailyHours: 8, active: true }],
   workingDays: [1, 2, 3, 4, 5], efficiencyPercent: 100, safetyMarginPercent: 10,
   holidays: [], closures: [], absences: [], monthlyRevenueGoal: 10000, monthlyMarginGoal: 3000,
+  monthlyRevenueGoalMode: 'automatic', monthlyRevenueGoalSuggested: 10000, monthlyRevenueGoalManual: null, ownerWithdrawalAmount: 3000, ownerWithdrawalPlannedDate: '2026-07-31', ownerWithdrawalSettledMonthKey: null, ownerWithdrawalSettledAt: null, economicSafetyMarginPercent: 10,
 }
 const car = (id: string, revenue: number, hours: number): Vehicle => ({
   id, customerId: 'c', plate: id, make: '', model: '', color: '', year: '', vin: '', mileage: '',
@@ -130,5 +131,72 @@ describe('obiettivo economico', () => {
     expect(projection.projectedEndRevenue).toBe(10000)
     expect(projection.remainingWorkingDays).toBe(5)
     expect(projection.dailyRevenueNeeded).toBe(1200)
+  })
+
+  it('calcola un obiettivo dinamico automatico partendo da costi reali e spese previste', () => {
+    const data: ErpData = {
+      customers: [],
+      vehicles: [{ ...car('A', 4000, 20), costEntries: [{ id: 'c1', usedAt: '2026-07-27', category: 'ricambi', description: 'Ricambi', supplier: 'Fornitore', quantity: 1, unit: 'pz', unitCost: 500, discount: 0, total: 500, vatRate: 22, documentNo: 'D-1', note: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z' }] }],
+      coneHistory: [],
+      plannerSettings: { ...settings, monthlyRevenueGoalMode: 'automatic', ownerWithdrawalAmount: 1000, ownerWithdrawalPlannedDate: '2026-07-31', economicSafetyMarginPercent: 20 },
+      plannerAssignments: [],
+      invoices: [{ id: 'i1', customerId: 'c', number: 'F-1', issueDate: '2026-07-27', dueDate: '2026-08-10', paymentMethod: 'Bonifico', lines: [], taxableAmount: 2000, vatAmount: 440, total: 2440, collectedAmount: 0, ribaAllocatedAmount: 0, status: 'Da incassare', notes: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z' }],
+      bankAccounts: [],
+      ribaBatches: [],
+      financialEvents: [{ id: 'e1', type: 'Uscita prevista', date: '2026-07-27', amount: 250, note: 'Spesa prevista', createdAt: '2026-07-27T00:00:00.000Z' }],
+      financeSettings: {
+        defaultVatRate: 22,
+        defaultPaymentDays: 30,
+        minimumProjectedBalance: 0,
+        laborHourlyCost: 45,
+        laborHoursBase: 'effettive',
+        laborOperatorById: {},
+        marginThresholds: { positive: 15, low: 5, breakEven: 0 },
+      },
+    } as ErpData
+
+    const snapshot = calculateEconomicGoalSnapshot(data, '2026-07-27')
+    expect(snapshot.mode).toBe('automatic')
+    expect(snapshot.realCosts).toBe(500)
+    expect(snapshot.plannedCosts).toBe(250)
+    expect(snapshot.suggestedRevenueGoal).toBe(1500)
+    expect(snapshot.appliedRevenueGoal).toBe(1500)
+    expect(snapshot.revenueRealized).toBe(2440)
+    expect(snapshot.residualNeed).toBe(0)
+    expect(snapshot.status).toBe('ok')
+  })
+
+  it('mantiene il valore manuale ma conserva il suggerimento automatico', () => {
+    const snapshot = calculateEconomicGoalSnapshot({
+      customers: [],
+      vehicles: [],
+      coneHistory: [],
+      plannerSettings: {
+        ...settings,
+        monthlyRevenueGoalMode: 'custom',
+        monthlyRevenueGoalManual: 18000,
+        monthlyRevenueGoalSuggested: 12000,
+        monthlyRevenueGoal: 18000,
+      },
+      plannerAssignments: [],
+      invoices: [],
+      bankAccounts: [],
+      ribaBatches: [],
+      financialEvents: [],
+      financeSettings: {
+        defaultVatRate: 22,
+        defaultPaymentDays: 30,
+        minimumProjectedBalance: 0,
+        laborHourlyCost: 45,
+        laborHoursBase: 'effettive',
+        laborOperatorById: {},
+        marginThresholds: { positive: 15, low: 5, breakEven: 0 },
+      },
+    } as ErpData, '2026-07-27')
+
+    expect(snapshot.mode).toBe('custom')
+    expect(snapshot.customRevenueGoal).toBe(18000)
+    expect(snapshot.appliedRevenueGoal).toBe(18000)
+    expect(snapshot.suggestedRevenueGoal).toBe(3300)
   })
 })

@@ -1,6 +1,40 @@
 import type { ErpData, FinanceSettings, PlannerSettings, Vehicle } from '../types'
 import { addDays, isWorkingDay, remainingHours, todayKey } from './planner'
 
+export type EconomicGoalMode = 'automatic' | 'custom'
+
+export interface EconomicGoalPoint {
+  date: string
+  label: string
+  actualRevenue: number
+  targetRevenue: number
+}
+
+export interface EconomicGoalSnapshot {
+  monthKey: string
+  mode: EconomicGoalMode
+  suggestedRevenueGoal: number
+  appliedRevenueGoal: number
+  customRevenueGoal: number | null
+  ownerWithdrawalAmount: number
+  ownerWithdrawalPlannedDate: string
+  baseNeed: number
+  safetyMarginPercent: number
+  safetyBuffer: number
+  realCosts: number
+  plannedCosts: number
+  totalCosts: number
+  revenueRealized: number
+  residualNeed: number
+  remainingWorkingDays: number
+  totalWorkingDays: number
+  dailyRevenueNeed: number
+  weeklyRevenueNeed: number
+  progressPercent: number
+  status: 'ok' | 'warning' | 'critical'
+  chart: EconomicGoalPoint[]
+}
+
 export interface EconomicSummary {
   goal: number
   plannedRevenue: number
@@ -78,6 +112,112 @@ export interface ExecutiveDashboardSnapshot {
 const round = (value: number) => Math.round(value * 100) / 100
 const normalizeStatus = (value: string) => value.trim().toLowerCase()
 
+const monthBounds = (referenceDate: string) => {
+  const monthKey = referenceDate.slice(0, 7)
+  const [year, month] = monthKey.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return {
+    monthKey,
+    monthStart: `${monthKey}-01`,
+    monthEnd: `${monthKey}-${String(lastDay).padStart(2, '0')}`,
+  }
+}
+
+const countWorkingDays = (startDate: string, endDate: string, settings: PlannerSettings) => {
+  let total = 0
+  for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
+    if (isWorkingDay(date, settings)) total += 1
+  }
+  return total
+}
+
+const sumVehicleCostsInMonth = (vehicles: Vehicle[], monthKey: string) => vehicles.reduce((sum, vehicle) => sum + (vehicle.costEntries ?? []).reduce((entrySum, entry) => {
+  const usedAt = entry.usedAt?.slice(0, 10)
+  return entrySum + (usedAt && usedAt.startsWith(monthKey) ? (entry.total || 0) : 0)
+}, 0), 0)
+
+const sumPlannedCostsInMonth = (events: ErpData['financialEvents'], monthKey: string) => events.filter((event) => event.type === 'Uscita prevista' && event.date.startsWith(monthKey)).reduce((sum, event) => sum + event.amount, 0)
+
+const sumRealizedRevenueInMonth = (invoices: ErpData['invoices'], monthKey: string) => invoices.filter((invoice) => invoice.issueDate.startsWith(monthKey)).reduce((sum, invoice) => sum + invoice.total, 0)
+
+const clampDay = (value: number, maxDay: number) => Math.max(1, Math.min(maxDay, value))
+
+export function ownerWithdrawalPlannedDateForMonth(settings: PlannerSettings, referenceDate = todayKey()) {
+  const monthKey = referenceDate.slice(0, 7)
+  const [year, month] = monthKey.split('-').map(Number)
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const plannedDay = clampDay(Number(String(settings.ownerWithdrawalPlannedDate).slice(-2)) || new Date(settings.ownerWithdrawalPlannedDate).getUTCDate() || lastDay, lastDay)
+  return `${monthKey}-${String(plannedDay).padStart(2, '0')}`
+}
+
+export function calculateEconomicGoalSnapshot(data: ErpData, referenceDate = todayKey()): EconomicGoalSnapshot {
+  const settings = data.plannerSettings
+  const { monthKey, monthStart, monthEnd } = monthBounds(referenceDate)
+  const realCosts = round(sumVehicleCostsInMonth(data.vehicles, monthKey))
+  const plannedCosts = round(sumPlannedCostsInMonth(data.financialEvents, monthKey))
+  const revenueRealized = round(sumRealizedRevenueInMonth(data.invoices, monthKey))
+  const ownerWithdrawalAmount = round(Math.max(0, Number(settings.ownerWithdrawalAmount ?? 0)))
+  const ownerWithdrawalPlannedDate = ownerWithdrawalPlannedDateForMonth(settings, referenceDate)
+  const baseNeed = round(plannedCosts + ownerWithdrawalAmount)
+  const safetyMarginPercent = Math.max(0, Number(settings.economicSafetyMarginPercent ?? 10))
+  const safetyBuffer = round(baseNeed * (safetyMarginPercent / 100))
+  const totalCosts = round(realCosts + plannedCosts + ownerWithdrawalAmount)
+  const suggestedRevenueGoal = round(baseNeed + safetyBuffer)
+  const mode = settings.monthlyRevenueGoalMode ?? 'automatic'
+  const customRevenueGoal = mode === 'custom'
+    ? (settings.monthlyRevenueGoalManual ?? settings.monthlyRevenueGoal ?? null)
+    : (settings.monthlyRevenueGoalManual ?? null)
+  const appliedRevenueGoal = round(Math.max(0, mode === 'custom' ? (customRevenueGoal ?? suggestedRevenueGoal) : suggestedRevenueGoal))
+  const residualNeed = round(Math.max(0, appliedRevenueGoal - revenueRealized))
+  const remainingWorkingDays = countWorkingDays(referenceDate, monthEnd, settings)
+  const totalWorkingDays = countWorkingDays(monthStart, monthEnd, settings)
+  const workingDaysPerWeek = Math.max(1, settings.workingDays.length || 5)
+  const dailyRevenueNeed = remainingWorkingDays ? round(residualNeed / remainingWorkingDays) : residualNeed
+  const weeklyRevenueNeed = round(dailyRevenueNeed * workingDaysPerWeek)
+  const progressPercent = appliedRevenueGoal > 0 ? round(Math.min(100, (revenueRealized / appliedRevenueGoal) * 100)) : 0
+  const status: EconomicGoalSnapshot['status'] = residualNeed <= 0 ? 'ok' : progressPercent >= 70 || remainingWorkingDays > 5 ? 'warning' : 'critical'
+
+  const chart: EconomicGoalPoint[] = []
+  let runningTarget = 0
+  const targetStep = totalWorkingDays ? round(appliedRevenueGoal / totalWorkingDays) : appliedRevenueGoal
+  for (let date = monthStart; date <= monthEnd; date = addDays(date, 1)) {
+    if (!isWorkingDay(date, settings)) continue
+    runningTarget = round(Math.min(appliedRevenueGoal, runningTarget + targetStep))
+    const actualRevenue = round(data.invoices.filter((invoice) => invoice.issueDate <= date && invoice.issueDate.startsWith(monthKey)).reduce((sum, invoice) => sum + invoice.total, 0))
+    chart.push({
+      date,
+      label: date.slice(8, 10),
+      actualRevenue,
+      targetRevenue: runningTarget,
+    })
+  }
+
+  return {
+    monthKey,
+    mode,
+    suggestedRevenueGoal,
+    appliedRevenueGoal,
+    customRevenueGoal: customRevenueGoal ?? null,
+    ownerWithdrawalAmount,
+    ownerWithdrawalPlannedDate,
+    baseNeed,
+    safetyMarginPercent,
+    safetyBuffer,
+    realCosts,
+    plannedCosts,
+    totalCosts,
+    revenueRealized,
+    residualNeed,
+    remainingWorkingDays,
+    totalWorkingDays,
+    dailyRevenueNeed,
+    weeklyRevenueNeed,
+    progressPercent,
+    status,
+    chart,
+  }
+}
+
 export function calculateEconomicSummary(
   vehicles: Vehicle[],
   settings: PlannerSettings,
@@ -145,8 +285,7 @@ export function calculateExecutiveDashboardSnapshot(
   const availableLiquidity = data.bankAccounts.reduce((sum, account) => sum + account.currentBalance, 0)
   const monthlyRevenue = monthInvoices.reduce((sum, invoice) => sum + invoice.total, 0)
   const monthlyCollected = monthEvents.reduce((sum, event) => sum + event.amount, 0)
-  const monthSummary = calculateEconomicSummary(data.vehicles, data.plannerSettings, referenceDate)
-  const monthProjection = calculateMonthlyGoalProjection(data.vehicles, data.plannerSettings, referenceDate)
+  const monthSummary = calculateEconomicGoalSnapshot(data, referenceDate)
   const projectedCollections = {
     days30: openInvoices.filter((invoice) => {
       const due = new Date(`${invoice.dueDate}T12:00:00`).getTime()
@@ -178,7 +317,7 @@ export function calculateExecutiveDashboardSnapshot(
   const blockedVehicles = data.vehicles.filter((vehicle) => vehicle.blockReason.trim() || vehicle.partsStatus === 'Mancanti').length
   const missingPartsVehicles = data.vehicles.filter((vehicle) => vehicle.partsStatus === 'Mancanti').length
   const priorityNotifications = [
-    monthSummary.missingRevenue > 0 ? `Obiettivo mensile ancora da raggiungere: € ${monthSummary.missingRevenue.toLocaleString('it-IT')}` : '',
+    monthSummary.residualNeed > 0 ? `Obiettivo mensile ancora da raggiungere: € ${monthSummary.residualNeed.toLocaleString('it-IT')}` : '',
     vehiclesLate > 0 ? `${vehiclesLate} vetture in ritardo sulla consegna richiesta` : '',
     blockedVehicles > 0 ? `${blockedVehicles} pratiche bloccate da ricambi o annotazioni` : '',
     missingPartsVehicles > 0 ? `${missingPartsVehicles} ricambi mancanti` : '',
@@ -189,9 +328,9 @@ export function calculateExecutiveDashboardSnapshot(
     availableLiquidity: round(availableLiquidity),
     monthlyRevenue: round(monthlyRevenue),
     monthlyCollected: round(monthlyCollected),
-    monthlyGoal: round(monthSummary.goal),
-    monthlyDeviation: round(monthProjection.deltaRevenue),
-    projectedEndRevenue: round(monthProjection.projectedEndRevenue),
+    monthlyGoal: round(monthSummary.appliedRevenueGoal),
+    monthlyDeviation: round(monthSummary.residualNeed),
+    projectedEndRevenue: round(monthSummary.appliedRevenueGoal),
     projectedCollections: {
       days30: round(projectedCollections.days30),
       days60: round(projectedCollections.days60),

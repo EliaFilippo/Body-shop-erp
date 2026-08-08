@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Modal } from '../../components/Modal'
 import type { Customer, ErpData, PaymentMethod, QuoteStatus, RibaBatch, Vehicle } from '../../types'
-import { createInvoice, createRibaBatch, invoiceResidual, markRibaInsolvent, registerRibaAdvance, settleRibaBatch } from '../../services/finance'
+import { calculateOwnerWithdrawalSnapshot, createInvoice, createRibaBatch, invoiceResidual, markOwnerWithdrawalSettled, markRibaInsolvent, registerRibaAdvance, settleRibaBatch, updateOwnerWithdrawal } from '../../services/finance'
 import { CustomerFinanceDetail } from './CustomerFinanceDetail'
 import {
   buildDocumentPrintHtml,
@@ -16,6 +16,7 @@ import {
   updateQuoteStatus,
 } from '../../services/documents'
 import { buildCalendarEvents, calculateCashFlowSnapshot, calculateCreditControl } from '../../services/cashflow'
+import { calculateEconomicGoalSnapshot } from '../../services/economic'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -35,6 +36,7 @@ type CommunicationDraft = {
 
 type FinanceModalState =
   | { type: 'company-profile' }
+  | { type: 'owner-withdrawal' }
   | { type: 'quote-create'; vehicleId: string }
   | { type: 'quote-convert'; quoteId: string }
   | { type: 'customer-terms'; customerId: string }
@@ -66,6 +68,8 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
   const quotePending = quotes.filter((quote) => ['bozza', 'inviato'].includes(quote.status)).length
   const quoteAccepted = quotes.filter((quote) => quote.status === 'accettato').length
   const cashflow = useMemo(() => calculateCashFlowSnapshot(data), [data])
+  const economicGoal = useMemo(() => calculateEconomicGoalSnapshot(data), [data])
+  const ownerWithdrawal = useMemo(() => calculateOwnerWithdrawalSnapshot(data), [data])
   const creditRows = useMemo(() => calculateCreditControl(data, { state: creditState }), [data, creditState])
   const calendarEvents = useMemo(() => buildCalendarEvents(data, today(), calendarView), [data, calendarView])
 
@@ -154,7 +158,13 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
 
     <section className="panel"><div className="panel-head"><div><span className="eyebrow">ASSISTENTE FINANZIARIO</span><h3>Avvisi e liquidità prevista</h3></div></div>
       <div className="stat-grid"><div className="stat-card"><span>Entro 30 giorni</span><strong>{money(projected(30))}</strong><small>Incassi previsti</small></div><div className="stat-card"><span>Entro 60 giorni</span><strong>{money(projected(60))}</strong><small>Incassi previsti</small></div><div className="stat-card"><span>Entro 90 giorni</span><strong>{money(projected(90))}</strong><small>Incassi previsti</small></div><div className="stat-card"><span>Plafond disponibile</span><strong>{money(availableLimit)}</strong><small>Esposizione {money(bankExposure)}</small></div></div>
+      <div className="stat-grid"><div className="stat-card"><span>Obiettivo dinamico</span><strong>{money(economicGoal.appliedRevenueGoal)}</strong><small>{economicGoal.status === 'ok' ? 'In linea' : economicGoal.status === 'warning' ? 'Attenzione' : 'In ritardo'} · residuo {money(economicGoal.residualNeed)}</small></div><div className="stat-card"><span>Fabbisogno giornaliero</span><strong>{money(economicGoal.dailyRevenueNeed)}</strong><small>{economicGoal.remainingWorkingDays} giorni lavorativi residui</small></div><div className="stat-card"><span>Prelievo titolare</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Voce separata dai costi operativi</small></div><div className="stat-card"><span>Cuscinetto 10%</span><strong>{money(economicGoal.safetyBuffer)}</strong><small>Su base fabbisogno mensile</small></div></div>
       <div className="activity">{alerts.map((alert) => <div key={alert}><b>!</b><span><strong>Attenzione</strong><small>{alert}</small></span></div>)}{!alerts.length && <div className="empty"><div>✓</div><p>Nessuna criticità finanziaria rilevata.</p></div>}</div>
+    </section>
+
+    <section className="panel">
+      <div className="panel-head"><div><span className="eyebrow">PRELIEVO TITOLARE</span><h3>Voce finanziaria separata</h3></div><div className="row-actions"><button onClick={() => setModal({ type: 'owner-withdrawal' })}>Modifica</button><button className="primary" onClick={() => run(() => markOwnerWithdrawalSettled(data), 'Prelievo titolare segnato come effettuato.')}>{ownerWithdrawal.settled ? 'Effettuato' : 'Marca effettuato'}</button></div></div>
+      <div className="stat-grid"><div className="stat-card"><span>Importo mensile</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Separa cassa personale e costi aziendali</small></div><div className="stat-card"><span>Data prevista</span><strong>{ownerWithdrawal.plannedDate}</strong><small>{ownerWithdrawal.settled ? 'Già effettuato questo mese' : 'In attesa di prelievo'}</small></div><div className="stat-card"><span>Stato</span><strong>{ownerWithdrawal.settled ? 'Effettuato' : 'Da effettuare'}</strong><small>{ownerWithdrawal.settledAt ? new Date(ownerWithdrawal.settledAt).toLocaleString('it-IT') : 'Non ancora registrato'}</small></div><div className="stat-card"><span>Impatto cash flow</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Considerato nella previsione di liquidità</small></div></div>
     </section>
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">PREVENTIVI PROFESSIONALI</span><h3>Creazione, invio, conversione e PDF</h3></div></div>
@@ -217,6 +227,17 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
         onChange({ ...data, companyProfile: profile })
         setModal(null)
         setNotice('Profilo azienda aggiornato per stampa preventivi/fatture.')
+      }}
+    />}
+
+    {modal?.type === 'owner-withdrawal' && <OwnerWithdrawalModal
+      amount={ownerWithdrawal.amount}
+      plannedDate={ownerWithdrawal.plannedDate}
+      onClose={() => setModal(null)}
+      onSave={(input) => {
+        onChange(updateOwnerWithdrawal(data, input))
+        setModal(null)
+        setNotice('Prelievo titolare aggiornato.')
       }}
     />}
 
@@ -389,6 +410,29 @@ function CompanyProfileModal({ profile, onClose, onSave }: {
       <label>Telefono<input value={form.phone} onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))} /></label>
       <label>Email<input type="email" value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} /></label>
       <label>Logo testo<input value={form.logoText} onChange={(event) => setForm((prev) => ({ ...prev, logoText: event.target.value }))} /></label>
+      <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit">Salva</button></div>
+    </form>
+  </Modal>
+}
+
+function OwnerWithdrawalModal({ amount, plannedDate, onClose, onSave }: {
+  amount: number
+  plannedDate: string
+  onClose: () => void
+  onSave: (value: { amount: number; plannedDate: string }) => void
+}) {
+  const [draftAmount, setDraftAmount] = useState(amount)
+  const [draftPlannedDate, setDraftPlannedDate] = useState(plannedDate)
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    onSave({ amount: Math.max(0, draftAmount), plannedDate: draftPlannedDate })
+  }
+
+  return <Modal title="Prelievo titolare" onClose={onClose}>
+    <form className="form-grid" onSubmit={submit}>
+      <label>Importo mensile<input type="number" min="0" step="0.01" value={draftAmount} onChange={(event) => setDraftAmount(Number(event.target.value) || 0)} required /></label>
+      <label>Data prevista<input type="date" value={draftPlannedDate} onChange={(event) => setDraftPlannedDate(event.target.value)} required /></label>
       <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit">Salva</button></div>
     </form>
   </Modal>

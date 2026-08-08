@@ -1,32 +1,243 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import '../../App.css'
 import { loadDatabase, saveDatabase } from '../../services/database'
-import type { ErpData } from '../../types'
-import { PHASES, deliveryRisk, deliverVehicle, ensureJobs, loadProduction, movePhase, saveProduction, startTimer, stopTimer, toggleQuality, workedHours, type ProductionPhase, type ProductionState } from './production'
+import type { ErpData, ProductionOperatorIdentity, ProductionPhase, ProductionReportType } from '../../types'
+import {
+  PRODUCTION_PHASES,
+  PRODUCTION_REPORT_TYPES,
+  buildTodayInShopSnapshot,
+  defaultProductionIdentity,
+  listProductionWorkLogs,
+  moveProductionPhase,
+  openProductionReports,
+  pauseProductionTimer,
+  reportProductionIssue,
+  resumeProductionTimer,
+  startProductionTimer,
+  stopProductionTimer,
+  syncProductionJobsFromVehicles,
+  syncVehicleWorkedHoursFromProduction,
+  totalWorkedHoursByVehicle,
+} from './production'
 
-const today=()=>new Date().toISOString().slice(0,10)
-export function ProductionPage(){
- const [erp,setErp]=useState<ErpData|null>(null); const [state,setState]=useState<ProductionState|null>(null); const [query,setQuery]=useState(''); const [priority,setPriority]=useState(''); const [selected,setSelected]=useState(''); const [message,setMessage]=useState(''); const [draggedVehicleId,setDraggedVehicleId]=useState<string|null>(null)
- useEffect(()=>{Promise.all([loadDatabase(),loadProduction()]).then(([e,p])=>{const next=ensureJobs(p,e.vehicles);setErp(e);setState(next);void saveProduction(next)})},[])
- const persist=(next:ProductionState)=>{setState(next);void saveProduction(next)}
- const rows=useMemo(()=>{if(!erp||!state)return[];return state.jobs.map(job=>({job,vehicle:erp.vehicles.find(v=>v.id===job.vehicleId),customer:erp.customers.find(c=>c.id===erp.vehicles.find(v=>v.id===job.vehicleId)?.customerId)})).filter(r=>r.vehicle&&(r.vehicle.plate+r.vehicle.make+r.vehicle.model).toLowerCase().includes(query.toLowerCase())&&(!priority||r.job.priority===priority))},[erp,state,query,priority])
- if(!erp||!state)return <main className="app-shell"><h2>Caricamento produzione…</h2></main>
- const selectedJob=state.jobs.find(j=>j.vehicleId===selected); const selectedVehicle=erp.vehicles.find(v=>v.id===selected)
- const active=state.timeEntries.find(t=>!t.stoppedAt)
- const stopActiveTimer=()=>{if(!active)return;persist(stopTimer(state,active.id))}
- const startSelectedTimer=()=>{if(!selectedJob)return;try{persist(startTimer(state,selected,selectedJob.phase,'titolare'))}catch(e){setMessage((e as Error).message)}}
- const change=(vehicleId:string,phase:ProductionPhase)=>{try{persist(movePhase(state,vehicleId,phase,'Titolare'));setMessage('Fase aggiornata e registrata nello storico.')}catch(e){setMessage((e as Error).message)}}
- const deliver=()=>{try{const result=deliverVehicle(state,erp,selected,'Titolare');persist(result.production);setErp(result.erp);void saveDatabase(result.erp);setMessage('Vettura consegnata, cono liberato e stato finanziario impostato su Da fatturare.')}catch(e){setMessage((e as Error).message)}}
- return <main style={{padding:24,fontFamily:'Inter,system-ui',background:'#0e1116',color:'#f4f4f4',minHeight:'100vh'}}>
-  <header style={{display:'flex',justifyContent:'space-between',gap:16,alignItems:'center',flexWrap:'wrap'}}><div><small>CARROZZERIA ELIAS ERP</small><h1>Controllo produzione</h1></div><a href="/" style={{color:'#fff'}}>← Gestionale</a></header>
-  {message&&<p style={{padding:12,background:'#202833',borderRadius:10}}>{message}</p>}
-  <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12,margin:'18px 0'}}>
-   <Stat label="Vetture presenti" value={state.jobs.filter(j=>j.phase!=='Consegnata').length}/><Stat label="In ritardo" value={state.jobs.filter(j=>deliveryRisk(state,j)==='In ritardo').length}/><Stat label="A rischio" value={state.jobs.filter(j=>deliveryRisk(state,j)==='A rischio').length}/><Stat label="Bloccate" value={state.blocks.filter(b=>!b.closedAt).length}/><Stat label="Coni occupati" value={erp.vehicles.filter(v=>v.coneNumber!==null).length}/><Stat label="Timer attivi" value={state.timeEntries.filter(t=>!t.stoppedAt).length}/>
-  </section>
-  <section style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}><input placeholder="Cerca targa o modello" value={query} onChange={e=>setQuery(e.target.value)} style={input}/><select value={priority} onChange={e=>setPriority(e.target.value)} style={input}><option value="">Tutte le priorità</option><option>Normale</option><option>Alta</option><option>Urgente</option></select></section>
-  <section style={{overflowX:'auto',display:'flex',gap:12,paddingBottom:18}}>{PHASES.map(phase=>{const cards=rows.filter(r=>r.job.phase===phase);return <div key={phase} style={{minWidth:260,background:'#171c23',borderRadius:14,padding:12}} onDragOver={e=>{e.preventDefault()}} onDrop={()=>{if(!draggedVehicleId)return;change(draggedVehicleId,phase);setDraggedVehicleId(null)}}><h3>{phase} · {cards.length}</h3><small>{cards.reduce((s,r)=>s+Math.max(0,r.job.estimatedHours-workedHours(state,r.job.vehicleId)),0).toFixed(1)} ore residue</small>{cards.map(({job,vehicle,customer})=><article key={job.vehicleId} draggable onDragStart={()=>setDraggedVehicleId(job.vehicleId)} onDragEnd={()=>setDraggedVehicleId(null)} onClick={()=>setSelected(job.vehicleId)} style={{background:selected===job.vehicleId?'#324153':'#222a34',padding:12,borderRadius:10,marginTop:10,cursor:'pointer'}}><strong>{vehicle!.plate} · {vehicle!.make} {vehicle!.model}</strong><p>{customer?.name||'Cliente'} · {job.priority}</p><p>Consegna: {job.promisedDate||'non definita'} · <b>{deliveryRisk(state,job)}</b></p><select value={job.phase} onClick={e=>e.stopPropagation()} onChange={e=>change(job.vehicleId,e.target.value as ProductionPhase)} style={input}>{PHASES.map(p=><option key={p}>{p}</option>)}</select></article>)}</div>})}</section>
-  {selectedJob&&selectedVehicle&&<section style={{background:'#171c23',borderRadius:14,padding:18}}><h2>Scheda {selectedVehicle.plate}</h2><p>Ore stimate {selectedJob.estimatedHours} · effettuate {workedHours(state,selected).toFixed(1)} · residue {Math.max(0,selectedJob.estimatedHours-workedHours(state,selected)).toFixed(1)}</p><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{selectedJob.quality.map(q=><label key={q.key} style={{padding:8,background:'#222a34',borderRadius:8}}><input type="checkbox" checked={q.done} onChange={()=>persist(toggleQuality(state,selected,q.key))}/> {q.label}</label>)}</div><div style={{display:'flex',gap:8,marginTop:14,flexWrap:'wrap'}}>{active ? <button onClick={stopActiveTimer}>Ferma timer</button> : <button onClick={startSelectedTimer}>Avvia timer</button>}<button onClick={deliver}>Consegna vettura</button></div></section>}
-  <section style={{marginTop:18}}><h2>Consegne</h2>{state.jobs.filter(j=>j.promisedDate&&j.promisedDate<=today()&&j.phase!=='Consegnata').map(j=><p key={j.vehicleId}>{erp.vehicles.find(v=>v.id===j.vehicleId)?.plate} · {j.promisedDate} · {deliveryRisk(state,j)}</p>)}</section>
- </main>
+const prettyDateTime = (value: string) =>
+  new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+
+interface TabletState {
+  data: ErpData
+  identity: ProductionOperatorIdentity
 }
-const input={background:'#10151b',color:'#fff',border:'1px solid #3a4655',padding:'10px',borderRadius:8} as const
-function Stat({label,value}:{label:string,value:string|number}){return <div style={{background:'#171c23',padding:14,borderRadius:12}}><small>{label}</small><div style={{fontSize:28,fontWeight:700}}>{value}</div></div>}
+
+export function ProductionPage() {
+  const [state, setState] = useState<TabletState | null>(null)
+  const [query, setQuery] = useState('')
+  const [selectedVehicleId, setSelectedVehicleId] = useState('')
+  const [reportNote, setReportNote] = useState('')
+  const [reportType, setReportType] = useState<ProductionReportType>('richiesta all\'ufficio')
+  const [photoDataUrl, setPhotoDataUrl] = useState('')
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    void loadDatabase().then((loaded) => {
+      const synced = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(loaded))
+      const identity = defaultProductionIdentity(synced)
+      setState({ data: synced, identity })
+      void saveDatabase(synced)
+    })
+  }, [])
+
+  const persist = (nextData: ErpData) => {
+    const synced = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(nextData))
+    setState((current) => {
+      const identity = current?.identity ?? defaultProductionIdentity(synced)
+      return { data: synced, identity }
+    })
+    void saveDatabase(synced)
+  }
+
+  if (!state) {
+    return <main className="production-tablet"><section className="tablet-top"><h1>Caricamento produzione...</h1></section></main>
+  }
+
+  const { data, identity } = state
+  const jobs = data.production?.jobs ?? []
+  const reports = openProductionReports(data)
+  const snapshot = buildTodayInShopSnapshot(data)
+  const rows = jobs
+    .map((job) => {
+      const vehicle = data.vehicles.find((item) => item.id === job.vehicleId)
+      const customer = vehicle ? data.customers.find((item) => item.id === vehicle.customerId) : undefined
+      return { job, vehicle, customer }
+    })
+    .filter((row) => row.vehicle)
+    .filter((row) => {
+      const value = `${row.vehicle?.plate} ${row.vehicle?.make} ${row.vehicle?.model} ${row.customer?.name || ''}`.toLowerCase()
+      return value.includes(query.toLowerCase())
+    })
+
+  const selected = rows.find((row) => row.job.vehicleId === selectedVehicleId) ?? rows[0]
+
+  const stepPhase = (vehicleId: string, currentPhase: ProductionPhase, direction: -1 | 1) => {
+    const index = PRODUCTION_PHASES.indexOf(currentPhase)
+    const next = PRODUCTION_PHASES[index + direction]
+    if (!next) return
+    try {
+      persist(moveProductionPhase(data, {
+        vehicleId,
+        nextPhase: next,
+        operator: identity,
+      }))
+      setNotice(`Fase aggiornata a ${next}.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Aggiornamento fase non riuscito.')
+    }
+  }
+
+  const submitReport = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selected) return
+    try {
+      persist(reportProductionIssue(data, {
+        vehicleId: selected.job.vehicleId,
+        type: reportType,
+        note: reportNote,
+        photoDataUrl: photoDataUrl || undefined,
+        operator: identity,
+      }))
+      setReportNote('')
+      setPhotoDataUrl('')
+      setNotice('Segnalazione registrata e visibile all\'ufficio.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Impossibile registrare la segnalazione.')
+    }
+  }
+
+  const activeLog = selected
+    ? listProductionWorkLogs(data, selected.job.vehicleId)
+      .find((log) => log.operatorId === identity.operatorId && log.status !== 'completed')
+    : undefined
+
+  const handleTimer = () => {
+    if (!selected) return
+    if (!activeLog) {
+      persist(startProductionTimer(data, {
+        vehicleId: selected.job.vehicleId,
+        phase: selected.job.phase,
+        operator: identity,
+      }))
+      setNotice('Timer avviato.')
+      return
+    }
+    if (activeLog.status === 'running') {
+      persist(pauseProductionTimer(data, activeLog.id))
+      setNotice('Timer in pausa.')
+      return
+    }
+    persist(resumeProductionTimer(data, activeLog.id))
+    setNotice('Timer ripreso.')
+  }
+
+  const closeTimer = () => {
+    if (!activeLog) return
+    persist(stopProductionTimer(data, activeLog.id))
+    setNotice('Timer terminato e ore sincronizzate.')
+  }
+
+  return <main className="production-tablet">
+    <section className="tablet-top">
+      <div>
+        <span className="eyebrow">TABLET PRODUZIONE</span>
+        <h1>Oggi in carrozzeria</h1>
+        <p>Operatore: {identity.operatorName}. Nessun dato economico o finanziario visibile in questa modalità.</p>
+      </div>
+      <a className="secondary tablet-link" href="/">Apri gestionale ufficio</a>
+    </section>
+
+    {notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
+
+    <section className="tablet-kpis">
+      <article><span>Segnalazioni aperte</span><strong>{snapshot.alertsOpen}</strong></article>
+      <article><span>Timer attivi</span><strong>{snapshot.activeTimers}</strong></article>
+      <article><span>Consegne oggi</span><strong>{snapshot.dueToday}</strong></article>
+      <article><span>In ritardo</span><strong>{snapshot.overdue}</strong></article>
+      <article><span>Priorita urgente</span><strong>{snapshot.byPriority.urgente}</strong></article>
+      <article><span>Priorita alta</span><strong>{snapshot.byPriority.alta}</strong></article>
+    </section>
+
+    <section className="tablet-search">
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca targa, modello, cliente" />
+    </section>
+
+    <section className="tablet-phases">
+      {snapshot.phaseCards.map((card) => <article className="phase-column" key={card.phase}>
+        <header>
+          <h3>{card.phase}</h3>
+          <b>{card.jobs.length}</b>
+        </header>
+        <div className="phase-cards">
+          {rows.filter((row) => row.job.phase === card.phase).map((row) => {
+            const selectedRow = selected?.job.vehicleId === row.job.vehicleId
+            const workedHours = totalWorkedHoursByVehicle(data, row.job.vehicleId)
+            const openForVehicle = reports.filter((report) => report.vehicleId === row.job.vehicleId).length
+            return <button className={selectedRow ? 'phase-card active' : 'phase-card'} key={row.job.vehicleId} onClick={() => setSelectedVehicleId(row.job.vehicleId)}>
+              <strong>{row.vehicle?.plate}</strong>
+              <small>{row.customer?.name || 'Cliente'}</small>
+              <small>{row.vehicle?.make} {row.vehicle?.model}</small>
+              <small>Ore lavorate: {workedHours.toFixed(2)}</small>
+              <small>Segnalazioni aperte: {openForVehicle}</small>
+            </button>
+          })}
+          {!rows.filter((row) => row.job.phase === card.phase).length && <div className="empty-small">Nessuna vettura in questa fase.</div>}
+        </div>
+      </article>)}
+    </section>
+
+    {selected && <section className="tablet-detail">
+      <header>
+        <h2>{selected.vehicle?.plate} · {selected.vehicle?.make} {selected.vehicle?.model}</h2>
+        <div className="phase-controls">
+          <button className="secondary" onClick={() => stepPhase(selected.job.vehicleId, selected.job.phase, -1)}>Fase precedente</button>
+          <b>{selected.job.phase}</b>
+          <button className="primary" onClick={() => stepPhase(selected.job.vehicleId, selected.job.phase, 1)}>Fase successiva</button>
+        </div>
+      </header>
+      <div className="detail-grid">
+        <article>
+          <h3>Tempi lavorazione</h3>
+          <p>Promessa consegna: {selected.job.promisedAt || 'Non definita'}</p>
+          <p>Ore stimate: {selected.vehicle?.estimatedHours ?? 0}</p>
+          <p>Ore lavorate: {totalWorkedHoursByVehicle(data, selected.job.vehicleId).toFixed(2)}</p>
+          <div className="timer-actions">
+            <button className="primary" onClick={handleTimer}>{!activeLog ? 'Avvia timer' : activeLog.status === 'running' ? 'Pausa timer' : 'Riprendi timer'}</button>
+            <button className="secondary" onClick={closeTimer} disabled={!activeLog}>Chiudi timer</button>
+          </div>
+          {activeLog && <small>Sessione {activeLog.status} iniziata il {prettyDateTime(activeLog.startedAt)}</small>}
+        </article>
+        <article>
+          <h3>Segnalazioni reparto</h3>
+          <form onSubmit={submitReport} className="report-form">
+            <label>Tipo
+              <select value={reportType} onChange={(event) => setReportType(event.target.value as ProductionReportType)}>
+                {PRODUCTION_REPORT_TYPES.map((type) => <option key={type}>{type}</option>)}
+              </select>
+            </label>
+            <label>Nota operativa
+              <textarea required rows={3} value={reportNote} onChange={(event) => setReportNote(event.target.value)} placeholder="Descrivi il blocco o la richiesta" />
+            </label>
+            <label>Foto (data URL opzionale)
+              <input value={photoDataUrl} onChange={(event) => setPhotoDataUrl(event.target.value)} placeholder="data:image/..." />
+            </label>
+            <button className="primary">Invia segnalazione</button>
+          </form>
+        </article>
+      </div>
+      <article className="panel table-panel">
+        <div className="panel-head"><div><span className="eyebrow">SEGNALAZIONI APERTE</span><h3>{reports.length} totali</h3></div></div>
+        <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Tipo</th><th>Nota</th><th>Operatore</th><th>Data</th></tr></thead><tbody>{reports.map((report) => {
+          const reportVehicle = data.vehicles.find((item) => item.id === report.vehicleId)
+          return <tr key={report.id}><td>{reportVehicle?.plate || 'Vettura'}</td><td>{report.type}</td><td>{report.note}</td><td>{report.operatorName}</td><td>{prettyDateTime(report.createdAt)}</td></tr>
+        })}</tbody></table></div>
+      </article>
+    </section>}
+  </main>
+}
