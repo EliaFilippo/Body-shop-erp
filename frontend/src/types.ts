@@ -23,9 +23,70 @@ export type VehicleStatus =
 export type PaymentMethod = 'Bonifico' | 'R.I.B.A.' | 'Contanti' | 'POS' | 'Personalizzato'
 export type InvoiceStatus = 'Da incassare' | 'Parzialmente inserita in R.I.B.A.' | 'Inserita in R.I.B.A.' | 'Anticipata' | 'Incassata' | 'Scaduta' | 'Insoluta' | 'Contestata' | 'Stornata'
 export type RibaBatchStatus = 'Bozza' | 'Presentata' | 'Anticipata' | 'Chiusa' | 'Insoluta' | 'Stornata'
+export type QuoteStatus = 'bozza' | 'inviato' | 'accettato' | 'rifiutato'
+export type InvoiceDocumentStatus = 'bozza' | 'emessa' | 'parzialmente pagata' | 'pagata' | 'scaduta'
 export type AcceptanceLineKind = 'labor' | 'parts' | 'consumption' | 'external' | 'other' | 'discount' | 'surcharge'
 export type AcceptanceDocumentSide = 'front' | 'back'
 export type OcrConfidence = 'high' | 'medium' | 'low'
+export type CommunicationChannel = 'email' | 'whatsapp' | 'copy'
+
+export interface DocumentLine {
+  id: string
+  description: string
+  quantity: number
+  unitPrice: number
+  vatRate: number
+  discountRate: number
+  taxableAmount: number
+  vatAmount: number
+  total: number
+}
+
+export interface QuoteDocument {
+  id: string
+  number: string
+  customerId: string
+  vehicleId: string
+  acceptanceId?: string
+  invoiceId?: string
+  issueDate: string
+  dueDate: string
+  status: QuoteStatus
+  lines: DocumentLine[]
+  taxableAmount: number
+  vatAmount: number
+  total: number
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CommunicationEntry {
+  id: string
+  channel: CommunicationChannel
+  documentType: 'preventivo' | 'fattura'
+  documentId: string
+  customerId: string
+  vehicleId?: string
+  message: string
+  target: string
+  createdAt: string
+}
+
+export interface DocumentCounters {
+  quote: number
+  invoice: number
+}
+
+export interface CompanyProfile {
+  name: string
+  vatId: string
+  taxCode: string
+  address: string
+  phone: string
+  email: string
+  logoText: string
+}
 
 export interface Customer {
   id: string
@@ -198,9 +259,13 @@ export interface InvoiceLine {
 export interface Invoice {
   id: string
   customerId: string
+  vehicleId?: string
+  acceptanceId?: string
+  quoteId?: string
   number: string
   issueDate: string
   dueDate: string
+  documentStatus?: InvoiceDocumentStatus
   paymentMethod: PaymentMethod
   lines: InvoiceLine[]
   taxableAmount: number
@@ -394,5 +459,9 @@ export interface ErpData {
   ribaBatches: RibaBatch[]
   financialEvents: FinancialEvent[]
   financeSettings: FinanceSettings
+  quotes?: QuoteDocument[]
+  communications?: CommunicationEntry[]
+  documentCounters?: DocumentCounters
+  companyProfile?: CompanyProfile
   acceptances?: AcceptanceCase[]
 }

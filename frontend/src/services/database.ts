@@ -44,6 +44,16 @@ function normalizeData(value: unknown): ErpData {
   const bankAccounts = Array.isArray(candidate.bankAccounts) ? candidate.bankAccounts.map((item) => ({ ...item })) : []
   const ribaBatches = Array.isArray(candidate.ribaBatches) ? candidate.ribaBatches.map((item) => ({ ...item })) : []
   const financialEvents = Array.isArray(candidate.financialEvents) ? candidate.financialEvents.map((item) => ({ ...item })) : []
+  const quotes = Array.isArray(candidate.quotes) ? candidate.quotes.map((item) => ({ ...item, lines: Array.isArray(item.lines) ? item.lines.map((line) => ({ ...line })) : [] })) : []
+  const communications = Array.isArray(candidate.communications) ? candidate.communications.map((item) => ({ ...item })) : []
+  const documentCounters = {
+    quote: Number(candidate.documentCounters?.quote ?? 0),
+    invoice: Number(candidate.documentCounters?.invoice ?? 0),
+  }
+  const companyProfile = {
+    ...structuredClone(emptyData.companyProfile),
+    ...(candidate.companyProfile && typeof candidate.companyProfile === 'object' ? candidate.companyProfile : {}),
+  } as ErpData['companyProfile']
   const financeSettings = {
     ...structuredClone(emptyData.financeSettings),
     ...(candidate.financeSettings && typeof candidate.financeSettings === 'object' ? candidate.financeSettings : {}),
@@ -62,6 +72,10 @@ function normalizeData(value: unknown): ErpData {
     bankAccounts,
     ribaBatches,
     financialEvents,
+    quotes,
+    communications,
+    documentCounters,
+    companyProfile,
     financeSettings,
   }
   if (Array.isArray(candidate.acceptances)) normalized.acceptances = candidate.acceptances.map((item) => ({ ...item, quote: item.quote ? { ...item.quote, lines: item.quote.lines.map((line) => ({ ...line })) } : item.quote }))
