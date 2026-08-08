@@ -401,15 +401,75 @@ export interface RibaBatch {
 
 export interface FinancialEvent {
   id: string
-  type: 'Fattura emessa' | 'R.I.B.A. presentata' | 'Anticipo bancario' | 'Incasso definitivo' | 'Insoluto' | 'Storno' | 'Uscita prevista'
+  type: 'Fattura emessa' | 'R.I.B.A. presentata' | 'Anticipo bancario' | 'Incasso definitivo' | 'Insoluto' | 'Storno' | 'Uscita prevista' | 'Pagamento uscita'
   date: string
   amount: number
   customerId?: string
   invoiceId?: string
   ribaBatchId?: string
   bankAccountId?: string
+  payableId?: string
+  payableInstallmentId?: string
   note: string
   createdAt: string
+}
+
+export type PayableKind = 'supplier-invoice' | 'f24' | 'planned-outflow'
+export type PayableCategory = 'fornitori' | 'f24-imposte' | 'prelievo-titolare' | 'altre-uscite'
+export type PayableStatus = 'Da pagare' | 'Pagato' | 'Scaduto'
+export type VatDeductibilityMode = 'full' | 'partial' | 'none'
+export type VatQuarterStatus = 'In corso' | 'Da verificare' | 'Confermata dal commercialista' | 'Pagata'
+
+export interface PayableInstallment {
+  id: string
+  installmentNo: number
+  amount: number
+  dueDate: string
+  status: PayableStatus
+  paidAt?: string | null
+  note?: string
+}
+
+export interface PayableEntry {
+  id: string
+  kind: PayableKind
+  category: PayableCategory
+  description: string
+  supplierName?: string
+  invoiceNumber?: string
+  invoiceDate?: string
+  taxableAmount?: number
+  vatAmount?: number
+  vatDeductibilityMode?: VatDeductibilityMode
+  vatDeductibilityPercent?: number
+  totalAmount: number
+  paymentMethod: PaymentMethod | 'F24' | 'Addebito' | 'Altro'
+  dueDate: string
+  referencePeriod?: string
+  accountantNote?: string
+  notes?: string
+  status: PayableStatus
+  installments: PayableInstallment[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VatQuarterAdjustment {
+  id: string
+  note: string
+  amount: number
+  createdAt: string
+}
+
+export interface VatQuarterRecord {
+  quarterKey: string
+  status: VatQuarterStatus
+  confirmedAmount?: number | null
+  confirmedAt?: string | null
+  accountantNote?: string
+  linkedPayableId?: string | null
+  dueDate?: string
+  adjustments: VatQuarterAdjustment[]
 }
 
 export interface FinanceSettings {
@@ -544,7 +604,9 @@ export interface ErpData {
   bankAccounts: BankAccount[]
   ribaBatches: RibaBatch[]
   financialEvents: FinancialEvent[]
+  payables?: PayableEntry[]
   financeSettings: FinanceSettings
+  vatQuarterlyRecords?: VatQuarterRecord[]
   quotes?: QuoteDocument[]
   communications?: CommunicationEntry[]
   documentCounters?: DocumentCounters

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { MoneyInput } from '../../components/MoneyInput'
 import { calculateEconomicGoalSnapshot } from '../../services/economic'
 import type { ErpData, MonthlyGoalRecord, PlannerSettings } from '../../types'
 
@@ -122,12 +123,14 @@ export function MonthlyGoalsSettingsPage({ data, onSave }: { data: ErpData; onSa
     <section className="panel form-grid planner-config">
       <label>Mese di riferimento<select value={selectedMonth} onChange={(event) => openMonth(event.target.value)}>{options.map((month) => <option value={month} key={month}>{month}</option>)}</select></label>
       <label>Modalità obiettivo<div className="segmented"><button className={draft.monthlyRevenueGoalMode !== 'custom' ? 'active' : ''} onClick={() => updateMode('automatic')} type="button">Automatico</button><button className={draft.monthlyRevenueGoalMode === 'custom' ? 'active' : ''} onClick={() => updateMode('custom')} type="button">Personalizzato</button></div></label>
-      <label>Prelievo titolare (€)<input type="number" min="0" value={draft.ownerWithdrawalAmount ?? 3000} onChange={(event) => setDraft({ ...normalizeDraft(draft), ownerWithdrawalAmount: Number(event.target.value) })} /></label>
+      <div className="hint-block"><small><strong>Automatico:</strong> l'obiettivo viene ricalcolato automaticamente in base a spese previste, prelievo titolare e cuscinetto di liquidità.</small><small><strong>Personalizzato:</strong> il titolare stabilisce manualmente l'obiettivo del mese.</small></div>
+      <label>Prelievo titolare (€)<MoneyInput minValue={0} value={draft.ownerWithdrawalAmount ?? 3000} onValueChange={(value) => setDraft({ ...normalizeDraft(draft), ownerWithdrawalAmount: value ?? 0 })} /></label>
       <label>Data prevista prelievo<input type="date" value={draft.ownerWithdrawalPlannedDate ?? new Date().toISOString().slice(0, 10)} onChange={(event) => setDraft({ ...normalizeDraft(draft), ownerWithdrawalPlannedDate: event.target.value })} /></label>
       <label>Cuscinetto sicurezza (%)<input type="number" min="0" max="100" value={draft.economicSafetyMarginPercent ?? 10} onChange={(event) => setDraft({ ...normalizeDraft(draft), economicSafetyMarginPercent: Number(event.target.value) })} /></label>
-      <label>Obiettivo suggerito (€)<input readOnly value={snapshot.suggestedRevenueGoal} /></label>
-      <label>Obiettivo applicato (€)<input readOnly value={snapshot.appliedRevenueGoal} /></label>
-      <label>Override manuale (€)<input type="number" min="0" value={draft.monthlyRevenueGoalMode === 'custom' ? (draft.monthlyRevenueGoalManual ?? draft.monthlyRevenueGoal) : (draft.monthlyRevenueGoalManual ?? snapshot.suggestedRevenueGoal)} onChange={(event) => updateManualGoal(Number(event.target.value))} disabled={draft.monthlyRevenueGoalMode !== 'custom'} /></label>
+      <label>Obiettivo consigliato dal sistema (€)<input readOnly value={snapshot.suggestedRevenueGoal} /></label>
+      <label>Obiettivo effettivo del mese (€)<input readOnly value={snapshot.appliedRevenueGoal} /></label>
+      <label>Imposta obiettivo manuale (€)<MoneyInput allowEmpty minValue={0} value={draft.monthlyRevenueGoalManual ?? null} onValueChange={(value) => updateManualGoal(value ?? 0)} disabled={draft.monthlyRevenueGoalMode !== 'custom'} /></label>
+      <small>{draft.monthlyRevenueGoalMode === 'custom' ? 'Modalità personalizzata attiva: il valore manuale determina l\'obiettivo effettivo del mese.' : 'Modalità automatica attiva: il valore manuale è conservato ma non viene usato nei calcoli.'}</small>
       <label>Fatturato realizzato (€)<input readOnly value={snapshot.revenueRealized} /></label>
       <label>Fabbisogno residuo (€)<input readOnly value={snapshot.residualNeed} /></label>
     </section>
@@ -138,7 +141,7 @@ export function MonthlyGoalsSettingsPage({ data, onSave }: { data: ErpData; onSa
       <div className="economic-grid">
         <div><span>Spese previste</span><strong>{euro(snapshot.plannedCosts)}</strong></div>
         <div><span>Prelievo titolare</span><strong>{euro(snapshot.ownerWithdrawalAmount)}</strong></div>
-        <div><span>Cuscinetto 10%</span><strong>{euro(snapshot.safetyBuffer)}</strong></div>
+        <div><span>Cuscinetto {snapshot.safetyMarginPercent}%</span><strong>{euro(snapshot.safetyBuffer)}</strong></div>
         <div><span>Obiettivo totale</span><strong>{euro(snapshot.appliedRevenueGoal)}</strong></div>
         <div><span>Realizzato</span><strong>{euro(snapshot.revenueRealized)}</strong></div>
         <div><span>Residuo</span><strong>{euro(snapshot.residualNeed)}</strong></div>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ErpData, PlannerSettings, Vehicle } from '../types'
 import { calculateCostLineSummary, calculateEconomicGoalSnapshot, calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateMonthlyGoalProjection, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './economic'
+import { createPayableEntry, markPayableInstallmentPaid } from './finance'
 
 const settings: PlannerSettings = {
   operators: [{ id: 'op', name: 'Filippo', dailyHours: 8, active: true }],
@@ -199,4 +200,199 @@ describe('obiettivo economico', () => {
     expect(snapshot.appliedRevenueGoal).toBe(18000)
     expect(snapshot.suggestedRevenueGoal).toBe(3300)
   })
+
+  it('conteggia solo la rata del mese selezionato nelle spese previste automatiche', () => {
+    const withPayable = createPayableEntry({
+      ...structuredClone(emptyErpData()),
+      plannerSettings: { ...settings, ownerWithdrawalAmount: 3000, economicSafetyMarginPercent: 10 },
+    }, {
+      kind: 'supplier-invoice',
+      category: 'fornitori',
+      description: 'Fattura fornitore rateizzata',
+      supplierName: 'Ricambi SRL',
+      invoiceNumber: 'RF-500',
+      invoiceDate: '2026-08-01',
+      taxableAmount: 6000,
+      vatAmount: 1320.61,
+      totalAmount: 7320.61,
+      paymentMethod: 'Bonifico',
+      dueDate: '2026-08-31',
+      notes: '',
+      installments: [
+        { installmentNo: 1, amount: 2440.2, dueDate: '2026-08-20' },
+        { installmentNo: 2, amount: 2440.2, dueDate: '2026-09-20' },
+        { installmentNo: 3, amount: 2440.21, dueDate: '2026-10-20' },
+      ],
+    })
+
+    const august = calculateEconomicGoalSnapshot(withPayable, '2026-08-01')
+    const september = calculateEconomicGoalSnapshot(withPayable, '2026-09-01')
+    const october = calculateEconomicGoalSnapshot(withPayable, '2026-10-01')
+
+    expect(august.plannedCosts).toBe(2440.2)
+    expect(september.plannedCosts).toBe(2440.2)
+    expect(october.plannedCosts).toBe(2440.21)
+
+    expect(august.baseNeed).toBe(5440.2)
+    expect(august.safetyBuffer).toBe(544.02)
+    expect(august.suggestedRevenueGoal).toBe(5984.22)
+  })
+
+  it('esclude rate già pagate dal fabbisogno residuo del mese', () => {
+    const created = createPayableEntry({
+      ...structuredClone(emptyErpData()),
+      plannerSettings: { ...settings, ownerWithdrawalAmount: 0, economicSafetyMarginPercent: 10 },
+    }, {
+      kind: 'supplier-invoice',
+      category: 'fornitori',
+      description: 'Fattura pagata',
+      supplierName: 'Ricambi SRL',
+      invoiceNumber: 'RF-501',
+      invoiceDate: '2026-08-01',
+      taxableAmount: 1000,
+      vatAmount: 220,
+      totalAmount: 1220,
+      paymentMethod: 'Bonifico',
+      dueDate: '2026-08-31',
+      notes: '',
+      installments: [{ installmentNo: 1, amount: 1220, dueDate: '2026-08-20' }],
+    })
+    const payable = created.payables?.[0]
+    if (!payable) throw new Error('Missing payable in test fixture')
+
+    const paid = markPayableInstallmentPaid(created, {
+      payableId: payable.id,
+      installmentId: payable.installments[0].id,
+      paymentDate: '2026-08-10',
+    })
+
+    const snapshot = calculateEconomicGoalSnapshot(paid, '2026-08-01')
+    expect(snapshot.plannedCosts).toBe(0)
+  })
+
+  it('conteggia F24 rateizzato per sola rata del mese e senza doppio conteggio documento/rate', () => {
+    const data = createPayableEntry({
+      ...structuredClone(emptyErpData()),
+      plannerSettings: { ...settings, ownerWithdrawalAmount: 0, economicSafetyMarginPercent: 10 },
+    }, {
+      kind: 'f24',
+      category: 'f24-imposte',
+      description: 'F24 agosto',
+      totalAmount: 12000,
+      paymentMethod: 'F24',
+      dueDate: '2026-08-31',
+      referencePeriod: '2026-08',
+      notes: '',
+      installments: [
+        { installmentNo: 1, amount: 2000, dueDate: '2026-08-16' },
+        { installmentNo: 2, amount: 2000, dueDate: '2026-09-16' },
+        { installmentNo: 3, amount: 2000, dueDate: '2026-10-16' },
+        { installmentNo: 4, amount: 2000, dueDate: '2026-11-16' },
+        { installmentNo: 5, amount: 2000, dueDate: '2026-12-16' },
+        { installmentNo: 6, amount: 2000, dueDate: '2027-01-16' },
+      ],
+    })
+
+    const snapshot = calculateEconomicGoalSnapshot(data, '2026-08-01')
+    expect(snapshot.plannedCosts).toBe(2000)
+  })
+
+  it('mantiene il prelievo titolare separato e non duplicato con uscite pianificate', () => {
+    const data = createPayableEntry({
+      ...structuredClone(emptyErpData()),
+      plannerSettings: { ...settings, ownerWithdrawalAmount: 3000, economicSafetyMarginPercent: 10 },
+    }, {
+      kind: 'planned-outflow',
+      category: 'prelievo-titolare',
+      description: 'Prelievo registrato come promemoria',
+      totalAmount: 3000,
+      paymentMethod: 'Bonifico',
+      dueDate: '2026-08-20',
+      notes: '',
+      installments: [{ installmentNo: 1, amount: 3000, dueDate: '2026-08-20' }],
+    })
+
+    const snapshot = calculateEconomicGoalSnapshot(data, '2026-08-01')
+    expect(snapshot.plannedCosts).toBe(0)
+    expect(snapshot.ownerWithdrawalAmount).toBe(3000)
+    expect(snapshot.baseNeed).toBe(3000)
+  })
+
+  it('in modalità personalizzato non sovrascrive l’obiettivo manuale anche con rate presenti', () => {
+    const withPayable = createPayableEntry({
+      ...structuredClone(emptyErpData()),
+      plannerSettings: {
+        ...settings,
+        monthlyRevenueGoalMode: 'custom',
+        monthlyRevenueGoalManual: 18000,
+        monthlyRevenueGoal: 18000,
+        ownerWithdrawalAmount: 3000,
+        economicSafetyMarginPercent: 10,
+      },
+    }, {
+      kind: 'supplier-invoice',
+      category: 'fornitori',
+      description: 'Fattura fornitore',
+      supplierName: 'Ricambi SRL',
+      invoiceNumber: 'RF-600',
+      invoiceDate: '2026-08-01',
+      taxableAmount: 6000,
+      vatAmount: 1320.61,
+      totalAmount: 7320.61,
+      paymentMethod: 'Bonifico',
+      dueDate: '2026-08-31',
+      notes: '',
+      installments: [
+        { installmentNo: 1, amount: 2440.2, dueDate: '2026-08-20' },
+        { installmentNo: 2, amount: 2440.2, dueDate: '2026-09-20' },
+        { installmentNo: 3, amount: 2440.21, dueDate: '2026-10-20' },
+      ],
+    })
+
+    const snapshot = calculateEconomicGoalSnapshot(withPayable, '2026-08-01')
+    expect(snapshot.mode).toBe('custom')
+    expect(snapshot.customRevenueGoal).toBe(18000)
+    expect(snapshot.appliedRevenueGoal).toBe(18000)
+  })
+})
+
+const emptyErpData = (): ErpData => ({
+  customers: [],
+  vehicles: [],
+  coneHistory: [],
+  plannerSettings: structuredClone(settings),
+  plannerAssignments: [],
+  invoices: [],
+  bankAccounts: [],
+  ribaBatches: [],
+  financialEvents: [],
+  payables: [],
+  quotes: [],
+  communications: [],
+  documentCounters: { quote: 0, invoice: 0 },
+  companyProfile: {
+    name: 'ELIAS BODY SHOP',
+    vatId: '',
+    taxCode: '',
+    address: '',
+    phone: '',
+    email: '',
+    logoText: 'ELIAS',
+  },
+  production: {
+    jobs: [],
+    phaseHistory: [],
+    workLogs: [],
+    reports: [],
+    identities: [{ role: 'production', operatorId: 'tablet-operator', operatorName: 'Operatore Produzione' }],
+  },
+  financeSettings: {
+    defaultVatRate: 22,
+    defaultPaymentDays: 30,
+    minimumProjectedBalance: 0,
+    laborHourlyCost: 45,
+    laborHoursBase: 'effettive',
+    laborOperatorById: {},
+    marginThresholds: { positive: 15, low: 5, breakEven: 0 },
+  },
 })

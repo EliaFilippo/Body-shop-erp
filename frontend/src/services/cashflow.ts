@@ -1,6 +1,7 @@
 import type { ErpData } from '../types'
 import { invoiceDocumentStatus } from './documents'
 import { calculateOwnerWithdrawalSnapshot } from './finance'
+import { calculateVatQuarterOutflows } from './vatQuarterly'
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
 const dayMs = 86400000
@@ -61,7 +62,7 @@ export interface CreditFilter {
 
 export interface CalendarEvent {
   id: string
-  type: 'delivery' | 'invoice-due' | 'riba-due' | 'payment-expected' | 'response-needed' | 'owner-withdrawal'
+  type: 'delivery' | 'invoice-due' | 'riba-due' | 'payment-expected' | 'response-needed' | 'owner-withdrawal' | 'payable-due' | 'vat-quarter'
   title: string
   date: string
   status: 'scaduto' | 'oggi' | 'imminente' | 'futuro'
@@ -73,6 +74,7 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
   const baseLiquidity = data.bankAccounts.length ? round(data.bankAccounts.reduce((sum, item) => sum + item.currentBalance, 0)) : null
   const openInvoices = data.invoices.filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status))
   const ownerWithdrawal = calculateOwnerWithdrawalSnapshot(data, referenceDate)
+  const vatQuarterOutflows = calculateVatQuarterOutflows(data)
 
   const invoicesWithResidual = openInvoices.map((invoice) => ({
     invoice,
@@ -96,8 +98,15 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
     const expectedEvents = data.financialEvents
       .filter((event) => event.type === 'Uscita prevista' && event.date >= referenceDate && event.date <= end)
       .reduce((sum, event) => sum + event.amount, 0)
+    const payableInstallments = (data.payables ?? [])
+      .flatMap((payable) => payable.installments.map((installment) => ({ payable, installment })))
+      .filter(({ installment }) => installment.status !== 'Pagato' && installment.dueDate >= referenceDate && installment.dueDate <= end)
+      .reduce((sum, { installment }) => sum + installment.amount, 0)
     const ownerWithdrawalOutflow = ownerWithdrawal.plannedDate >= referenceDate && ownerWithdrawal.plannedDate <= end ? ownerWithdrawal.amount : 0
-    return round(plannedCosts + expectedEvents + ownerWithdrawalOutflow)
+    const vatOutflow = vatQuarterOutflows
+      .filter((item) => item.dueDate >= referenceDate && item.dueDate <= end)
+      .reduce((sum, item) => sum + item.amount, 0)
+    return round(plannedCosts + expectedEvents + payableInstallments + ownerWithdrawalOutflow + vatOutflow)
   }
 
   const windows: CashFlowWindow[] = [30, 60, 90].map((days) => {
@@ -205,6 +214,7 @@ export function buildCalendarEvents(data: ErpData, referenceDate = todayKey(), v
   const limitDays = view === 'giorno' ? 0 : view === 'settimana' ? 7 : 31
   const endDate = addDays(referenceDate, limitDays)
   const ownerWithdrawal = calculateOwnerWithdrawalSnapshot(data, referenceDate)
+  const vatQuarterOutflows = calculateVatQuarterOutflows(data)
 
   const events: CalendarEvent[] = []
 
@@ -268,6 +278,33 @@ export function buildCalendarEvents(data: ErpData, referenceDate = todayKey(), v
       amount: round(ownerWithdrawal.amount),
     })
   }
+
+  ;(data.payables ?? [])
+    .flatMap((payable) => payable.installments.map((installment) => ({ payable, installment })))
+    .filter(({ installment }) => installment.status !== 'Pagato' && installment.dueDate >= referenceDate && installment.dueDate <= endDate)
+    .forEach(({ payable, installment }) => {
+      events.push({
+        id: `payable-${payable.id}-${installment.id}`,
+        type: 'payable-due',
+        title: `${payable.kind === 'f24' ? 'F24' : 'Pagamento'} ${payable.description}`,
+        date: installment.dueDate,
+        status: calendarStatus(installment.dueDate, referenceDate),
+        amount: round(installment.amount),
+      })
+    })
+
+  vatQuarterOutflows
+    .filter((item) => item.dueDate >= referenceDate && item.dueDate <= endDate)
+    .forEach((item) => {
+      events.push({
+        id: `vat-quarter-${item.quarterKey}`,
+        type: 'vat-quarter',
+        title: `IVA trimestrale ${item.quarterKey}`,
+        date: item.dueDate,
+        status: calendarStatus(item.dueDate, referenceDate),
+        amount: round(item.amount),
+      })
+    })
 
   ;(data.quotes ?? [])
     .filter((quote) => quote.status === 'inviato' && quote.dueDate >= referenceDate && quote.dueDate <= endDate)

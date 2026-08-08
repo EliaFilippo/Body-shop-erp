@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MoneyInput } from '../../components/MoneyInput'
 import type { PlannerAbsence, PlannerOperator, PlannerSettings } from '../../types'
 
 const dayLabels = [{ value: 1, label: 'Lun' }, { value: 2, label: 'Mar' }, { value: 3, label: 'Mer' }, { value: 4, label: 'Gio' }, { value: 5, label: 'Ven' }, { value: 6, label: 'Sab' }, { value: 0, label: 'Dom' }]
@@ -43,8 +44,8 @@ export function PlannerSettingsPage({ settings, onSave }: { settings: PlannerSet
       <fieldset><legend>Giorni lavorativi</legend><div className="day-picker">{dayLabels.map((day) => <label className={draft.workingDays.includes(day.value) ? 'selected' : ''} key={day.value}><input type="checkbox" checked={draft.workingDays.includes(day.value)} onChange={() => setDraft((value) => ({ ...value, workingDays: value.workingDays.includes(day.value) ? value.workingDays.filter((item) => item !== day.value) : [...value.workingDays, day.value] }))} />{day.label}</label>)}</div></fieldset>
       <label>Efficienza programmata (%)<input type="number" min="1" max="100" value={draft.efficiencyPercent} onChange={(event) => setDraft({ ...draft, efficiencyPercent: Number(event.target.value) })} /></label>
       <label>Margine di sicurezza (%)<input type="number" min="0" max="99" value={draft.safetyMarginPercent} onChange={(event) => setDraft({ ...draft, safetyMarginPercent: Number(event.target.value) })} /></label>
-      <label>Obiettivo fatturato mensile (€)<input type="number" min="0" value={draft.monthlyRevenueGoal} onChange={(event) => setDraft({ ...draft, monthlyRevenueGoal: Number(event.target.value) })} /></label>
-      <label>Obiettivo margine mensile (€)<input type="number" min="0" value={draft.monthlyMarginGoal ?? ''} onChange={(event) => setDraft({ ...draft, monthlyMarginGoal: event.target.value ? Number(event.target.value) : null })} /></label>
+      <label>Obiettivo fatturato mensile (€)<MoneyInput minValue={0} value={draft.monthlyRevenueGoal} onValueChange={(value) => setDraft({ ...draft, monthlyRevenueGoal: value ?? 0 })} /></label>
+      <label>Obiettivo margine mensile (€)<MoneyInput allowEmpty minValue={0} value={draft.monthlyMarginGoal ?? null} onValueChange={(value) => setDraft({ ...draft, monthlyMarginGoal: value })} /></label>
       <label>Festività (una data per riga)<textarea value={draft.holidays.join('\n')} onChange={(event) => setDraft({ ...draft, holidays: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean) })} placeholder="2026-08-15" /></label>
       <label>Chiusure aziendali (una data per riga)<textarea value={draft.closures.join('\n')} onChange={(event) => setDraft({ ...draft, closures: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean) })} placeholder="2026-08-17" /></label>
     </section>

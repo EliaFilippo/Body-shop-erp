@@ -52,6 +52,35 @@ function normalizeData(value: unknown): ErpData {
   const bankAccounts = Array.isArray(candidate.bankAccounts) ? candidate.bankAccounts.map((item) => ({ ...item })) : []
   const ribaBatches = Array.isArray(candidate.ribaBatches) ? candidate.ribaBatches.map((item) => ({ ...item })) : []
   const financialEvents = Array.isArray(candidate.financialEvents) ? candidate.financialEvents.map((item) => ({ ...item })) : []
+  const payables = Array.isArray(candidate.payables)
+    ? candidate.payables.map((item) => ({
+        ...item,
+        vatDeductibilityMode: item.vatDeductibilityMode ?? 'full',
+        vatDeductibilityPercent: item.vatDeductibilityMode === 'none'
+          ? 0
+          : item.vatDeductibilityMode === 'partial'
+            ? Number(item.vatDeductibilityPercent ?? 0)
+            : Number(item.vatDeductibilityPercent ?? 100),
+        installments: Array.isArray(item.installments) ? item.installments.map((installment) => ({ ...installment })) : [],
+      }))
+    : []
+  const vatQuarterlyRecords = Array.isArray(candidate.vatQuarterlyRecords)
+    ? candidate.vatQuarterlyRecords.map((record) => ({
+        quarterKey: String(record.quarterKey ?? ''),
+        status: record.status ?? 'In corso',
+        confirmedAmount: record.confirmedAmount == null ? null : Number(record.confirmedAmount),
+        confirmedAt: record.confirmedAt ?? null,
+        accountantNote: record.accountantNote ?? '',
+        linkedPayableId: record.linkedPayableId ?? null,
+        dueDate: record.dueDate,
+        adjustments: Array.isArray(record.adjustments)
+          ? record.adjustments.map((adjustment) => ({
+              ...adjustment,
+              amount: Number(adjustment.amount ?? 0),
+            }))
+          : [],
+      })).filter((record) => record.quarterKey)
+    : []
   const quotes = Array.isArray(candidate.quotes) ? candidate.quotes.map((item) => ({ ...item, lines: Array.isArray(item.lines) ? item.lines.map((line) => ({ ...line })) : [] })) : []
   const communications = Array.isArray(candidate.communications) ? candidate.communications.map((item) => ({ ...item })) : []
   const documentCounters = {
@@ -89,6 +118,8 @@ function normalizeData(value: unknown): ErpData {
     bankAccounts,
     ribaBatches,
     financialEvents,
+    payables,
+    vatQuarterlyRecords,
     quotes,
     communications,
     documentCounters,

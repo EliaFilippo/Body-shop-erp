@@ -35,6 +35,8 @@ export const emptyData: ErpData = {
   bankAccounts: [],
   ribaBatches: [],
   financialEvents: [],
+  payables: [],
+  vatQuarterlyRecords: [],
   quotes: [],
   communications: [],
   documentCounters: {

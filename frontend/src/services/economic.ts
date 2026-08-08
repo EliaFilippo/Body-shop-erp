@@ -1,5 +1,6 @@
 import type { ErpData, FinanceSettings, PlannerSettings, Vehicle } from '../types'
 import { addDays, isWorkingDay, remainingHours, todayKey } from './planner'
+import { calculateVatQuarterOutflows } from './vatQuarterly'
 
 export type EconomicGoalMode = 'automatic' | 'custom'
 
@@ -138,6 +139,16 @@ const sumVehicleCostsInMonth = (vehicles: Vehicle[], monthKey: string) => vehicl
 
 const sumPlannedCostsInMonth = (events: ErpData['financialEvents'], monthKey: string) => events.filter((event) => event.type === 'Uscita prevista' && event.date.startsWith(monthKey)).reduce((sum, event) => sum + event.amount, 0)
 
+const sumPayablesResidualInMonth = (payables: NonNullable<ErpData['payables']>, monthStart: string, monthEnd: string) => payables
+  .filter((payable) => payable.category !== 'prelievo-titolare')
+  .reduce((sum, payable) => sum + payable.installments
+    .filter((installment) => installment.status !== 'Pagato' && installment.dueDate >= monthStart && installment.dueDate <= monthEnd)
+    .reduce((lineSum, installment) => lineSum + installment.amount, 0), 0)
+
+const sumVatQuarterOutflowsInMonth = (data: ErpData, monthStart: string, monthEnd: string) => calculateVatQuarterOutflows(data)
+  .filter((item) => item.dueDate >= monthStart && item.dueDate <= monthEnd)
+  .reduce((sum, item) => sum + item.amount, 0)
+
 const sumRealizedRevenueInMonth = (invoices: ErpData['invoices'], monthKey: string) => invoices.filter((invoice) => invoice.issueDate.startsWith(monthKey)).reduce((sum, invoice) => sum + invoice.total, 0)
 
 const clampDay = (value: number, maxDay: number) => Math.max(1, Math.min(maxDay, value))
@@ -154,9 +165,14 @@ export function calculateEconomicGoalSnapshot(data: ErpData, referenceDate = tod
   const settings = data.plannerSettings
   const { monthKey, monthStart, monthEnd } = monthBounds(referenceDate)
   const realCosts = round(sumVehicleCostsInMonth(data.vehicles, monthKey))
-  const plannedCosts = round(sumPlannedCostsInMonth(data.financialEvents, monthKey))
+  const plannedFromEvents = sumPlannedCostsInMonth(data.financialEvents, monthKey)
+  const plannedFromPayables = sumPayablesResidualInMonth(data.payables ?? [], monthStart, monthEnd)
+  const plannedFromVatQuarter = sumVatQuarterOutflowsInMonth(data, monthStart, monthEnd)
+  const plannedCosts = round(plannedFromEvents + plannedFromPayables + plannedFromVatQuarter)
   const revenueRealized = round(sumRealizedRevenueInMonth(data.invoices, monthKey))
-  const ownerWithdrawalAmount = round(Math.max(0, Number(settings.ownerWithdrawalAmount ?? 0)))
+  const ownerWithdrawalAmount = settings.ownerWithdrawalSettledMonthKey === monthKey
+    ? 0
+    : round(Math.max(0, Number(settings.ownerWithdrawalAmount ?? 0)))
   const ownerWithdrawalPlannedDate = ownerWithdrawalPlannedDateForMonth(settings, referenceDate)
   const baseNeed = round(plannedCosts + ownerWithdrawalAmount)
   const safetyMarginPercent = Math.max(0, Number(settings.economicSafetyMarginPercent ?? 10))

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ErpData, Vehicle } from '../types'
 import { buildCalendarEvents, calculateCashFlowSnapshot, calculateCreditControl } from './cashflow'
 import { emptyData } from './erp'
+import { setVatQuarterConfirmation } from './finance'
 
 const vehicle = (id: string, customerId: string): Vehicle => ({
   id,
@@ -164,5 +165,19 @@ describe('cashflow and credit control', () => {
     expect(events.some((event) => event.type === 'payment-expected')).toBe(true)
     expect(events.some((event) => event.type === 'riba-due')).toBe(true)
     expect(events.some((event) => event.type === 'response-needed')).toBe(true)
+  })
+
+  it('integra IVA trimestrale confermata nel cash flow e nel calendario', () => {
+    const data = setVatQuarterConfirmation(baseData(), {
+      quarterKey: '2026-Q1',
+      confirmedAmount: 500,
+      dueDate: '2026-05-16',
+    })
+
+    const snapshot = calculateCashFlowSnapshot(data, '2026-05-01')
+    const events = buildCalendarEvents(data, '2026-05-01', 'mese')
+
+    expect(snapshot.windows[0].outflow).toBe(500)
+    expect(events.some((event) => event.type === 'vat-quarter' && event.amount === 500)).toBe(true)
   })
 })

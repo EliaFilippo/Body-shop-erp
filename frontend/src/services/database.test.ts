@@ -17,6 +17,7 @@ const data: ErpData = {
   bankAccounts: [],
   ribaBatches: [],
   financialEvents: [],
+  payables: [],
   quotes: [],
   communications: [],
   documentCounters: { quote: 0, invoice: 0 },

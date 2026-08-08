@@ -1,8 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Modal } from '../../components/Modal'
-import type { Customer, ErpData, PaymentMethod, QuoteStatus, RibaBatch, Vehicle } from '../../types'
-import { calculateOwnerWithdrawalSnapshot, createInvoice, createRibaBatch, invoiceResidual, markOwnerWithdrawalSettled, markRibaInsolvent, registerRibaAdvance, settleRibaBatch, updateOwnerWithdrawal } from '../../services/finance'
+import { MoneyInput } from '../../components/MoneyInput'
+import { parseMoneyDraft, sanitizeMoneyDraft } from '../../components/money'
+import type { Customer, ErpData, PayableCategory, PayableEntry, PayableInstallment, PayableKind, PaymentMethod, QuoteStatus, RibaBatch, VatDeductibilityMode, Vehicle } from '../../types'
+import {
+  addVatQuarterAdjustment,
+  calculateInvoiceTotalWithVat,
+  calculateOwnerWithdrawalSnapshot,
+  calculateVatAmount,
+  createInvoice,
+  createPayableEntry,
+  createRibaBatch,
+  createVatQuarterF24Payable,
+  invoiceResidual,
+  linkVatQuarterToPayable,
+  markOwnerWithdrawalSettled,
+  markPayableInstallmentPaid,
+  markRibaInsolvent,
+  payableResidual,
+  registerRibaAdvance,
+  setVatQuarterConfirmation,
+  setVatQuarterStatus,
+  settleRibaBatch,
+  splitAmountAcrossInstallments,
+  updateOwnerWithdrawal,
+  updatePayableEntry,
+  type PayableInput,
+} from '../../services/finance'
 import { CustomerFinanceDetail } from './CustomerFinanceDetail'
 import {
   buildDocumentPrintHtml,
@@ -15,12 +40,212 @@ import {
   syncInvoiceDocumentStatuses,
   updateQuoteStatus,
 } from '../../services/documents'
-import { buildCalendarEvents, calculateCashFlowSnapshot, calculateCreditControl } from '../../services/cashflow'
+import { buildCalendarEvents, calculateCreditControl } from '../../services/cashflow'
 import { calculateEconomicGoalSnapshot } from '../../services/economic'
+import { calculateVatQuarterDetail, calculateVatQuarterOutflows, calculateVatQuarterSnapshot, listVatQuarterKeysForYear } from '../../services/vatQuarterly'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const today = () => new Date().toISOString().slice(0, 10)
 const dayDiff = (from: string, to: string) => Math.ceil((new Date(`${to}T12:00:00`).getTime() - new Date(`${from}T12:00:00`).getTime()) / 86400000)
+const addDaysKey = (value: string, days: number) => {
+  const date = new Date(`${value}T12:00:00`)
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+type VatPreset = '22' | '10' | '5' | '4' | '0' | 'custom'
+type VatDetailFilter = 'all' | 'issued' | 'received' | 'adjustments'
+
+const vatPresetFromRate = (rate: number): VatPreset => {
+  const normalized = round(Math.max(0, Number(rate) || 0))
+  if (normalized === 22) return '22'
+  if (normalized === 10) return '10'
+  if (normalized === 5) return '5'
+  if (normalized === 4) return '4'
+  if (normalized === 0) return '0'
+  return 'custom'
+}
+
+type OutflowCategory = 'fornitori' | 'f24-imposte' | 'prelievo-titolare' | 'altri-costi'
+
+type LiquidityPoint = {
+  date: string
+  label: string
+  balance: number
+  inflow: number
+  outflow: number
+}
+
+type OutflowEntry = {
+  date: string
+  amount: number
+  label: string
+  category: OutflowCategory
+  kind: 'financial-event' | 'vehicle-cost' | 'owner-withdrawal' | 'payable-installment'
+}
+
+type LiquidityProjection = {
+  points: LiquidityPoint[]
+  outflows: OutflowEntry[]
+  totalInflow: number
+  totalOutflow: number
+  minPoint: LiquidityPoint | null
+}
+
+const categoryLabel: Record<OutflowCategory, string> = {
+  fornitori: 'Fornitori',
+  'f24-imposte': 'F24 / Imposte',
+  'prelievo-titolare': 'Prelievo titolare',
+  'altri-costi': 'Altri costi',
+}
+
+const resolveOutflowCategory = (rawLabel: string) => {
+  const value = rawLabel.toLowerCase()
+  if (value.includes('iva') || value.includes('impost') || value.includes('f24') || value.includes('contribut')) return 'f24-imposte' as const
+  if (value.includes('fornitor') || value.includes('ricamb') || value.includes('material')) return 'fornitori' as const
+  return 'altri-costi' as const
+}
+
+const mapPayableCategory = (category: PayableCategory): OutflowCategory => {
+  if (category === 'fornitori') return 'fornitori'
+  if (category === 'f24-imposte') return 'f24-imposte'
+  if (category === 'prelievo-titolare') return 'prelievo-titolare'
+  return 'altri-costi'
+}
+
+const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typeof calculateOwnerWithdrawalSnapshot>, horizonDays: 7 | 30 | 60 | 90, referenceDate = today()): LiquidityProjection => {
+  const endDate = addDaysKey(referenceDate, horizonDays)
+  const startBalance = data.bankAccounts.reduce((sum, account) => sum + account.currentBalance, 0)
+  const vatQuarterOutflows = calculateVatQuarterOutflows(data)
+  const inflowByDate = new Map<string, number>()
+  const outflowByDate = new Map<string, number>()
+  const outflowEntries: OutflowEntry[] = []
+
+  const addInflow = (date: string, amount: number) => {
+    inflowByDate.set(date, round((inflowByDate.get(date) ?? 0) + amount))
+  }
+  const addOutflow = (entry: OutflowEntry) => {
+    outflowByDate.set(entry.date, round((outflowByDate.get(entry.date) ?? 0) + entry.amount))
+    outflowEntries.push(entry)
+  }
+
+  data.invoices
+    .filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status))
+    .forEach((invoice) => {
+      const residual = round(Math.max(0, invoice.total - invoice.collectedAmount))
+      if (!residual) return
+      if (invoice.dueDate < referenceDate || invoice.dueDate > endDate) return
+      addInflow(invoice.dueDate, residual)
+    })
+
+  data.financialEvents
+    .filter((event) => event.type === 'Uscita prevista' && event.date >= referenceDate && event.date <= endDate)
+    .forEach((event) => {
+      const amount = round(Math.max(0, event.amount))
+      if (!amount) return
+      addOutflow({
+        date: event.date,
+        amount,
+        label: event.note || 'Uscita prevista',
+        category: resolveOutflowCategory(event.note || 'Uscita prevista'),
+        kind: 'financial-event',
+      })
+    })
+
+  data.vehicles.forEach((vehicle) => {
+    ;(vehicle.costEntries ?? [])
+      .filter((entry) => !!entry.usedAt)
+      .forEach((entry) => {
+        const date = entry.usedAt.slice(0, 10)
+        if (date < referenceDate || date > endDate) return
+        const amount = round(Math.max(0, entry.total || 0))
+        if (!amount) return
+        addOutflow({
+          date,
+          amount,
+          label: entry.description || entry.category || 'Costo lavorazione',
+          category: resolveOutflowCategory(`${entry.category || ''} ${entry.description || ''}`),
+          kind: 'vehicle-cost',
+        })
+      })
+  })
+
+  ;(data.payables ?? [])
+    .flatMap((payable) => payable.installments.map((installment) => ({ payable, installment })))
+    .filter(({ installment }) => installment.status !== 'Pagato')
+    .forEach(({ payable, installment }) => {
+      const date = installment.dueDate
+      if (date < referenceDate || date > endDate) return
+      addOutflow({
+        date,
+        amount: round(Math.max(0, installment.amount)),
+        label: `${payable.kind === 'f24' ? 'F24' : 'Pagamento'} ${payable.description}`,
+        category: mapPayableCategory(payable.category),
+        kind: 'payable-installment',
+      })
+    })
+
+  vatQuarterOutflows.forEach((entry) => {
+    if (entry.dueDate < referenceDate || entry.dueDate > endDate) return
+    addOutflow({
+      date: entry.dueDate,
+      amount: round(Math.max(0, entry.amount)),
+      label: `IVA trimestrale ${entry.quarterKey}`,
+      category: 'f24-imposte',
+      kind: 'financial-event',
+    })
+  })
+
+  if (ownerWithdrawal.plannedDate >= referenceDate && ownerWithdrawal.plannedDate <= endDate && ownerWithdrawal.amount > 0) {
+    addOutflow({
+      date: ownerWithdrawal.plannedDate,
+      amount: round(ownerWithdrawal.amount),
+      label: 'Prelievo titolare',
+      category: 'prelievo-titolare',
+      kind: 'owner-withdrawal',
+    })
+  }
+
+  let running = round(startBalance)
+  const points: LiquidityPoint[] = []
+  let totalInflow = 0
+  let totalOutflow = 0
+  for (let day = 0; day <= horizonDays; day += 1) {
+    const date = addDaysKey(referenceDate, day)
+    const inflow = round(inflowByDate.get(date) ?? 0)
+    const outflow = round(outflowByDate.get(date) ?? 0)
+    totalInflow = round(totalInflow + inflow)
+    totalOutflow = round(totalOutflow + outflow)
+    running = round(running + inflow - outflow)
+    points.push({
+      date,
+      label: day === 0 ? 'Oggi' : date.slice(5),
+      balance: running,
+      inflow,
+      outflow,
+    })
+  }
+
+  const minPoint = points.reduce<LiquidityPoint | null>((min, point) => {
+    if (!min) return point
+    return point.balance < min.balance ? point : min
+  }, null)
+
+  return {
+    points,
+    outflows: outflowEntries.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount),
+    totalInflow,
+    totalOutflow,
+    minPoint,
+  }
+}
+
+const weekBucket = (dateValue: string) => {
+  const date = new Date(`${dateValue}T12:00:00`)
+  const day = date.getDay() || 7
+  date.setDate(date.getDate() - (day - 1))
+  return date.toISOString().slice(0, 10)
+}
 
 const paymentMethods: PaymentMethod[] = ['Bonifico', 'R.I.B.A.', 'Contanti', 'POS', 'Personalizzato']
 
@@ -37,6 +262,10 @@ type CommunicationDraft = {
 type FinanceModalState =
   | { type: 'company-profile' }
   | { type: 'owner-withdrawal' }
+  | { type: 'payable-supplier-create' }
+  | { type: 'payable-f24-create' }
+  | { type: 'payable-other-create' }
+  | { type: 'payable-edit'; payableId: string }
   | { type: 'quote-create'; vehicleId: string }
   | { type: 'quote-convert'; quoteId: string }
   | { type: 'customer-terms'; customerId: string }
@@ -55,23 +284,110 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [calendarView, setCalendarView] = useState<'giorno' | 'settimana' | 'mese'>('mese')
   const [creditState, setCreditState] = useState<'all' | 'critical' | 'regular'>('all')
+  const [liquidityRange, setLiquidityRange] = useState<7 | 30 | 60 | 90>(30)
+  const [flowAggregation, setFlowAggregation] = useState<'settimana' | 'mese'>('settimana')
   const [modal, setModal] = useState<FinanceModalState | null>(null)
+  const [vatYear, setVatYear] = useState(new Date().getFullYear())
+  const [vatQuarter, setVatQuarter] = useState<1 | 2 | 3 | 4>(Math.floor((new Date().getMonth()) / 3 + 1) as 1 | 2 | 3 | 4)
+  const [vatConfirmedDraft, setVatConfirmedDraft] = useState(0)
+  const [vatAccountantNoteDraft, setVatAccountantNoteDraft] = useState('')
+  const [vatAdjustmentAmountDraft, setVatAdjustmentAmountDraft] = useState(0)
+  const [vatAdjustmentNoteDraft, setVatAdjustmentNoteDraft] = useState('')
+  const [vatLinkPayableId, setVatLinkPayableId] = useState('')
+  const [vatInstallmentsCount, setVatInstallmentsCount] = useState(1)
+  const [vatDetailFilter, setVatDetailFilter] = useState<VatDetailFilter>('all')
 
   const toInvoice = data.vehicles.filter((vehicle) => vehicle.billingStatus === 'Da fatturare' && !vehicle.invoiceId)
   const openInvoices = data.invoices.filter((invoice) => invoice.status !== 'Incassata' && invoice.status !== 'Stornata')
   const quotes = data.quotes ?? []
   const communications = data.communications ?? []
-  const totalCredits = openInvoices.reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
-  const totalRiba = data.ribaBatches.filter((batch) => !['Chiusa', 'Stornata'].includes(batch.status)).reduce((sum, batch) => sum + batch.total, 0)
-  const totalAdvanced = data.ribaBatches.filter((batch) => batch.status === 'Anticipata').reduce((sum, batch) => sum + batch.advancedAmount, 0)
   const overdue = openInvoices.filter((invoice) => invoice.dueDate < today()).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
-  const quotePending = quotes.filter((quote) => ['bozza', 'inviato'].includes(quote.status)).length
-  const quoteAccepted = quotes.filter((quote) => quote.status === 'accettato').length
-  const cashflow = useMemo(() => calculateCashFlowSnapshot(data), [data])
   const economicGoal = useMemo(() => calculateEconomicGoalSnapshot(data), [data])
   const ownerWithdrawal = useMemo(() => calculateOwnerWithdrawalSnapshot(data), [data])
+  const liquidityProjection = useMemo(() => buildLiquidityProjection(data, ownerWithdrawal, liquidityRange), [data, ownerWithdrawal, liquidityRange])
+  const liquidityProjection30 = useMemo(() => buildLiquidityProjection(data, ownerWithdrawal, 30), [data, ownerWithdrawal])
   const creditRows = useMemo(() => calculateCreditControl(data, { state: creditState }), [data, creditState])
   const calendarEvents = useMemo(() => buildCalendarEvents(data, today(), calendarView), [data, calendarView])
+  const payables = data.payables ?? []
+  const supplierPayables = payables.filter((item) => item.kind === 'supplier-invoice')
+  const f24Payables = payables.filter((item) => item.kind === 'f24')
+  const plannedOutflows = payables.filter((item) => item.kind === 'planned-outflow')
+  const vatF24Candidates = f24Payables.filter((item) => item.status !== 'Pagato')
+  const vatQuarterKeys = useMemo(() => listVatQuarterKeysForYear(data, vatYear), [data, vatYear])
+  const vatQuarterKey = `${vatYear}-Q${vatQuarter}`
+  const vatQuarterSnapshot = useMemo(() => calculateVatQuarterSnapshot(data, vatQuarterKey), [data, vatQuarterKey])
+  const vatQuarterDetail = useMemo(() => calculateVatQuarterDetail(data, vatQuarterKey), [data, vatQuarterKey])
+  const payableRows = payables.flatMap((payable) => payable.installments.map((installment) => ({ payable, installment }))).sort((a, b) => a.installment.dueDate.localeCompare(b.installment.dueDate) || b.installment.amount - a.installment.amount)
+  const dueBadge = (installment: PayableInstallment) => {
+    if (installment.status === 'Pagato') return 'pagata'
+    const diff = dayDiff(today(), installment.dueDate)
+    if (diff < 0) return 'scaduta'
+    if (diff <= 7) return 'entro 7 giorni'
+    return 'programmata'
+  }
+
+  const currentLiquidity = liquidityProjection.points[0]?.balance ?? 0
+  const minLiquidityPoint = liquidityProjection.minPoint
+  const overdueInvoices = data.invoices.filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status) && invoice.dueDate < today())
+  const overdueInvoicesAmount = overdueInvoices.reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
+
+  const paymentCritical = useMemo(() => {
+    const threshold = Math.max(1500, liquidityProjection.totalOutflow * 0.2)
+    const majorOutflow = liquidityProjection.outflows
+      .filter((entry) => entry.amount >= threshold)
+      .sort((a, b) => b.amount - a.amount)[0]
+    if (!majorOutflow) return null
+
+    const point = liquidityProjection.points.find((item) => item.date === majorOutflow.date)
+    if (!point) return null
+    if (point.balance >= 0) return null
+    return majorOutflow
+  }, [liquidityProjection])
+
+  const flowBars = useMemo(() => {
+    const buckets = new Map<string, { label: string; inflow: number; outflow: number }>()
+    for (const point of liquidityProjection.points) {
+      const key = flowAggregation === 'settimana' ? weekBucket(point.date) : point.date.slice(0, 7)
+      const label = flowAggregation === 'settimana' ? `Sett. ${key.slice(5)}` : key
+      const current = buckets.get(key) ?? { label, inflow: 0, outflow: 0 }
+      current.inflow = round(current.inflow + point.inflow)
+      current.outflow = round(current.outflow + point.outflow)
+      buckets.set(key, current)
+    }
+    return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, value]) => value)
+  }, [liquidityProjection.points, flowAggregation])
+
+  const outflowByCategory = useMemo(() => {
+    const totals: Record<OutflowCategory, number> = {
+      fornitori: 0,
+      'f24-imposte': 0,
+      'prelievo-titolare': 0,
+      'altri-costi': 0,
+    }
+    liquidityProjection.outflows.forEach((entry) => {
+      totals[entry.category] = round(totals[entry.category] + entry.amount)
+    })
+    return (Object.keys(totals) as OutflowCategory[])
+      .map((key) => ({ key, label: categoryLabel[key], value: totals[key] }))
+      .filter((row) => row.value > 0)
+      .sort((a, b) => b.value - a.value)
+  }, [liquidityProjection.outflows])
+
+  const maxFlowBar = useMemo(() => {
+    const values = flowBars.flatMap((row) => [row.inflow, row.outflow])
+    return Math.max(1, ...values)
+  }, [flowBars])
+
+  const maxCategoryBar = useMemo(() => Math.max(1, ...outflowByCategory.map((row) => row.value)), [outflowByCategory])
+  const showIssuedVatRows = vatDetailFilter === 'all' || vatDetailFilter === 'issued'
+  const showReceivedVatRows = vatDetailFilter === 'all' || vatDetailFilter === 'received'
+  const showAdjustmentRows = vatDetailFilter === 'all' || vatDetailFilter === 'adjustments'
+
+  useEffect(() => {
+    setVatConfirmedDraft(vatQuarterSnapshot.confirmedAmount ?? vatQuarterSnapshot.estimatedPayable)
+    setVatAccountantNoteDraft((data.vatQuarterlyRecords ?? []).find((item) => item.quarterKey === vatQuarterKey)?.accountantNote ?? '')
+    setVatInstallmentsCount(1)
+  }, [vatQuarterKey, vatQuarterSnapshot.confirmedAmount, vatQuarterSnapshot.estimatedPayable, data.vatQuarterlyRecords])
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof toInvoice>()
@@ -134,17 +450,30 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
     projected(30) < data.financeSettings.minimumProjectedBalance ? 'Gli incassi previsti nei prossimi 30 giorni sono sotto la soglia impostata.' : '',
   ].filter(Boolean)
 
+  const cashAlerts = [
+    minLiquidityPoint && minLiquidityPoint.balance < 0
+      ? `Liquidità prevista sotto zero: minimo ${money(minLiquidityPoint.balance)} il ${minLiquidityPoint.date}.`
+      : '',
+    paymentCritical
+      ? `Pagamento importante senza copertura sufficiente prima della scadenza: ${paymentCritical.label} (${money(paymentCritical.amount)}) il ${paymentCritical.date}.`
+      : '',
+    overdueInvoicesAmount > 0
+      ? `Fatture clienti scadute: ${money(overdueInvoicesAmount)} su ${overdueInvoices.length} documenti.`
+      : '',
+    minLiquidityPoint
+      ? `Saldo minimo previsto nell'orizzonte ${liquidityRange} giorni: ${money(minLiquidityPoint.balance)} (${minLiquidityPoint.date}).`
+      : '',
+  ].filter(Boolean)
+
   return <>
-    <section className="stat-grid finance-stats">
-      <div className="stat-card"><span>Crediti clienti</span><strong>{money(totalCredits)}</strong><small>{openInvoices.length} fatture aperte</small></div>
-      <div className="stat-card"><span>R.I.B.A. in corso</span><strong>{money(totalRiba)}</strong><small>{data.ribaBatches.filter((item) => !['Chiusa', 'Stornata'].includes(item.status)).length} distinte</small></div>
-      <div className="stat-card"><span>Anticipi bancari</span><strong>{money(totalAdvanced)}</strong><small>Non chiudono il credito</small></div>
-      <div className="stat-card"><span>Scaduto</span><strong>{money(overdue)}</strong><small>Da controllare</small></div>
-      <div className="stat-card"><span>Preventivi pendenti</span><strong>{quotePending}</strong><small>Bozza o inviati</small></div>
-      <div className="stat-card"><span>Preventivi accettati</span><strong>{quoteAccepted}</strong><small>Pronti conversione fattura</small></div>
-      <div className="stat-card"><span>Cashflow rischio</span><strong>{money(cashflow.atRisk)}</strong><small>Esposizione prossimi 90 giorni</small></div>
-      <div className="stat-card"><span>Comunicazioni</span><strong>{communications.length}</strong><small>Email/WhatsApp/copia</small></div>
+    <section className="stat-grid cashflow-kpi-grid">
+      <div className="stat-card"><span>Liquidità attuale</span><strong>{money(currentLiquidity)}</strong><small>Saldo previsto di partenza</small></div>
+      <div className="stat-card"><span>Incassi previsti 30 giorni</span><strong>{money(liquidityProjection30.totalInflow)}</strong><small>Fatture aperte con scadenza nel periodo</small></div>
+      <div className="stat-card"><span>Pagamenti previsti 30 giorni</span><strong>{money(liquidityProjection30.totalOutflow)}</strong><small>Uscite previste + costi + prelievo titolare</small></div>
+      <div className="stat-card"><span>Liquidità minima prevista</span><strong>{money(minLiquidityPoint?.balance ?? currentLiquidity)}</strong><small>{minLiquidityPoint ? `Data: ${minLiquidityPoint.date}` : 'Nessuna proiezione disponibile'}</small></div>
     </section>
+
+    {!!cashAlerts.length && <section className="panel cashflow-alert-panel"><div className="panel-head"><div><span className="eyebrow">ALERT LIQUIDITÀ</span><h3>Priorità immediate</h3></div></div><div className="cashflow-alert-list">{cashAlerts.map((alert) => <article key={alert}><strong>Attenzione</strong><small>{alert}</small></article>)}</div></section>}
 
     <section className="panel">
       <div className="panel-head"><div><span className="eyebrow">CONFIGURAZIONE DOCUMENTI</span><h3>Profilo azienda e progressivi</h3></div></div>
@@ -187,6 +516,220 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">LAVORAZIONI CONSEGNATE</span><h3>Vetture da fatturare</h3></div></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Vetture</th><th>Imponibile previsto</th><th>Azione</th></tr></thead><tbody>{groups.map(([customerId, vehicles]) => <tr key={customerId}><td><strong>{customerById(customerId)?.name ?? 'Cliente'}</strong></td><td>{vehicles.map((vehicle) => vehicle.plate).join(', ')}</td><td>{money(vehicles.reduce((sum, vehicle) => sum + vehicle.expectedRevenue, 0))}</td><td><button className="primary" onClick={() => setModal({ type: 'invoice-create', customerId, vehicleIds: vehicles.map((vehicle) => vehicle.id) })}>Crea fattura</button></td></tr>)}</tbody></table></div>{!groups.length && <div className="empty"><div>◇</div><p>Nessuna vettura consegnata da fatturare.</p></div>}</section>
 
+    <section className="panel cashflow-visual-panel">
+      <div className="panel-head"><div><span className="eyebrow">LIQUIDITÀ PREVISTA</span><h3>Scadenzario visivo e immediato</h3></div><div className="row-actions">{([7, 30, 60, 90] as const).map((days) => <button key={days} className={liquidityRange === days ? 'active-filter' : ''} onClick={() => setLiquidityRange(days)}>{days} giorni</button>)}</div></div>
+      <LiquidityTrendChart points={liquidityProjection.points} />
+
+      <div className="cashflow-visual-grid">
+        <article className="cashflow-card">
+          <div className="panel-head"><div><span className="eyebrow">INCASSI VS PAGAMENTI</span><h3>Confronto {flowAggregation}</h3></div><div className="row-actions"><button className={flowAggregation === 'settimana' ? 'active-filter' : ''} onClick={() => setFlowAggregation('settimana')}>Settimana</button><button className={flowAggregation === 'mese' ? 'active-filter' : ''} onClick={() => setFlowAggregation('mese')}>Mese</button></div></div>
+          <div className="flow-bars">{flowBars.map((row) => <div className="flow-bar-col" key={row.label}><div className="flow-bar-track"><i className="inflow" style={{ height: `${Math.max(4, (row.inflow / maxFlowBar) * 100)}%` }} /><i className="outflow" style={{ height: `${Math.max(4, (row.outflow / maxFlowBar) * 100)}%` }} /></div><strong>{row.label}</strong><small>+ {money(row.inflow)} · - {money(row.outflow)}</small></div>)}</div>
+          {!flowBars.length && <div className="empty"><div>◇</div><p>Nessun movimento nel periodo selezionato.</p></div>}
+        </article>
+
+        <article className="cashflow-card">
+          <div className="panel-head"><div><span className="eyebrow">USCITE PER CATEGORIA</span><h3>Solo dati reali registrati</h3></div></div>
+          <div className="category-bars">{outflowByCategory.map((item) => <div className="category-row" key={item.key}><span>{item.label}</span><div className="category-track"><i style={{ width: `${Math.max(6, (item.value / maxCategoryBar) * 100)}%` }} /></div><strong>{money(item.value)}</strong></div>)}</div>
+          {!outflowByCategory.length && <div className="empty"><div>◇</div><p>Nessuna uscita categorizzabile nel periodo selezionato.</p></div>}
+          <small className="cashflow-footnote">Il prelievo titolare resta separato dalle uscite operative.</small>
+        </article>
+      </div>
+    </section>
+
+    <section className="panel table-panel">
+      <div className="panel-head"><div><span className="eyebrow">PAGAMENTI E SCADENZE</span><h3>Uscite da pagare</h3></div><div className="row-actions"><button onClick={() => setModal({ type: 'payable-supplier-create' })}>+ Nuova fattura da pagare</button><button onClick={() => setModal({ type: 'payable-f24-create' })}>+ Nuovo F24</button><button onClick={() => setModal({ type: 'payable-other-create' })}>+ Altra uscita pianificata</button></div></div>
+      <div className="stat-grid">
+        <div className="stat-card"><span>Fatture fornitori</span><strong>{supplierPayables.length}</strong><small>{money(supplierPayables.reduce((sum, item) => sum + payableResidual(item), 0))} residuo</small></div>
+        <div className="stat-card"><span>F24 / imposte</span><strong>{f24Payables.length}</strong><small>{money(f24Payables.reduce((sum, item) => sum + payableResidual(item), 0))} residuo</small></div>
+        <div className="stat-card"><span>Prelievo titolare</span><strong>{money(ownerWithdrawal.amount)}</strong><small>{ownerWithdrawal.plannedDate} · voce separata</small></div>
+        <div className="stat-card"><span>Altre uscite pianificate</span><strong>{plannedOutflows.length}</strong><small>{money(plannedOutflows.reduce((sum, item) => sum + payableResidual(item), 0))} residuo</small></div>
+      </div>
+
+      <div className="table-wrap"><table><thead><tr><th>Tipo</th><th>Descrizione</th><th>Totale</th><th>Piano rate</th><th>Pagate</th><th>Residuo</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
+        {payables.map((payable) => {
+          const paid = payable.installments.filter((item) => item.status === 'Pagato').length
+          const residual = payableResidual(payable)
+          const planLabel = payable.installments.length > 1 ? `${payable.installments.length} rate` : 'Unica soluzione'
+          const title = payable.kind === 'f24'
+            ? `F24 ${payable.description} — Totale ${money(payable.totalAmount)} — ${payable.installments.length} rate — ${paid} pagate — ${payable.installments.length - paid} residue`
+            : payable.description
+          return <tr key={payable.id}><td><span className="tag">{payable.kind === 'supplier-invoice' ? 'Fornitore' : payable.kind === 'f24' ? 'F24' : 'Altra uscita'}</span><small>{payable.category}</small></td><td><strong>{title}</strong><small>{payable.supplierName || payable.referencePeriod || '—'}</small></td><td>{money(payable.totalAmount)}</td><td>{planLabel}</td><td>{paid}/{payable.installments.length}</td><td>{money(residual)}</td><td><span className="tag">{payable.status}</span></td><td><div className="row-actions"><button onClick={() => setModal({ type: 'payable-edit', payableId: payable.id })}>Modifica</button></div></td></tr>
+        })}
+        {!payables.length && <tr><td colSpan={8}><div className="empty-small">Nessuna uscita da pagare registrata.</div></td></tr>}
+      </tbody></table></div>
+
+      <div className="table-wrap"><table><thead><tr><th>Scadenza rata</th><th>Tipo</th><th>Dettaglio</th><th>Importo</th><th>Stato</th><th>Pagata il</th><th>Azione</th></tr></thead><tbody>
+        {payableRows.map(({ payable, installment }) => <tr key={`${payable.id}-${installment.id}`}><td>{installment.dueDate}<small>Rata {installment.installmentNo}</small></td><td><span className="tag">{payable.kind === 'f24' ? 'F24' : payable.kind === 'supplier-invoice' ? 'Fornitore' : 'Uscita'}</span></td><td><strong>{payable.description}</strong><small>{payable.invoiceNumber || payable.referencePeriod || payable.supplierName || '—'}</small></td><td>{money(installment.amount)}</td><td><span className={`tag ${installment.status === 'Pagato' ? 'ok' : installment.status === 'Scaduto' ? 'warn' : ''}`}>{installment.status}</span><small>{dueBadge(installment)}</small></td><td>{installment.paidAt || '—'}</td><td>{installment.status !== 'Pagato' ? <button onClick={() => run(() => markPayableInstallmentPaid(data, { payableId: payable.id, installmentId: installment.id, paymentDate: today() }), 'Rata segnata come pagata e registrata nei movimenti.')}>Segna pagata</button> : '—'}</td></tr>)}
+        {!payableRows.length && <tr><td colSpan={7}><div className="empty-small">Nessuna rata/scadenza da monitorare.</div></td></tr>}
+      </tbody></table></div>
+    </section>
+
+    <section className="panel table-panel">
+      <div className="panel-head">
+        <div><span className="eyebrow">IVA TRIMESTRALE</span><h3>Previsione, conferma commercialista e F24</h3></div>
+        <div className="row-actions">
+          <label>Anno
+            <select value={vatYear} onChange={(event) => setVatYear(Number(event.target.value) || new Date().getFullYear())}>
+              {[vatYear - 1, vatYear, vatYear + 1].map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </label>
+          <label>Trimestre
+            <select value={vatQuarter} onChange={(event) => setVatQuarter(Number(event.target.value) as 1 | 2 | 3 | 4)}>
+              {[1, 2, 3, 4].map((quarter) => <option key={quarter} value={quarter}>Q{quarter}</option>)}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div className="stat-grid">
+        <div className="stat-card"><span>IVA a debito</span><strong>{money(vatQuarterSnapshot.vatDebit)}</strong><small>Fatture emesse {vatQuarterKey}</small></div>
+        <div className="stat-card"><span>IVA detraibile</span><strong>{money(vatQuarterSnapshot.vatCredit)}</strong><small>Fatture fornitori con deducibilità</small></div>
+        <div className="stat-card"><span>Rettifiche</span><strong>{money(vatQuarterSnapshot.adjustments)}</strong><small>Conguagli manuali del trimestre</small></div>
+        <div className="stat-card"><span>Stima da versare</span><strong>{money(vatQuarterSnapshot.estimatedPayable)}</strong><small>Scadenza prevista {vatQuarterSnapshot.dueDate}</small></div>
+      </div>
+
+      <div className="table-wrap"><table><thead><tr><th>Trimestre</th><th>Stato</th><th>Confermata commercialista</th><th>Importo per cash flow/obiettivo</th><th>F24 collegato</th><th>Scadenza</th></tr></thead><tbody>
+        {vatQuarterKeys.map((key) => {
+          const snapshot = calculateVatQuarterSnapshot(data, key)
+          return <tr key={key}>
+            <td><strong>{key}</strong></td>
+            <td><span className="tag">{snapshot.status}</span></td>
+            <td>{snapshot.confirmedAmount != null ? money(snapshot.confirmedAmount) : '—'}</td>
+            <td>{money(snapshot.amountForPlanning)}</td>
+            <td>{snapshot.linkedPayableId ? 'Sì' : 'No'}</td>
+            <td>{snapshot.dueDate}</td>
+          </tr>
+        })}
+      </tbody></table></div>
+
+      <div className="form-grid finance-form-grid">
+        <label>Importo confermato commercialista
+          <MoneyInput minValue={0} value={vatConfirmedDraft} onValueChange={(value) => setVatConfirmedDraft(value ?? 0)} />
+        </label>
+        <label>Nota commercialista
+          <input value={vatAccountantNoteDraft} onChange={(event) => setVatAccountantNoteDraft(event.target.value)} placeholder="Conferma importo / note" />
+        </label>
+        <div className="row-actions">
+          <button onClick={() => run(() => setVatQuarterConfirmation(data, { quarterKey: vatQuarterKey, confirmedAmount: vatConfirmedDraft, accountantNote: vatAccountantNoteDraft, dueDate: vatQuarterSnapshot.dueDate }), 'Conferma commercialista salvata sul trimestre IVA.')}>Conferma importo</button>
+          <button onClick={() => run(() => setVatQuarterStatus(data, vatQuarterKey, 'Da verificare'), 'Trimestre IVA impostato su Da verificare.')}>Da verificare</button>
+          <button onClick={() => run(() => setVatQuarterStatus(data, vatQuarterKey, 'Pagata'), 'Trimestre IVA segnato come pagato.')}>Segna pagata</button>
+        </div>
+
+        <label>Rettifica (+/-)
+          <MoneyInput value={vatAdjustmentAmountDraft} onValueChange={(value) => setVatAdjustmentAmountDraft(value ?? 0)} />
+        </label>
+        <label>Motivazione rettifica
+          <input value={vatAdjustmentNoteDraft} onChange={(event) => setVatAdjustmentNoteDraft(event.target.value)} placeholder="Credito, arrotondamento, conguaglio..." />
+        </label>
+        <div className="row-actions">
+          <button
+            onClick={() => {
+              if (!vatAdjustmentNoteDraft.trim()) return
+              run(
+                () => addVatQuarterAdjustment(data, { quarterKey: vatQuarterKey, amount: vatAdjustmentAmountDraft, note: vatAdjustmentNoteDraft }),
+                'Rettifica IVA trimestrale registrata.',
+              )
+              setVatAdjustmentAmountDraft(0)
+              setVatAdjustmentNoteDraft('')
+            }}
+          >Aggiungi rettifica</button>
+        </div>
+
+        <label>Rate F24 generate
+          <input type="number" min="1" step="1" value={vatInstallmentsCount} onChange={(event) => setVatInstallmentsCount(Math.max(1, Number(event.target.value) || 1))} />
+        </label>
+        <div className="row-actions">
+          <button
+            onClick={() => {
+              const baseAmount = vatQuarterSnapshot.confirmedAmount ?? vatQuarterSnapshot.estimatedPayable
+              const portions = splitAmountAcrossInstallments(baseAmount, vatInstallmentsCount)
+              const installments = portions.map((amount, index) => ({
+                installmentNo: index + 1,
+                amount,
+                dueDate: addDaysKey(vatQuarterSnapshot.dueDate, index * 30),
+              }))
+              run(
+                () => createVatQuarterF24Payable(data, {
+                  quarterKey: vatQuarterKey,
+                  dueDate: vatQuarterSnapshot.dueDate,
+                  referencePeriod: `IVA ${vatQuarterKey}`,
+                  accountantNote: vatAccountantNoteDraft,
+                  installments,
+                }),
+                'F24 IVA trimestrale generato e collegato allo scadenzario.',
+              )
+            }}
+          >Genera F24 dal trimestre</button>
+        </div>
+
+        <label>Collega F24 esistente
+          <select value={vatLinkPayableId} onChange={(event) => setVatLinkPayableId(event.target.value)}>
+            <option value="">Seleziona F24</option>
+            {vatF24Candidates.map((payable) => <option key={payable.id} value={payable.id}>{payable.description} · {money(payableResidual(payable))}</option>)}
+          </select>
+        </label>
+        <div className="row-actions">
+          <button
+            onClick={() => {
+              if (!vatLinkPayableId) return
+              run(
+                () => linkVatQuarterToPayable(data, { quarterKey: vatQuarterKey, payableId: vatLinkPayableId }),
+                'F24 esistente collegato al trimestre IVA.',
+              )
+              setVatLinkPayableId('')
+            }}
+            disabled={!vatLinkPayableId}
+          >Collega F24</button>
+        </div>
+      </div>
+
+      <div className="vat-detail-panel">
+        <button
+          type="button"
+          className="vat-detail-toggle"
+          onClick={(event) => {
+            const panel = event.currentTarget.nextElementSibling
+            if (!(panel instanceof HTMLDivElement)) return
+            panel.dataset.open = panel.dataset.open === 'true' ? 'false' : 'true'
+          }}
+        >Dettaglio calcolo IVA</button>
+        <div className="vat-detail-content" data-open="false">
+          <div className="row-actions vat-detail-filters">
+            <button className={vatDetailFilter === 'all' ? 'active-filter' : ''} onClick={() => setVatDetailFilter('all')}>Tutti</button>
+            <button className={vatDetailFilter === 'issued' ? 'active-filter' : ''} onClick={() => setVatDetailFilter('issued')}>Fatture emesse</button>
+            <button className={vatDetailFilter === 'received' ? 'active-filter' : ''} onClick={() => setVatDetailFilter('received')}>Fatture ricevute</button>
+            <button className={vatDetailFilter === 'adjustments' ? 'active-filter' : ''} onClick={() => setVatDetailFilter('adjustments')}>Rettifiche</button>
+          </div>
+
+          {showIssuedVatRows && <div className="table-wrap"><table><thead><tr><th colSpan={9}>1. IVA a debito - Fatture emesse</th></tr><tr><th>Numero</th><th>Data</th><th>Cliente</th><th>Imponibile</th><th>Aliquota IVA</th><th>IVA documento</th><th>Nota credito/rettifica</th><th>IVA conteggiata</th><th>Azione</th></tr></thead><tbody>
+            {vatQuarterDetail.debitRows.map((row) => <tr key={row.invoiceId}><td><strong>{row.number}</strong></td><td>{row.date}</td><td>{customerById(row.customerId)?.name ?? '—'}</td><td>{money(row.taxableAmount)}</td><td>{row.vatRatePercent == null ? '—' : `${row.vatRatePercent.toFixed(2)}%`}</td><td>{money(row.vatDocumentAmount)}</td><td>{row.adjustmentNote || '—'}</td><td>{money(row.vatCountedAmount)}</td><td><button onClick={() => printDocument('fattura', row.invoiceId)}>Apri PDF</button></td></tr>)}
+            {!vatQuarterDetail.debitRows.length && <tr><td colSpan={9}><div className="empty-small">Nessuna fattura emessa nel trimestre selezionato.</div></td></tr>}
+            <tr className="vat-detail-total"><td colSpan={7}><strong>Totale IVA a debito (dettaglio)</strong></td><td><strong>{money(vatQuarterDetail.debitTotal)}</strong></td><td><small>KPI: {money(vatQuarterSnapshot.vatDebit)}</small></td></tr>
+          </tbody></table></div>}
+
+          {showReceivedVatRows && <div className="table-wrap"><table><thead><tr><th colSpan={9}>2. IVA detraibile - Fatture ricevute</th></tr><tr><th>Numero</th><th>Data</th><th>Fornitore</th><th>Imponibile</th><th>Aliquota IVA</th><th>IVA documento</th><th>Detraibilità</th><th>IVA detratta</th><th>Azione</th></tr></thead><tbody>
+            {vatQuarterDetail.creditRows.map((row) => <tr key={row.payableId}><td><strong>{row.invoiceNumber}</strong></td><td>{row.date}</td><td>{row.supplierName}</td><td>{money(row.taxableAmount)}</td><td>{row.vatRatePercent == null ? '—' : `${row.vatRatePercent.toFixed(2)}%`}</td><td>{money(row.vatDocumentAmount)}</td><td><span className={`tag ${row.deductibilityMode === 'none' ? 'warn' : row.deductibilityMode === 'partial' ? '' : 'ok'}`}>{row.deductibilityMode === 'full' ? `100% detraibile` : row.deductibilityMode === 'partial' ? `${row.deductibilityPercent.toFixed(2)}% detraibile` : 'Non detraibile'}</span></td><td>{money(row.vatDeductedAmount)}</td><td><button onClick={() => setModal({ type: 'payable-edit', payableId: row.payableId })}>Apri documento</button></td></tr>)}
+            {!vatQuarterDetail.creditRows.length && <tr><td colSpan={9}><div className="empty-small">Nessuna fattura ricevuta nel trimestre selezionato.</div></td></tr>}
+            <tr className="vat-detail-total"><td colSpan={7}><strong>Totale IVA detraibile (dettaglio)</strong></td><td><strong>{money(vatQuarterDetail.creditTotal)}</strong></td><td><small>KPI: {money(vatQuarterSnapshot.vatCredit)}</small></td></tr>
+          </tbody></table></div>}
+
+          {showAdjustmentRows && <div className="table-wrap"><table><thead><tr><th colSpan={4}>Rettifiche trimestre</th></tr><tr><th>Data</th><th>Nota</th><th>Importo</th><th>Origine</th></tr></thead><tbody>
+            {vatQuarterDetail.adjustmentRows.map((row) => <tr key={row.id}><td>{row.createdAt.slice(0, 10)}</td><td>{row.note}</td><td>{money(row.amount)}</td><td>Registro IVA trimestrale</td></tr>)}
+            {!vatQuarterDetail.adjustmentRows.length && <tr><td colSpan={4}><div className="empty-small">Nessuna rettifica registrata per il trimestre.</div></td></tr>}
+            <tr className="vat-detail-total"><td colSpan={2}><strong>Totale rettifiche</strong></td><td><strong>{money(vatQuarterDetail.adjustmentsTotal)}</strong></td><td><small>KPI: {money(vatQuarterSnapshot.adjustments)}</small></td></tr>
+          </tbody></table></div>}
+
+          <div className="vat-detail-summary">
+            <h4>Riepilogo finale</h4>
+            <div><span>IVA a debito</span><strong>{money(vatQuarterDetail.debitTotal)}</strong></div>
+            <div><span>- IVA detraibile</span><strong>{money(vatQuarterDetail.creditTotal)}</strong></div>
+            <div><span>+/- rettifiche</span><strong>{money(vatQuarterDetail.adjustmentsTotal)}</strong></div>
+            <div><span>= {vatQuarterDetail.estimatedNet >= 0 ? 'IVA stimata da versare' : 'Credito IVA'}</span><strong>{money(Math.abs(vatQuarterDetail.estimatedNet))}</strong></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">SCADENZIARIO</span><h3>Fatture e residui</h3></div></div><div className="table-wrap"><table><thead><tr><th>Fattura</th><th>Cliente</th><th>Scadenza</th><th>Totale</th><th>In R.I.B.A.</th><th>Residuo disponibile</th><th>Stato</th><th>Azione</th></tr></thead><tbody>{data.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.number}</strong><small>{invoice.issueDate}</small></td><td>{customerById(invoice.customerId)?.name ?? '—'}</td><td>{invoice.dueDate}</td><td>{money(invoice.total)}</td><td>{money(invoice.ribaAllocatedAmount)}</td><td>{money(invoiceResidual(invoice))}</td><td><span className="tag">{invoice.status}</span></td><td>{invoiceResidual(invoice) > 0 && invoice.paymentMethod === 'R.I.B.A.' ? <button onClick={() => setModal({ type: 'riba-create', invoiceId: invoice.id })}>Inserisci in R.I.B.A.</button> : '—'}</td></tr>)}</tbody></table></div>{!data.invoices.length && <div className="empty"><div>◇</div><p>Nessuna fattura emessa.</p></div>}</section>
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">FATTURE PROFESSIONALI</span><h3>Comunicazioni e stampa documento</h3></div><button onClick={() => run(() => syncInvoiceDocumentStatuses(data), 'Stati documento fattura sincronizzati.')}>Sincronizza stati</button></div>
@@ -197,15 +740,6 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">CALENDARIO SCADENZE</span><h3>Giorno, settimana e mese</h3></div><div className="row-actions"><button onClick={() => setCalendarView('giorno')}>Giorno</button><button onClick={() => setCalendarView('settimana')}>Settimana</button><button onClick={() => setCalendarView('mese')}>Mese</button></div></div>
       <div className="table-wrap"><table><thead><tr><th>Data</th><th>Evento</th><th>Tipo</th><th>Cliente</th><th>Importo</th><th>Priorità</th></tr></thead><tbody>{calendarEvents.map((event) => <tr key={event.id}><td>{event.date}</td><td>{event.title}</td><td><span className="tag">{event.type}</span></td><td>{event.customerId ? (customerById(event.customerId)?.name ?? '—') : '—'}</td><td>{event.amount ? money(event.amount) : '—'}</td><td><span className="tag">{event.status}</span></td></tr>)}</tbody></table></div>
       {!calendarEvents.length && <div className="empty"><div>◇</div><p>Nessun evento nel periodo selezionato.</p></div>}
-    </section>
-
-    <section className="panel"><div className="panel-head"><div><span className="eyebrow">CASHFLOW</span><h3>Proiezione 30/60/90 giorni</h3></div></div>
-      <div className="stat-grid">
-        {cashflow.windows.map((window) => <div className="stat-card" key={window.days}><span>Orizzonte {window.days} giorni</span><strong>{money(window.balance)}</strong><small>Entrate {money(window.inflow)} · Uscite {money(window.outflow)}</small></div>)}
-        <div className="stat-card"><span>Incassato</span><strong>{money(cashflow.collected)}</strong><small>Eventi registrati</small></div>
-      </div>
-      <div className="table-wrap"><table><thead><tr><th>Punto</th><th>Data</th><th>Liquidità</th><th>Entrate</th><th>Uscite</th><th>Scaduto</th><th>A rischio</th></tr></thead><tbody>{cashflow.points.map((point) => <tr key={point.label}><td>{point.label}</td><td>{point.date}</td><td>{money(point.liquidBalance)}</td><td>{money(point.inflow)}</td><td>{money(point.outflow)}</td><td>{money(point.overdue)}</td><td>{money(point.atRisk)}</td></tr>)}</tbody></table></div>
-      {cashflow.baseLiquidity === null && <div className="empty"><div>!</div><p>Nessuna banca configurata: la liquidità parte da 0. Aggiungi almeno un conto per una previsione completa.</p></div>}
     </section>
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">CREDIT CONTROL</span><h3>Scaduti e rischio cliente</h3></div><div className="row-actions"><button onClick={() => setCreditState('all')}>Tutti</button><button onClick={() => setCreditState('critical')}>Critici</button><button onClick={() => setCreditState('regular')}>Regolari</button></div></div>
@@ -240,6 +774,54 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
         setNotice('Prelievo titolare aggiornato.')
       }}
     />}
+
+    {modal?.type === 'payable-supplier-create' && <PayableModal
+      title="Nuova fattura fornitore"
+      kind="supplier-invoice"
+      initial={null}
+      onClose={() => setModal(null)}
+      onSave={(input) => {
+        run(() => createPayableEntry(data, input), 'Fattura fornitore salvata nello scadenzario pagamenti.')
+        setModal(null)
+      }}
+    />}
+
+    {modal?.type === 'payable-f24-create' && <PayableModal
+      title="Nuovo F24"
+      kind="f24"
+      initial={null}
+      onClose={() => setModal(null)}
+      onSave={(input) => {
+        run(() => createPayableEntry(data, input), 'F24 salvato nello scadenzario pagamenti.')
+        setModal(null)
+      }}
+    />}
+
+    {modal?.type === 'payable-other-create' && <PayableModal
+      title="Nuova uscita pianificata"
+      kind="planned-outflow"
+      initial={null}
+      onClose={() => setModal(null)}
+      onSave={(input) => {
+        run(() => createPayableEntry(data, input), 'Uscita pianificata registrata.')
+        setModal(null)
+      }}
+    />}
+
+    {modal?.type === 'payable-edit' && (() => {
+      const payable = (data.payables ?? []).find((item) => item.id === modal.payableId)
+      if (!payable) return null
+      return <PayableModal
+        title={`Modifica pagamento · ${payable.description}`}
+        kind={payable.kind}
+        initial={payable}
+        onClose={() => setModal(null)}
+        onSave={(input) => {
+          run(() => updatePayableEntry(data, payable.id, input), 'Pagamento aggiornato.')
+          setModal(null)
+        }}
+      />
+    })()}
 
     {modal?.type === 'quote-create' && (() => {
       const vehicle = data.vehicles.find((item) => item.id === modal.vehicleId)
@@ -372,6 +954,46 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
   </>
 }
 
+function LiquidityTrendChart({ points }: { points: LiquidityPoint[] }) {
+  if (!points.length) return <div className="empty"><div>◇</div><p>Nessuna proiezione disponibile.</p></div>
+
+  const width = 980
+  const height = 280
+  const padding = 24
+  const min = Math.min(0, ...points.map((point) => point.balance))
+  const max = Math.max(0, ...points.map((point) => point.balance))
+  const span = Math.max(1, max - min)
+  const stepX = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0
+  const toX = (index: number) => padding + stepX * index
+  const toY = (value: number) => padding + ((max - value) / span) * (height - padding * 2)
+  const zeroY = toY(0)
+  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${toX(index)} ${toY(point.balance)}`).join(' ')
+  const minPoint = points.reduce((acc, point) => point.balance < acc.balance ? point : acc, points[0])
+
+  return <div className="liquidity-trend">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Andamento liquidità prevista">
+      <rect x={0} y={0} width={width} height={height} rx={12} fill="#121214" />
+      {points.map((point, index) => {
+        if (index === 0) return null
+        const previous = points[index - 1]
+        if (previous.balance >= 0 && point.balance >= 0) return null
+        const x = toX(index - 1)
+        return <rect key={`neg-${point.date}`} x={x} y={zeroY} width={Math.max(2, stepX)} height={Math.max(1, height - padding - zeroY)} fill="rgba(232,118,118,0.16)" />
+      })}
+      <line x1={padding} y1={zeroY} x2={width - padding} y2={zeroY} className="liquidity-zero-line" />
+      <path d={linePath} className="liquidity-line" />
+      {points.map((point, index) => <circle key={point.date} cx={toX(index)} cy={toY(point.balance)} r={point.balance < 0 ? 3.2 : 2.6} className={point.balance < 0 ? 'liquidity-dot negative' : 'liquidity-dot'} />)}
+      <circle cx={toX(points.findIndex((point) => point.date === minPoint.date))} cy={toY(minPoint.balance)} r={4.4} className="liquidity-dot min" />
+      <text x={padding + 4} y={padding + 10} className="liquidity-caption">Linea oro: saldo previsto · Linea rossa: soglia zero</text>
+    </svg>
+    <div className="liquidity-axis">
+      <span>{points[0].date}</span>
+      <strong>Min {money(minPoint.balance)} · {minPoint.date}</strong>
+      <span>{points[points.length - 1].date}</span>
+    </div>
+  </div>
+}
+
 function CompanyProfileModal({ profile, onClose, onSave }: {
   profile: ErpData['companyProfile']
   onClose: () => void
@@ -431,9 +1053,238 @@ function OwnerWithdrawalModal({ amount, plannedDate, onClose, onSave }: {
 
   return <Modal title="Prelievo titolare" onClose={onClose}>
     <form className="form-grid" onSubmit={submit}>
-      <label>Importo mensile<input type="number" min="0" step="0.01" value={draftAmount} onChange={(event) => setDraftAmount(Number(event.target.value) || 0)} required /></label>
+      <label>Importo mensile<MoneyInput minValue={0} value={draftAmount} onValueChange={(value) => setDraftAmount(value ?? 0)} required /></label>
       <label>Data prevista<input type="date" value={draftPlannedDate} onChange={(event) => setDraftPlannedDate(event.target.value)} required /></label>
       <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit">Salva</button></div>
+    </form>
+  </Modal>
+}
+
+function PayableModal({ title, kind, initial, onClose, onSave }: {
+  title: string
+  kind: PayableKind
+  initial: PayableEntry | null
+  onClose: () => void
+  onSave: (value: PayableInput) => void
+}) {
+  const todayDate = today()
+  const [description, setDescription] = useState(initial?.description ?? (kind === 'f24' ? 'F24 IVA' : kind === 'supplier-invoice' ? 'Fattura fornitore' : 'Uscita pianificata'))
+  const [supplierName, setSupplierName] = useState(initial?.supplierName ?? '')
+  const [invoiceNumber, setInvoiceNumber] = useState(initial?.invoiceNumber ?? '')
+  const [invoiceDate, setInvoiceDate] = useState(initial?.invoiceDate ?? todayDate)
+  const initialVatRate = initial?.taxableAmount
+    ? round(((initial?.vatAmount ?? 0) / Math.max(0.01, initial.taxableAmount)) * 100)
+    : 22
+  const initialVatPreset = vatPresetFromRate(initialVatRate)
+  const [taxableAmount, setTaxableAmount] = useState(initial?.taxableAmount ?? 0)
+  const [vatAmount, setVatAmount] = useState(initial?.vatAmount ?? 0)
+  const [totalAmount, setTotalAmount] = useState(initial?.totalAmount ?? 0)
+  const [vatRatePreset, setVatRatePreset] = useState<VatPreset>(kind === 'supplier-invoice' ? initialVatPreset : '22')
+  const [vatRateCustomDraft, setVatRateCustomDraft] = useState(String(initialVatRate).replace('.', ','))
+  const [vatAmountManual, setVatAmountManual] = useState(false)
+  const [vatDeductibilityMode, setVatDeductibilityMode] = useState<VatDeductibilityMode>(initial?.vatDeductibilityMode ?? 'full')
+  const [vatDeductibilityPercent, setVatDeductibilityPercent] = useState(initial?.vatDeductibilityPercent ?? 100)
+  const [dueDate, setDueDate] = useState(initial?.dueDate ?? todayDate)
+  const [referencePeriod, setReferencePeriod] = useState(initial?.referencePeriod ?? '')
+  const [accountantNote, setAccountantNote] = useState(initial?.accountantNote ?? '')
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [paymentMethod, setPaymentMethod] = useState<PayableInput['paymentMethod']>(initial?.paymentMethod ?? (kind === 'f24' ? 'F24' : 'Bonifico'))
+  const [category, setCategory] = useState<PayableCategory>(initial?.category ?? (kind === 'f24' ? 'f24-imposte' : kind === 'supplier-invoice' ? 'fornitori' : 'altre-uscite'))
+  const [planMode, setPlanMode] = useState<'single' | 'installments'>(initial && initial.installments.length > 1 ? 'installments' : 'single')
+  const [installments, setInstallments] = useState<Array<{ installmentNo: number; amount: number; dueDate: string; note: string }>>(
+    initial?.installments.length
+      ? initial.installments.map((item) => ({ installmentNo: item.installmentNo, amount: item.amount, dueDate: item.dueDate, note: item.note || '' }))
+      : [{ installmentNo: 1, amount: 0, dueDate: todayDate, note: '' }],
+  )
+  const [installmentsCount, setInstallmentsCount] = useState(initial && initial.installments.length > 1 ? initial.installments.length : 2)
+  const vatRatePercent = vatRatePreset === 'custom'
+    ? Math.max(0, parseMoneyDraft(vatRateCustomDraft) ?? 0)
+    : Number(vatRatePreset)
+
+  useEffect(() => {
+    if (kind !== 'supplier-invoice') return
+    if (vatAmountManual) return
+    setVatAmount(calculateVatAmount(taxableAmount, vatRatePercent))
+  }, [kind, taxableAmount, vatRatePercent, vatAmountManual])
+
+  useEffect(() => {
+    if (kind !== 'supplier-invoice') return
+    setTotalAmount(calculateInvoiceTotalWithVat(taxableAmount, vatAmount))
+  }, [kind, taxableAmount, vatAmount])
+
+  useEffect(() => {
+    if (planMode !== 'single') return
+    setInstallments((prev) => [{ installmentNo: 1, amount: round(totalAmount), dueDate, note: prev[0]?.note ?? '' }])
+  }, [planMode, totalAmount, dueDate])
+
+  useEffect(() => {
+    if (planMode !== 'installments') return
+    setInstallments((prev) => {
+      if (prev.length >= 2) return prev.map((item, index) => ({ ...item, installmentNo: index + 1 }))
+      const firstDueDate = prev[0]?.dueDate || dueDate
+      const firstNote = prev[0]?.note ?? ''
+      const firstAmount = prev[0]?.amount ?? 0
+      return [
+        { installmentNo: 1, amount: firstAmount, dueDate: firstDueDate, note: firstNote },
+        { installmentNo: 2, amount: 0, dueDate: addDaysKey(firstDueDate, 30), note: '' },
+      ]
+    })
+  }, [planMode, dueDate])
+
+  useEffect(() => {
+    if (planMode !== 'installments') return
+    setInstallmentsCount(installments.length)
+  }, [installments.length, planMode])
+
+  const installmentsTotal = round(installments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0))
+  const documentTotal = round(totalAmount)
+  const difference = round(documentTotal - installmentsTotal)
+  const residualToPay = round(Math.max(0, installmentsTotal))
+  const canSubmit = totalAmount > 0 && installments.length > 0 && Math.abs(difference) <= 0.01
+
+  const resizeInstallments = (nextCountRaw: number) => {
+    const nextCount = Math.max(2, Math.floor(Number(nextCountRaw) || 0))
+    setInstallmentsCount(nextCount)
+    setInstallments((prev) => {
+      const resized = Array.from({ length: nextCount }, (_, index) => {
+        const existing = prev[index]
+        return {
+          installmentNo: index + 1,
+          amount: existing?.amount ?? 0,
+          dueDate: existing?.dueDate ?? addDaysKey(dueDate, index * 30),
+          note: existing?.note ?? '',
+        }
+      })
+      return resized
+    })
+  }
+
+  const autoSplitInstallments = () => {
+    const portions = splitAmountAcrossInstallments(documentTotal, installmentsCount)
+    setInstallments((prev) => portions.map((amount, index) => ({
+      installmentNo: index + 1,
+      amount,
+      dueDate: prev[index]?.dueDate ?? addDaysKey(dueDate, index * 30),
+      note: prev[index]?.note ?? '',
+    })))
+  }
+
+  const updateInstallment = (index: number, field: 'amount' | 'dueDate' | 'note' | 'installmentNo', value: string) => {
+    setInstallments((prev) => prev.map((item, rowIndex) => {
+      if (rowIndex !== index) return item
+      if (field === 'amount') return { ...item, amount: Number(value) || 0 }
+      if (field === 'installmentNo') return { ...item, installmentNo: Number(value) || 1 }
+      if (field === 'note') return { ...item, note: value }
+      return { ...item, dueDate: value }
+    }))
+  }
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!canSubmit) return
+    onSave({
+      kind,
+      category,
+      description,
+      supplierName,
+      invoiceNumber,
+      invoiceDate,
+      taxableAmount: kind === 'supplier-invoice' ? taxableAmount : undefined,
+      vatAmount: kind === 'supplier-invoice' ? vatAmount : undefined,
+      vatDeductibilityMode: kind === 'supplier-invoice' ? vatDeductibilityMode : undefined,
+      vatDeductibilityPercent: kind === 'supplier-invoice'
+        ? (vatDeductibilityMode === 'partial' ? Math.max(0, Math.min(100, vatDeductibilityPercent)) : vatDeductibilityMode === 'none' ? 0 : 100)
+        : undefined,
+      totalAmount,
+      paymentMethod,
+      dueDate,
+      referencePeriod,
+      accountantNote,
+      notes,
+      installments: installments.map((item) => ({ installmentNo: item.installmentNo, amount: round(item.amount), dueDate: item.dueDate, note: item.note })),
+    })
+  }
+
+  return <Modal title={title} onClose={onClose}>
+    <form className="form-grid finance-form-grid" onSubmit={submit}>
+      <label>Descrizione<input value={description} onChange={(event) => setDescription(event.target.value)} required /></label>
+      {kind === 'supplier-invoice' && <label>Fornitore<input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} required /></label>}
+      {kind === 'supplier-invoice' && <label>Numero fattura<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} required /></label>}
+      {kind === 'supplier-invoice' && <label>Data fattura<input type="date" value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} required /></label>}
+      {kind === 'supplier-invoice' && <label>Imponibile<MoneyInput minValue={0} value={taxableAmount} onValueChange={(value) => { setTaxableAmount(value ?? 0); setVatAmountManual(false) }} required /></label>}
+      {kind === 'supplier-invoice' && <label>Aliquota IVA
+        <select value={vatRatePreset} onChange={(event) => { setVatRatePreset(event.target.value as VatPreset); setVatAmountManual(false) }}>
+          <option value="22">22%</option>
+          <option value="10">10%</option>
+          <option value="5">5%</option>
+          <option value="4">4%</option>
+          <option value="0">0%</option>
+          <option value="custom">Personalizzata</option>
+        </select>
+      </label>}
+      {kind === 'supplier-invoice' && vatRatePreset === 'custom' && <label>Aliquota personalizzata (%)
+        <input
+          value={vatRateCustomDraft}
+          onChange={(event) => {
+            setVatRateCustomDraft(sanitizeMoneyDraft(event.target.value, 2))
+            setVatAmountManual(false)
+          }}
+          onBlur={() => {
+            const parsed = Math.max(0, parseMoneyDraft(vatRateCustomDraft) ?? 0)
+            setVatRateCustomDraft(parsed.toFixed(2).replace('.', ','))
+          }}
+          inputMode="decimal"
+        />
+      </label>}
+      {kind === 'supplier-invoice' && <label className="finance-checkbox"><input type="checkbox" checked={vatAmountManual} onChange={(event) => setVatAmountManual(event.target.checked)} />Modifica IVA euro manualmente</label>}
+      {kind === 'supplier-invoice' && <label>IVA in euro<MoneyInput minValue={0} value={vatAmount} onValueChange={(value) => { setVatAmount(value ?? 0); setVatAmountManual(true) }} required /></label>}
+      {kind === 'supplier-invoice' && <label>Detraibilità IVA
+        <select value={vatDeductibilityMode} onChange={(event) => setVatDeductibilityMode(event.target.value as VatDeductibilityMode)}>
+          <option value="full">100% detraibile</option>
+          <option value="partial">Parzialmente detraibile</option>
+          <option value="none">Non detraibile</option>
+        </select>
+      </label>}
+      {kind === 'supplier-invoice' && vatDeductibilityMode === 'partial' && <label>Percentuale detraibile (%)
+        <MoneyInput minValue={0} maxValue={100} value={vatDeductibilityPercent} onValueChange={(value) => setVatDeductibilityPercent(value ?? 0)} required />
+      </label>}
+      {kind !== 'supplier-invoice' && <label>Periodo di riferimento<input value={referencePeriod} onChange={(event) => setReferencePeriod(event.target.value)} placeholder="es. 2026-08" /></label>}
+      {kind === 'f24' && <label>Riferimento commercialista<input value={accountantNote} onChange={(event) => setAccountantNote(event.target.value)} placeholder="Codice tributo / note" /></label>}
+      <label>Categoria<select value={category} onChange={(event) => setCategory(event.target.value as PayableCategory)}><option value="fornitori">Fornitori</option><option value="f24-imposte">F24 / imposte</option><option value="prelievo-titolare">Prelievo titolare</option><option value="altre-uscite">Altre uscite</option></select></label>
+      <label>Modalità pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PayableInput['paymentMethod'])}><option value="Bonifico">Bonifico</option><option value="R.I.B.A.">R.I.B.A.</option><option value="Contanti">Contanti</option><option value="POS">POS</option><option value="Personalizzato">Personalizzato</option><option value="F24">F24</option><option value="Addebito">Addebito</option><option value="Altro">Altro</option></select></label>
+      {kind === 'supplier-invoice'
+        ? <label>Totale fattura (IVA inclusa)<input value={money(totalAmount)} readOnly aria-label="Totale fattura IVA inclusa" /></label>
+        : <label>Totale<MoneyInput minValue={0.01} value={totalAmount} onValueChange={(value) => setTotalAmount(value ?? 0)} required /></label>}
+      <label>Scadenza principale<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label>
+      <label className="full">Note<textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+
+      <label>Piano pagamento<select value={planMode} onChange={(event) => setPlanMode(event.target.value as 'single' | 'installments')}><option value="single">Unica soluzione</option><option value="installments">Rateizzato</option></select></label>
+      {planMode === 'installments' && <div className="row-actions finance-installments-toolbar">
+        <label>Numero rate
+          <input type="number" min="2" step="1" value={installmentsCount} onChange={(event) => resizeInstallments(Number(event.target.value) || 2)} />
+        </label>
+        <button type="button" onClick={autoSplitInstallments} disabled={documentTotal <= 0}>Dividi automaticamente</button>
+        <button type="button" onClick={() => setInstallments((prev) => [...prev, { installmentNo: prev.length + 1, amount: 0, dueDate: addDaysKey(dueDate, prev.length * 30), note: '' }])}>Aggiungi rata</button>
+      </div>}
+
+      <div className="full finance-selection-list">
+        {installments.map((row, index) => <div className="finance-line-grid" key={`${row.installmentNo}-${index}`}>
+          <label>Rata n.<input type="number" min="1" value={row.installmentNo} onChange={(event) => updateInstallment(index, 'installmentNo', event.target.value)} /></label>
+          <label>Importo<MoneyInput minValue={0.01} value={row.amount} onValueChange={(value) => updateInstallment(index, 'amount', String(value ?? 0))} required /></label>
+          <label>Scadenza<input type="date" value={row.dueDate} onChange={(event) => updateInstallment(index, 'dueDate', event.target.value)} required /></label>
+          <label>Nota rata<input value={row.note} onChange={(event) => updateInstallment(index, 'note', event.target.value)} /></label>
+          <button type="button" className="danger" onClick={() => setInstallments((prev) => prev.length > 1 ? prev.filter((_, rowIndex) => rowIndex !== index) : prev)} disabled={installments.length === 1}>Rimuovi</button>
+        </div>)}
+      </div>
+
+      <div className="full finance-plan-summary">
+        <small>Totale documento: <strong>{money(documentTotal)}</strong></small>
+        <small>Totale rate: <strong>{money(installmentsTotal)}</strong></small>
+        <small>Differenza: <strong className={Math.abs(difference) <= 0.01 ? 'goal-ok' : 'goal-critical'}>{money(difference)}</strong></small>
+        <small>Residuo da pagare: <strong>{money(residualToPay)}</strong></small>
+      </div>
+      {!canSubmit && <small className="full goal-critical">La somma delle rate deve coincidere con il totale documento prima del salvataggio.</small>}
+      <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit" disabled={!canSubmit}>Salva</button></div>
     </form>
   </Modal>
 }
@@ -500,7 +1351,7 @@ function QuoteCreateModal({ vehicle, customer, defaultVatRate, onClose, onSave }
       {lines.map((line, index) => <div key={index} className="finance-line-grid">
         <label>Descrizione<input value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} required /></label>
         <label>Q.tà<input type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} required /></label>
-        <label>Prezzo<input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(index, 'unitPrice', event.target.value)} required /></label>
+        <label>Prezzo<MoneyInput minValue={0} value={line.unitPrice} onValueChange={(value) => updateLine(index, 'unitPrice', String(value ?? 0))} required /></label>
         <label>IVA %<input type="number" min="0" step="0.01" value={line.vatRate} onChange={(event) => updateLine(index, 'vatRate', event.target.value)} required /></label>
         <label>Sconto %<input type="number" min="0" step="0.01" value={line.discountRate} onChange={(event) => updateLine(index, 'discountRate', event.target.value)} /></label>
         <button type="button" className="danger" onClick={() => setLines((prev) => prev.length > 1 ? prev.filter((_, rowIndex) => rowIndex !== index) : prev)} disabled={lines.length === 1}>Rimuovi</button>
@@ -634,7 +1485,7 @@ function RibaCreateModal({ invoice, banks, residual, onClose, onSave }: {
       <label>Banca<select value={bankAccountId} onChange={(event) => setBankAccountId(event.target.value)} required>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.name}</option>)}</select></label>
       <label>Data presentazione<input type="date" value={presentationDate} onChange={(event) => setPresentationDate(event.target.value)} required /></label>
       <label>Data scadenza<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label>
-      <label>Importo da presentare<input type="number" min="0.01" max={residual} step="0.01" value={amount} onChange={(event) => setAmount(Number(event.target.value) || 0)} required /></label>
+      <label>Importo da presentare<MoneyInput minValue={0.01} maxValue={residual} value={amount} onValueChange={(value) => setAmount(value ?? 0)} required /></label>
       <small>Residuo disponibile: {money(residual)}</small>
       <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit">Crea distinta</button></div>
     </form>
@@ -659,9 +1510,9 @@ function RibaAdvanceModal({ batch, onClose, onSave }: {
   return <Modal title={`Registra anticipo · ${batch.number}`} onClose={onClose}>
     <form className="form-grid" onSubmit={submit}>
       <label>Data anticipo<input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
-      <label>Importo anticipato<input type="number" min="0.01" max={batch.total} step="0.01" value={amount} onChange={(event) => setAmount(Number(event.target.value) || 0)} required /></label>
-      <label>Commissioni<input type="number" min="0" step="0.01" value={fees} onChange={(event) => setFees(Number(event.target.value) || 0)} /></label>
-      <label>Interessi<input type="number" min="0" step="0.01" value={interest} onChange={(event) => setInterest(Number(event.target.value) || 0)} /></label>
+      <label>Importo anticipato<MoneyInput minValue={0.01} maxValue={batch.total} value={amount} onValueChange={(value) => setAmount(value ?? 0)} required /></label>
+      <label>Commissioni<MoneyInput minValue={0} value={fees} onValueChange={(value) => setFees(value ?? 0)} /></label>
+      <label>Interessi<MoneyInput minValue={0} value={interest} onValueChange={(value) => setInterest(value ?? 0)} /></label>
       <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit">Registra</button></div>
     </form>
   </Modal>
