@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PlannerSettings } from '../types'
-import { buildAcceptanceQuoteSummary, createDefaultQuote, calculateMonthlyHourlyRate } from './acceptance'
+import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, calculateMonthlyHourlyRate, createAcceptanceDraft, createDefaultQuote, createPhotoArchiveEntry, toggleAcceptanceChecklistItem } from './acceptance'
 
 const settings: PlannerSettings = {
   operators: [
@@ -30,5 +30,32 @@ describe('accettazione preventiva', () => {
     expect(summary.materials.total).toBe(7500)
     expect(summary.total).toBeCloseTo(54900)
     expect(summary.marginPercent).toBeCloseTo(18.03)
+  })
+
+  it('genera una pratica di accettazione digitale con checklist e dati di ingresso', () => {
+    const draft = createAcceptanceDraft('customer-1', 'vehicle-1', settings, '2026-08')
+    expect(draft.intake?.mileage).toBe('')
+    expect(draft.intake?.checklist.some((item) => item.label === 'Danni registrati')).toBe(true)
+    expect(draft.intake?.accessories).toEqual([])
+  })
+
+  it('crea un elemento di archivio fotografico collegato a pratica e vettura', () => {
+    const photo = createPhotoArchiveEntry('acc-1', 'veh-1', 'ingresso', 'foto.jpg', 'data:image/jpeg;base64,abc', 'Foto ingresso')
+    expect(photo.acceptanceId).toBe('acc-1')
+    expect(photo.vehicleId).toBe('veh-1')
+    expect(photo.category).toBe('ingresso')
+  })
+
+  it('aggiorna lo stato della checklist e aggiunge la foto all archivio', () => {
+    const draft = createAcceptanceDraft('customer-1', 'vehicle-1', settings, '2026-08')
+    const firstItem = draft.intake?.checklist[0]
+    expect(firstItem).toBeDefined()
+    const toggled = toggleAcceptanceChecklistItem(draft, firstItem!.id)
+    expect(toggled.intake?.checklist[0].checked).toBe(true)
+
+    const photo = createPhotoArchiveEntry('acc-1', 'veh-1', 'ingresso', 'foto.jpg', 'data:image/jpeg;base64,abc', 'Foto ingresso')
+    const withPhoto = appendAcceptancePhotoEntry(draft, photo)
+    expect(withPhoto.photos).toHaveLength(1)
+    expect(withPhoto.damagePhotos).toContain(photo.dataUrl)
   })
 })

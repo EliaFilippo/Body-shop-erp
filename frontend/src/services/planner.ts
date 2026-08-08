@@ -223,7 +223,7 @@ export function capacityWithAssignments(
   }
 }
 
-export function moveVehicleWork(
+export function moveVehiclePlanningDate(
   assignments: PlannerAssignment[],
   vehicleId: string,
   date: string,
@@ -239,3 +239,5 @@ export function moveVehicleWork(
     excessHours: round(Math.max(0, hours - capacity.remaining)),
   }
 }
+
+export const moveVehicleWork = moveVehiclePlanningDate

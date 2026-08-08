@@ -130,6 +130,49 @@ export function updateVehicle(
   }
 }
 
+export function saveVehicleCostEntries(
+  data: ErpData,
+  vehicleId: string,
+  entries: VehicleCostEntry[],
+): ErpData {
+  const vehicle = data.vehicles.find((item) => item.id === vehicleId)
+  if (!vehicle) throw new Error('Vettura non trovata.')
+  const normalizedEntries: VehicleCostEntry[] = entries.map((entry) => ({
+    ...entry,
+    id: entry.id || id(),
+    createdAt: entry.createdAt || now(),
+    updatedAt: now(),
+    description: entry.description.trim(),
+    supplier: entry.supplier?.trim() || '',
+    unit: entry.unit.trim() || 'pz',
+    quantity: Math.max(0, Number(entry.quantity) || 0),
+    unitCost: Math.max(0, Number(entry.unitCost) || 0),
+    discount: Math.max(0, Number(entry.discount) || 0),
+    total: Math.round((Math.max(0, Number(entry.quantity) || 0) * Math.max(0, Number(entry.unitCost) || 0) - Math.max(0, Number(entry.discount) || 0) + Number.EPSILON) * 100) / 100,
+    vatRate: Number(entry.vatRate) || data.financeSettings.defaultVatRate,
+    note: entry.note?.trim() || '',
+  }))
+  const snapshot = calculateVehicleEconomicSnapshot({ ...vehicle, costEntries: normalizedEntries }, data.financeSettings)
+  const history = [{
+    id: id(),
+    vehicleId,
+    action: 'modifica' as const,
+    previousValue: vehicle.costEntries?.length ? 'Costi aggiornati' : 'Nessun costo registrato',
+    newValue: `${normalizedEntries.length} voci di costo · € ${snapshot.totalDirectCosts.toLocaleString('it-IT', { minimumFractionDigits: 2 })}`,
+    user: 'Operatore ERP',
+    at: now(),
+  }, ...(vehicle.costHistory ?? [])]
+  return {
+    ...data,
+    vehicles: data.vehicles.map((item) => item.id === vehicleId ? {
+      ...item,
+      costEntries: normalizedEntries,
+      costHistory: history,
+      actualMargin: snapshot.realMargin,
+    } : item),
+  }
+}
+
 export function addVehicleCostEntry(
   data: ErpData,
   vehicleId: string,
