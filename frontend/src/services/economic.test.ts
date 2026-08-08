@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ErpData, PlannerSettings, Vehicle } from '../types'
-import { calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateMonthlyGoalProjection, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './economic'
+import { calculateCostLineSummary, calculateEconomicSummary, calculateExecutiveDashboardSnapshot, calculateMonthlyGoalProjection, calculateVehicleEconomicSnapshot, vehicleEconomicImpact } from './economic'
 
 const settings: PlannerSettings = {
   operators: [{ id: 'op', name: 'Filippo', dailyHours: 8, active: true }],
@@ -63,6 +63,17 @@ describe('executive dashboard', () => {
 })
 
 describe('commessa economica', () => {
+  it('sommaria imponibile, iva, totale e margine per più righe di costo', () => {
+    const result = calculateCostLineSummary([
+      { id: 'ce1', usedAt: '2026-07-27', category: 'ricambi', description: 'Parafanghi', supplier: 'Fornitore', quantity: 2, unit: 'pz', unitCost: 50, discount: 0, total: 100, vatRate: 22, documentNo: 'DOC-1', note: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z' },
+      { id: 'ce2', usedAt: '2026-07-27', category: 'lavorazioni esterne', description: 'Lucidatura', supplier: 'Esterno', quantity: 1, unit: 'ora', unitCost: 120, discount: 0, total: 120, vatRate: 10, documentNo: 'DOC-2', note: '', createdAt: '2026-07-27T00:00:00.000Z', updatedAt: '2026-07-27T00:00:00.000Z' },
+    ], 2000)
+    expect(result.taxableAmount).toBe(220)
+    expect(result.vatAmount).toBe(34)
+    expect(result.totalAmount).toBe(254)
+    expect(result.margin).toBe(1746)
+  })
+
   it('calcola ricavi, costi diretti, utile/perdita e margine percentuale per singola vettura', () => {
     const vehicle = car('A', 4000, 20)
     vehicle.costEntries = [{

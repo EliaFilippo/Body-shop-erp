@@ -43,6 +43,13 @@ export interface VehicleEconomicSnapshot {
   isEstimatedLaborCost: boolean
 }
 
+export interface CostLineSummary {
+  taxableAmount: number
+  vatAmount: number
+  totalAmount: number
+  margin: number
+}
+
 export interface ExecutiveDashboardSnapshot {
   availableLiquidity: number
   monthlyRevenue: number
@@ -204,6 +211,18 @@ export function calculateExecutiveDashboardSnapshot(
   }
 }
 
+export function calculateCostLineSummary(entries: Vehicle['costEntries'] = [], taxableRevenue = 0): CostLineSummary {
+  const taxableAmount = (entries ?? []).reduce((sum, entry) => sum + (entry.total || 0), 0)
+  const vatAmount = (entries ?? []).reduce((sum, entry) => sum + ((entry.total || 0) * ((entry.vatRate || 0) / 100)), 0)
+  const totalAmount = taxableAmount + vatAmount
+  return {
+    taxableAmount: round(taxableAmount),
+    vatAmount: round(vatAmount),
+    totalAmount: round(totalAmount),
+    margin: round(taxableRevenue - totalAmount),
+  }
+}
+
 export function calculateVehicleEconomicSnapshot(
   vehicle: Vehicle,
   financeSettings: FinanceSettings,
@@ -220,13 +239,18 @@ export function calculateVehicleEconomicSnapshot(
     'minuteria',
     'ricambi',
     'materiali di lucidatura',
+    'materiale verniciatura',
+    'meccanica',
+    'cristalli',
+    'pneumatici',
+    'lucidatura',
   ].includes(entry.category))
   const actualMaterials = materialEntries.reduce((sum, entry) => sum + (entry.total || 0), 0)
   const externalCosts = entries
-    .filter((entry) => entry.category === 'lavorazioni esterne')
+    .filter((entry) => ['lavorazioni esterne', 'manodopera esterna'].includes(entry.category))
     .reduce((sum, entry) => sum + (entry.total || 0), 0)
   const otherCosts = entries
-    .filter((entry) => ['lavaggio', 'trasporto', 'smaltimento', 'altro'].includes(entry.category))
+    .filter((entry) => ['lavaggio', 'trasporto', 'smaltimento', 'altro', 'noleggio'].includes(entry.category))
     .reduce((sum, entry) => sum + (entry.total || 0), 0)
   const estimatedHours = vehicle.estimatedHours || 0
   const effectiveHours = vehicle.workedHours || 0

@@ -47,7 +47,7 @@ export interface Customer {
   createdAt: string
 }
 
-export type VehicleCostCategory = 'vernice' | 'trasparente' | 'fondo' | 'stucco' | 'carta abrasiva' | 'nastro e materiale da mascheratura' | 'minuteria' | 'ricambi' | 'materiali di lucidatura' | 'lavorazioni esterne' | 'lavaggio' | 'trasporto' | 'smaltimento' | 'altro'
+export type VehicleCostCategory = 'ricambi' | 'materiale verniciatura' | 'manodopera esterna' | 'meccanica' | 'cristalli' | 'pneumatici' | 'lavaggio' | 'lucidatura' | 'trasporto' | 'noleggio' | 'smaltimento' | 'altro' | 'vernice' | 'trasparente' | 'fondo' | 'stucco' | 'carta abrasiva' | 'nastro e materiale da mascheratura' | 'minuteria' | 'materiali di lucidatura' | 'lavorazioni esterne'
 
 export interface VehicleCostEntry {
   id: string
