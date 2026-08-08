@@ -27,6 +27,21 @@ export const emptyData: ErpData = {
   bankAccounts: [],
   ribaBatches: [],
   financialEvents: [],
+  quotes: [],
+  communications: [],
+  documentCounters: {
+    quote: 0,
+    invoice: 0,
+  },
+  companyProfile: {
+    name: 'ELIAS BODY SHOP',
+    vatId: '',
+    taxCode: '',
+    address: '',
+    phone: '',
+    email: '',
+    logoText: 'ELIAS',
+  },
   financeSettings: {
     defaultVatRate: 22,
     defaultPaymentDays: 30,
