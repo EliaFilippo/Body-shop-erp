@@ -18,6 +18,8 @@ const settings: PlannerSettings = {
   closures: [],
   absences: [],
   monthlyRevenueGoal: 40000,
+  ownerWithdrawalAmount: 3000,
+  ownerWithdrawalPlannedDate: '2026-07-31',
   monthlyMarginGoal: 12000,
 }
 

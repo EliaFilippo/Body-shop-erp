@@ -17,6 +17,7 @@ const data: ErpData = {
   bankAccounts: [],
   ribaBatches: [],
   financialEvents: [],
+  payables: [],
   quotes: [],
   communications: [],
   documentCounters: { quote: 0, invoice: 0 },
@@ -28,6 +29,13 @@ const data: ErpData = {
     phone: '',
     email: '',
     logoText: 'ELIAS',
+  },
+  production: {
+    jobs: [],
+    phaseHistory: [],
+    workLogs: [],
+    reports: [],
+    identities: [{ role: 'production', operatorId: 'tablet-operator', operatorName: 'Operatore Produzione' }],
   },
   financeSettings: structuredClone(emptyData.financeSettings),
 }

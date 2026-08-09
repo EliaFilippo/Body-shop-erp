@@ -1,4 +1,4 @@
-export type View = 'dashboard' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings' | 'monthly-goals' | 'acceptance' | 'finance'
+export type View = 'dashboard' | 'today-shop' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'planner-settings' | 'monthly-goals' | 'acceptance' | 'finance'
 export type CustomerType = 'Concessionario' | 'Privato' | 'Assicurazione' | 'Società' | 'Azienda'
 export type VehicleStatus =
   | 'da accettare'
@@ -29,6 +29,70 @@ export type AcceptanceLineKind = 'labor' | 'parts' | 'consumption' | 'external' 
 export type AcceptanceDocumentSide = 'front' | 'back'
 export type OcrConfidence = 'high' | 'medium' | 'low'
 export type CommunicationChannel = 'email' | 'whatsapp' | 'copy'
+export type ProductionPhase = 'Da iniziare' | 'Smontaggio' | 'Lattoneria' | 'Preparazione' | 'Verniciatura' | 'Rimontaggio' | 'Lucidatura' | 'Lavaggio/Controllo' | 'Pronta'
+export type ProductionReportType = 'ricambio mancante' | 'problema tecnico' | 'lavorazione aggiuntiva' | 'danno non previsto' | 'richiesta all\'ufficio' | 'altro'
+export type ProductionRole = 'production' | 'office' | 'owner'
+
+export interface ProductionOperatorIdentity {
+  role: ProductionRole
+  operatorId: string
+  operatorName: string
+}
+
+export interface ProductionJobState {
+  vehicleId: string
+  phase: ProductionPhase
+  priority: 'Normale' | 'Alta' | 'Urgente'
+  assignedWorks: string[]
+  operationalNotes: string
+  promisedAt: string
+  updatedAt: string
+}
+
+export interface ProductionPhaseHistoryEntry {
+  id: string
+  vehicleId: string
+  operatorId: string
+  operatorName: string
+  previousPhase: ProductionPhase
+  nextPhase: ProductionPhase
+  createdAt: string
+  note: string
+}
+
+export interface ProductionWorkLog {
+  id: string
+  vehicleId: string
+  phase: ProductionPhase
+  operatorId: string
+  operatorName: string
+  startedAt: string
+  lastResumedAt?: string
+  pausedAt?: string
+  endedAt?: string
+  totalMinutes: number
+  status: 'running' | 'paused' | 'completed'
+}
+
+export interface ProductionReport {
+  id: string
+  vehicleId: string
+  type: ProductionReportType
+  note: string
+  photoDataUrl?: string
+  operatorId: string
+  operatorName: string
+  createdAt: string
+  resolvedAt?: string
+}
+
+export interface ProductionModule {
+  jobs: ProductionJobState[]
+  phaseHistory: ProductionPhaseHistoryEntry[]
+  workLogs: ProductionWorkLog[]
+  reports: ProductionReport[]
+  identities: ProductionOperatorIdentity[]
+}
 
 export interface DocumentLine {
   id: string
@@ -209,9 +273,23 @@ export interface MonthlyGoalRecord {
   id: string
   monthKey: string
   revenueGoal: number
+  suggestedRevenueGoal?: number
+  appliedRevenueGoal?: number
+  goalMode?: 'automatic' | 'custom'
+  customRevenueGoal?: number | null
   revenueActual: number
+  baseNeed?: number
+  safetyBuffer?: number
+  ownerWithdrawalAmount?: number
+  ownerWithdrawalPlannedDate?: string
   marginGoal: number | null
   marginActual: number
+  residualNeed?: number
+  realCosts?: number
+  plannedCosts?: number
+  revenueRealized?: number
+  dailyRevenueNeed?: number
+  weeklyRevenueNeed?: number
   forecastRevenue: number
   updatedAt: string
 }
@@ -225,6 +303,14 @@ export interface PlannerSettings {
   closures: string[]
   absences: PlannerAbsence[]
   monthlyRevenueGoal: number
+  monthlyRevenueGoalMode?: 'automatic' | 'custom'
+  monthlyRevenueGoalSuggested?: number
+  monthlyRevenueGoalManual?: number | null
+  ownerWithdrawalAmount: number
+  ownerWithdrawalPlannedDate: string
+  ownerWithdrawalSettledMonthKey?: string | null
+  ownerWithdrawalSettledAt?: string | null
+  economicSafetyMarginPercent?: number
   monthlyMarginGoal: number | null
   monthlyGoalHistory?: MonthlyGoalRecord[]
 }
@@ -315,15 +401,75 @@ export interface RibaBatch {
 
 export interface FinancialEvent {
   id: string
-  type: 'Fattura emessa' | 'R.I.B.A. presentata' | 'Anticipo bancario' | 'Incasso definitivo' | 'Insoluto' | 'Storno' | 'Uscita prevista'
+  type: 'Fattura emessa' | 'R.I.B.A. presentata' | 'Anticipo bancario' | 'Incasso definitivo' | 'Insoluto' | 'Storno' | 'Uscita prevista' | 'Pagamento uscita'
   date: string
   amount: number
   customerId?: string
   invoiceId?: string
   ribaBatchId?: string
   bankAccountId?: string
+  payableId?: string
+  payableInstallmentId?: string
   note: string
   createdAt: string
+}
+
+export type PayableKind = 'supplier-invoice' | 'f24' | 'planned-outflow'
+export type PayableCategory = 'fornitori' | 'f24-imposte' | 'prelievo-titolare' | 'altre-uscite'
+export type PayableStatus = 'Da pagare' | 'Pagato' | 'Scaduto'
+export type VatDeductibilityMode = 'full' | 'partial' | 'none'
+export type VatQuarterStatus = 'In corso' | 'Da verificare' | 'Confermata dal commercialista' | 'Pagata'
+
+export interface PayableInstallment {
+  id: string
+  installmentNo: number
+  amount: number
+  dueDate: string
+  status: PayableStatus
+  paidAt?: string | null
+  note?: string
+}
+
+export interface PayableEntry {
+  id: string
+  kind: PayableKind
+  category: PayableCategory
+  description: string
+  supplierName?: string
+  invoiceNumber?: string
+  invoiceDate?: string
+  taxableAmount?: number
+  vatAmount?: number
+  vatDeductibilityMode?: VatDeductibilityMode
+  vatDeductibilityPercent?: number
+  totalAmount: number
+  paymentMethod: PaymentMethod | 'F24' | 'Addebito' | 'Altro'
+  dueDate: string
+  referencePeriod?: string
+  accountantNote?: string
+  notes?: string
+  status: PayableStatus
+  installments: PayableInstallment[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VatQuarterAdjustment {
+  id: string
+  note: string
+  amount: number
+  createdAt: string
+}
+
+export interface VatQuarterRecord {
+  quarterKey: string
+  status: VatQuarterStatus
+  confirmedAmount?: number | null
+  confirmedAt?: string | null
+  accountantNote?: string
+  linkedPayableId?: string | null
+  dueDate?: string
+  adjustments: VatQuarterAdjustment[]
 }
 
 export interface FinanceSettings {
@@ -458,10 +604,13 @@ export interface ErpData {
   bankAccounts: BankAccount[]
   ribaBatches: RibaBatch[]
   financialEvents: FinancialEvent[]
+  payables?: PayableEntry[]
   financeSettings: FinanceSettings
+  vatQuarterlyRecords?: VatQuarterRecord[]
   quotes?: QuoteDocument[]
   communications?: CommunicationEntry[]
   documentCounters?: DocumentCounters
   companyProfile?: CompanyProfile
   acceptances?: AcceptanceCase[]
+  production?: ProductionModule
 }

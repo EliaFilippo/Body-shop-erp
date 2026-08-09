@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { Icon } from './components/Icon'
+import { MoneyInput } from './components/MoneyInput'
 import { Modal } from './components/Modal'
+import { parseMoneyDraft } from './components/money'
 import { addVehicle, addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, TOTAL_CONES, emptyData, updateCustomer, updateVehicle } from './services/erp'
 import { loadDatabase, saveDatabase } from './services/database'
 import { PlannerPage } from './features/planner/PlannerPage'
@@ -12,10 +14,12 @@ import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot, 
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createPhotoArchiveEntry, exportAcceptancePdf, toggleAcceptanceChecklistItem, updateConsumptionLine } from './services/acceptance'
 import { FinancePage } from './features/finance/FinancePage'
+import { TodayShopPage } from './features/production/TodayShopPage'
+import { buildTodayInShopSnapshot, openProductionReports, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
 import type { AcceptanceCase, AcceptanceLine, Customer, CustomerType, ErpData, Vehicle, VehicleCostCategory, VehicleStatus, View } from './types'
 
 const nav: { id: View; label: string }[] = [
-  { id: 'dashboard', label: 'Dashboard' }, { id: 'customers', label: 'Clienti' },
+  { id: 'dashboard', label: 'Dashboard' }, { id: 'today-shop', label: 'Oggi in carrozzeria' }, { id: 'customers', label: 'Clienti' },
   { id: 'vehicles', label: 'Veicoli' }, { id: 'cones', label: 'Gestione coni' },
   { id: 'planner', label: 'Planner intelligente' }, { id: 'planner-settings', label: 'Impostazioni Planner' },
   { id: 'monthly-goals', label: 'Obiettivi mensili' }, { id: 'acceptance', label: 'Accettazione' },
@@ -23,6 +27,7 @@ const nav: { id: View; label: string }[] = [
 ]
 const statuses: VehicleStatus[] = ['accettata', 'in lavorazione', 'pronta', 'consegnata', 'sospesa', 'annullata']
 const formatDate = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+const parseMoney = (value: string | FormDataEntryValue | null) => parseMoneyDraft(String(value ?? '')) ?? 0
 
 function App() {
   const [data, setData] = useState<ErpData>(emptyData)
@@ -34,6 +39,20 @@ function App() {
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(false)
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    const onWheel = (event: WheelEvent) => {
+      const target = event.target
+      if (!(target instanceof HTMLInputElement)) return
+      if (target.type !== 'number') return
+      if (document.activeElement !== target) return
+      target.blur()
+    }
+
+    window.addEventListener('wheel', onWheel, { passive: true })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [])
+
   useEffect(() => {
     loadDatabase()
       .then((stored) => setData(stored))
@@ -47,22 +66,28 @@ function App() {
   }, [data, databaseReady])
   useEffect(() => {
     if (!databaseReady) return
-    const result = calculatePlanner(data.vehicles, data.plannerSettings)
+    const syncedForProduction = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(data))
+    const result = calculatePlanner(syncedForProduction.vehicles, syncedForProduction.plannerSettings)
     const calculated = new Map(result.vehicles.map((item) => [item.vehicleId, item.calculatedDeliveryDate]))
-    const vehicles = data.vehicles.map((vehicle) => ({
+    const vehicles = syncedForProduction.vehicles.map((vehicle) => ({
       ...vehicle,
       calculatedDeliveryDate: calculated.get(vehicle.id) ?? '',
     }))
-    const unchangedVehicles = vehicles.every((vehicle, index) =>
-      vehicle.calculatedDeliveryDate === data.vehicles[index].calculatedDeliveryDate,
+    const unchangedVehicles = vehicles.every((vehicle, index) => {
+      const current = data.vehicles[index]
+      return vehicle.calculatedDeliveryDate === current.calculatedDeliveryDate
+        && vehicle.workedHours === current.workedHours
+    }
     )
+    const unchangedProduction = JSON.stringify(syncedForProduction.production) === JSON.stringify(data.production)
     const unchangedAssignments = JSON.stringify(result.assignments) === JSON.stringify(data.plannerAssignments)
-    if (!unchangedVehicles || !unchangedAssignments) setData((current) => ({
+    if (!unchangedVehicles || !unchangedAssignments || !unchangedProduction) setData((current) => ({
       ...current,
       vehicles,
       plannerAssignments: result.assignments,
+      production: syncedForProduction.production,
     }))
-  }, [data.vehicles, data.plannerSettings, data.plannerAssignments, databaseReady])
+  }, [data, data.vehicles, data.plannerSettings, data.plannerAssignments, databaseReady])
 
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
@@ -96,6 +121,10 @@ function App() {
             setModal({ type: 'customer' })
           }
         }} onNewCustomer={() => setModal({ type: 'customer' })} />}
+        {view === 'today-shop' && <TodayShopPage data={data} customerById={customerById} onOpenPlanner={() => setView('planner')} onOpenVehicles={() => setView('vehicles')} onOpenPractice={(plate) => {
+          setView('vehicles')
+          setQuery(plate)
+        }} onChange={setData} setNotice={setNotice} setError={setError} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { setData(deleteCustomer(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
         {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => setModal({ type: 'vehicle' })} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { setData(deleteVehicle(data, id)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} />}
         {view === 'cones' && <Cones data={data} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
@@ -210,12 +239,16 @@ function Dashboard({ data, setView, onNewVehicle, onNewCustomer }: { data: ErpDa
   ).length
   const imminentInvoices = openInvoices.filter((invoice) => invoice.dueDate >= today && invoice.dueDate <= imminentLimit).length
   const imminentRiba = data.ribaBatches.filter((batch) => !['Chiusa', 'Stornata'].includes(batch.status) && batch.dueDate >= today && batch.dueDate <= imminentLimit).length
+  const productionSnapshot = buildTodayInShopSnapshot(data)
+  const productionOpenReports = openProductionReports(data).length
   const attentionItems = [
     { id: 'late-vehicles', label: 'Auto in ritardo', count: snapshot.vehiclesLate, detail: 'Verifica priorità e capacità residua del planner.', action: () => setView('vehicles') },
     { id: 'risk-deliveries', label: 'Consegne a rischio', count: deliveriesAtRisk, detail: 'Consegne nei prossimi 2 giorni con ore residue > 0.', action: () => setView('planner') },
     { id: 'to-invoice', label: 'Fatture da emettere', count: invoicesToIssue, detail: 'Vetture consegnate senza fattura collegata.', action: () => setView('finance') },
     { id: 'riba-deadlines', label: 'RIBA / scadenze imminenti', count: imminentInvoices + imminentRiba, detail: 'Scadenze finanziarie nei prossimi 7 giorni.', action: () => setView('finance') },
     { id: 'blocked', label: 'Pratiche bloccate', count: snapshot.blockedVehicles, detail: 'Pratiche ferme per ricambi mancanti o blocchi operativi.', action: () => setView('vehicles') },
+    { id: 'production-alerts', label: 'Segnalazioni produzione', count: productionOpenReports, detail: 'Richieste operative inviate dai tablet reparto.', action: () => setView('today-shop') },
+    { id: 'production-overdue', label: 'Produzione in ritardo', count: productionSnapshot.overdue, detail: 'Lavorazioni oltre la data promessa cliente.', action: () => setView('today-shop') },
   ].filter((item) => item.count > 0)
 
   return <>
@@ -254,14 +287,14 @@ function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle
   const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
   const snapshot = calculateVehicleEconomicSnapshot(vehicle, data.financeSettings)
   const [form, setForm] = useState({
-    usedAt: new Date().toISOString().slice(0, 10),
+      usedAt: new Date().toISOString().slice(0, 10),
     category: 'ricambi' as VehicleCostCategory,
     description: '',
     supplier: '',
     quantity: '1',
     unit: 'pz',
-    unitCost: '0',
-    discount: '0',
+       unitCost: '0.00',
+    discount: '0.00',
     vatRate: String(data.financeSettings.defaultVatRate ?? 22),
     note: '',
   })
@@ -269,8 +302,8 @@ function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const quantity = Math.max(0, Number(form.quantity) || 0)
-    const unitCost = Math.max(0, Number(form.unitCost) || 0)
-    const discount = Math.max(0, Number(form.discount) || 0)
+    const unitCost = Math.max(0, parseMoney(form.unitCost))
+    const discount = Math.max(0, parseMoney(form.discount))
     const description = form.description.trim()
     if (!description) return
     onSave({
@@ -287,7 +320,7 @@ function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle
       note: form.note.trim(),
     })
   }
-  return <Modal title={`Materiali e costi · ${vehicle.plate}`} onClose={onClose}><div className="cost-modal"><div className="summary-grid"><div className="summary-card"><span>Ricavo previsto</span><strong>{money(snapshot.taxableRevenue)}</strong></div><div className="summary-card"><span>Costi diretti</span><strong>{money(snapshot.totalDirectCosts)}</strong></div><div className="summary-card"><span>Margine reale</span><strong>{money(snapshot.realMargin)}</strong></div><div className="summary-card"><span>Margine %</span><strong>{snapshot.grossMarginPercent}%</strong></div></div><form className="cost-form" onSubmit={submit}><label>Data<input type="date" value={form.usedAt} onChange={(event) => update('usedAt', event.target.value)} /></label><label>Categoria<select value={form.category} onChange={(event) => update('category', event.target.value)}><option value="ricambi">Ricambi</option><option value="vernice">Vernice</option><option value="trasparente">Trasparente</option><option value="fondo">Fondo</option><option value="stucco">Stucco</option><option value="carta abrasiva">Carta abrasiva</option><option value="nastro e materiale da mascheratura">Nastro e materiale da mascheratura</option><option value="minuteria">Minuteria</option><option value="materiali di lucidatura">Materiali di lucidatura</option><option value="lavorazioni esterne">Lavorazioni esterne</option><option value="lavaggio">Lavaggio</option><option value="trasporto">Trasporto</option><option value="smaltimento">Smaltimento</option><option value="altro">Altro</option></select></label><label>Descrizione<input required value={form.description} onChange={(event) => update('description', event.target.value)} /></label><label>Fornitore<input value={form.supplier} onChange={(event) => update('supplier', event.target.value)} /></label><label>Quantità<input type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label><label>Unità<input value={form.unit} onChange={(event) => update('unit', event.target.value)} /></label><label>Prezzo unitario<input type="number" min="0" step="0.01" value={form.unitCost} onChange={(event) => update('unitCost', event.target.value)} /></label><label>Sconto<input type="number" min="0" step="0.01" value={form.discount} onChange={(event) => update('discount', event.target.value)} /></label><label>IVA %<input type="number" min="0" step="1" value={form.vatRate} onChange={(event) => update('vatRate', event.target.value)} /></label><label>Nota<textarea value={form.note} onChange={(event) => update('note', event.target.value)} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Chiudi</button><button className="primary">Salva costo</button></div></form>{vehicle.costEntries?.length ? <div className="entry-list"><h4>Costi già registrati</h4>{vehicle.costEntries.slice().reverse().map((entry) => <div className="entry-item" key={entry.id}><strong>{entry.description}</strong><span>{entry.category} · {entry.quantity} {entry.unit} · {money(entry.total)}</span></div>)}</div> : <div className="empty"><div>◌</div><p>Nessun costo registrato per questa commessa.</p></div>}</div></Modal>
+  return <Modal title={`Materiali e costi · ${vehicle.plate}`} onClose={onClose}><div className="cost-modal"><div className="summary-grid"><div className="summary-card"><span>Ricavo previsto</span><strong>{money(snapshot.taxableRevenue)}</strong></div><div className="summary-card"><span>Costi diretti</span><strong>{money(snapshot.totalDirectCosts)}</strong></div><div className="summary-card"><span>Margine reale</span><strong>{money(snapshot.realMargin)}</strong></div><div className="summary-card"><span>Margine %</span><strong>{snapshot.grossMarginPercent}%</strong></div></div><form className="cost-form" onSubmit={submit}><label>Data<input type="date" value={form.usedAt} onChange={(event) => update('usedAt', event.target.value)} /></label><label>Categoria<select value={form.category} onChange={(event) => update('category', event.target.value)}><option value="ricambi">Ricambi</option><option value="vernice">Vernice</option><option value="trasparente">Trasparente</option><option value="fondo">Fondo</option><option value="stucco">Stucco</option><option value="carta abrasiva">Carta abrasiva</option><option value="nastro e materiale da mascheratura">Nastro e materiale da mascheratura</option><option value="minuteria">Minuteria</option><option value="materiali di lucidatura">Materiali di lucidatura</option><option value="lavorazioni esterne">Lavorazioni esterne</option><option value="lavaggio">Lavaggio</option><option value="trasporto">Trasporto</option><option value="smaltimento">Smaltimento</option><option value="altro">Altro</option></select></label><label>Descrizione<input required value={form.description} onChange={(event) => update('description', event.target.value)} /></label><label>Fornitore<input value={form.supplier} onChange={(event) => update('supplier', event.target.value)} /></label><label>Quantità<input type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label><label>Unità<input value={form.unit} onChange={(event) => update('unit', event.target.value)} /></label><label>Prezzo unitario<input type="text" inputMode="decimal" value={form.unitCost} onChange={(event) => update('unitCost', event.target.value)} /></label><label>Sconto<input type="text" inputMode="decimal" value={form.discount} onChange={(event) => update('discount', event.target.value)} /></label><label>IVA %<input type="number" min="0" step="1" value={form.vatRate} onChange={(event) => update('vatRate', event.target.value)} /></label><label>Nota<textarea value={form.note} onChange={(event) => update('note', event.target.value)} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Chiudi</button><button className="primary">Salva costo</button></div></form>{vehicle.costEntries?.length ? <div className="entry-list"><h4>Costi già registrati</h4>{vehicle.costEntries.slice().reverse().map((entry) => <div className="entry-item" key={entry.id}><strong>{entry.description}</strong><span>{entry.category} · {entry.quantity} {entry.unit} · {money(entry.total)}</span></div>)}</div> : <div className="empty"><div>◌</div><p>Nessun costo registrato per questa commessa.</p></div>}</div></Modal>
 }
 
 function Cones({ data, customerById, onMove }: { data: ErpData; customerById: (id: string) => Customer | undefined; onMove: (id: string, cone: number) => void }) {
@@ -315,15 +348,15 @@ function VehicleForm({ vehicle, customers, onClose, onSave, setError }: { vehicl
   const submit = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try {
     const estimatedHours = Number(form.get('estimatedHours'))
     const workedHours = Number(form.get('workedHours'))
-    const expectedRevenue = Number(form.get('expectedRevenue'))
-    const expectedMargin = Number(form.get('expectedMargin'))
+    const expectedRevenue = parseMoney(form.get('expectedRevenue'))
+    const expectedMargin = parseMoney(form.get('expectedMargin'))
     if ([estimatedHours, workedHours, expectedRevenue, expectedMargin].some((value) => value < 0)) throw new Error('Ore e importi non possono essere negativi.')
     if (workedHours > estimatedHours) throw new Error('Le ore lavorate non possono superare quelle preventivate.')
     onSave({ customerId: String(form.get('customerId')), plate: String(form.get('plate')), make: String(form.get('make')), model: String(form.get('model')), color: String(form.get('color')), year: String(form.get('year')), vin: String(form.get('vin')), mileage: String(form.get('mileage')), status: vehicle?.status ?? form.get('status') as VehicleStatus, priority: form.get('priority') as 'Normale' | 'Alta' | 'Urgente', deliveryDate: String(form.get('requestedDeliveryDate')), estimatedHours, workedHours, plannedEntryDate: String(form.get('plannedEntryDate')), requestedDeliveryDate: String(form.get('requestedDeliveryDate')), calculatedDeliveryDate: vehicle?.calculatedDeliveryDate ?? '', expectedRevenue, expectedMargin, partsStatus: form.get('partsStatus') as Vehicle['partsStatus'], blockReason: String(form.get('blockReason')), manualPlanningDate: vehicle?.manualPlanningDate ?? '' }); setError('')
   } catch (problem) { setError(problem instanceof Error ? problem.message : 'Dati non validi.') } }
   return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" required defaultValue={vehicle?.make} /></label><label>Modello<input name="model" required defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>VIN<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label>{!vehicle && <label>Stato iniziale<select name="status">{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>}<label>Priorità<select name="priority" defaultValue={vehicle?.priority ?? 'Normale'}><option>Normale</option><option>Alta</option><option>Urgente</option></select></label>
     <div className="form-section-title">Pianificazione produttiva</div><label>Ore totali preventivate<input name="estimatedHours" type="number" min="0" step="0.25" required defaultValue={vehicle?.estimatedHours ?? 0} /></label><label>Ore già lavorate<input name="workedHours" type="number" min="0" step="0.25" required defaultValue={vehicle?.workedHours ?? 0} /></label><label>Ore rimanenti<input readOnly value={Math.max(0, (vehicle?.estimatedHours ?? 0) - (vehicle?.workedHours ?? 0))} title="Calcolate automaticamente al salvataggio" /></label><label>Ingresso previsto<input name="plannedEntryDate" type="date" defaultValue={vehicle?.plannedEntryDate} /></label><label>Data richiesta dal cliente<input name="requestedDeliveryDate" type="date" defaultValue={vehicle?.requestedDeliveryDate || vehicle?.deliveryDate} /></label><label>Consegna calcolata<input readOnly value={vehicle?.calculatedDeliveryDate || 'Ricalcolata nel Planner'} /></label>
-    <div className="form-section-title">Valore e disponibilità</div><label>Ricavo previsto (€)<input name="expectedRevenue" type="number" min="0" step="0.01" defaultValue={vehicle?.expectedRevenue ?? 0} /></label><label>Margine previsto (€)<input name="expectedMargin" type="number" min="0" step="0.01" defaultValue={vehicle?.expectedMargin ?? 0} /></label><label>Stato ricambi<select name="partsStatus" defaultValue={vehicle?.partsStatus ?? 'Disponibili'}><option>Disponibili</option><option>Ordinati</option><option>Mancanti</option></select></label><label>Motivo di blocco<input name="blockReason" defaultValue={vehicle?.blockReason} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva vettura</button></div></form></Modal>
+    <div className="form-section-title">Valore e disponibilità</div><label>Ricavo previsto (€)<input name="expectedRevenue" type="text" inputMode="decimal" defaultValue={vehicle?.expectedRevenue ?? 0} /></label><label>Margine previsto (€)<input name="expectedMargin" type="text" inputMode="decimal" defaultValue={vehicle?.expectedMargin ?? 0} /></label><label>Stato ricambi<select name="partsStatus" defaultValue={vehicle?.partsStatus ?? 'Disponibili'}><option>Disponibili</option><option>Ordinati</option><option>Mancanti</option></select></label><label>Motivo di blocco<input name="blockReason" defaultValue={vehicle?.blockReason} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva vettura</button></div></form></Modal>
 }
 
 function AcceptancePage({ data, customerById, onCreate, onSave }: { data: ErpData; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => void; onSave: (acceptance: AcceptanceCase) => void }) {
@@ -561,7 +594,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave }: { acceptan
       </div>
     </div>
     <div className="quote-grid">
-      {quote.lines.map((line) => <div className="quote-row" key={line.id}><input value={line.description} onChange={(event) => updateLine(line.id, 'description', event.target.value)} /><input type="number" value={line.quantity} onChange={(event) => updateLine(line.id, 'quantity', Number(event.target.value))} /><input type="number" value={line.unitPrice} onChange={(event) => updateLine(line.id, 'unitPrice', Number(event.target.value))} /></div>)}
+      {quote.lines.map((line) => <div className="quote-row" key={line.id}><input value={line.description} onChange={(event) => updateLine(line.id, 'description', event.target.value)} /><input type="number" value={line.quantity} onChange={(event) => updateLine(line.id, 'quantity', Number(event.target.value))} /><MoneyInput minValue={0} value={line.unitPrice} onValueChange={(value) => updateLine(line.id, 'unitPrice', value ?? 0)} /></div>)}
     </div>
     <div className="quote-summary">
       <div><span>Ore preventivate</span><strong>{summary.labor.lines}</strong></div>
@@ -578,3 +611,5 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave }: { acceptan
 
 function Empty({ text }: { text: string }) { return <div className="empty"><div>◇</div><p>{text}</p></div> }
 export default App
+
+

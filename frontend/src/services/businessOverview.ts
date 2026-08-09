@@ -1,4 +1,5 @@
 import type { Customer, ErpData, Invoice, Vehicle } from '../types'
+import { calculateEconomicGoalSnapshot } from './economic'
 
 export type BusinessOverviewPeriod = 'oggi' | 'settimana' | 'mese' | 'anno'
 
@@ -217,7 +218,7 @@ export function calculateBusinessOverviewSnapshot(data: ErpData, period: Busines
     points: currentPoints,
     current: currentSummary,
     previous: previousSummary,
-    objective: data.plannerSettings.monthlyRevenueGoal || 0,
+    objective: calculateEconomicGoalSnapshot(data, referenceDate).appliedRevenueGoal,
   }
 }
 
