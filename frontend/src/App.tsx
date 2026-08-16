@@ -54,22 +54,76 @@ function App() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     loadDatabase()
-      .then((stored) => setData(stored))
-      .catch((problem) => setError(problem instanceof Error ? problem.message : 'Impossibile caricare il database.'))
-      .finally(() => setDatabaseReady(true))
+      .then((stored) => {
+        if (cancelled) return
+        setData(stored)
+        setDatabaseLoaded(true)
+      })
+      .catch((problem) => {
+        if (cancelled) return
+        setError(problem instanceof Error ? problem.message : 'Impossibile caricare il database.')
+        setDatabaseLoaded(false)
+      })
+      .finally(() => {
+        if (!cancelled) setDatabaseReady(true)
+      })
+    return () => { cancelled = true }
   }, [])
-  useEffect(() => {
-    if (databaseReady) void saveDatabase(data).catch((problem) =>
-      setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.'),
-    )
-  }, [data, databaseReady])
+
   useEffect(() => {
     if (!databaseReady) return
-    const syncedForProduction = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(data))
-    const result = calculatePlanner(syncedForProduction.vehicles, syncedForProduction.plannerSettings)
+
+    let syncing = false
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== REVISION_PING_KEY || !event.newValue) return
+      if (syncing) return
+      syncing = true
+      void loadDatabase()
+        .then((reloaded) => {
+          skipNextAutosaveRef.current = true
+          skipNextHeavySyncRef.current = true
+          setData(reloaded)
+        })
+        .catch((problem) => {
+          setError(problem instanceof Error ? problem.message : 'Impossibile sincronizzare i dati da un altro tab.')
+        })
+        .finally(() => {
+          syncing = false
+        })
+    }
+
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [databaseReady])
+
+  useEffect(() => {
+    if (!databaseLoaded || !databaseReady) return
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false
+      return
+    }
+    const allowCountReduction = allowCountReductionRef.current
+    allowCountReductionRef.current = false
+    void saveDatabase(data, { allowCountReduction }).catch((problem) => {
+      allowCountReductionRef.current = false
+      setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.')
+    })
+  }, [data, databaseLoaded, databaseReady])
+  useEffect(() => {
+    if (!databaseReady) return
+    if (skipNextHeavySyncRef.current) {
+      skipNextHeavySyncRef.current = false
+      return
+    }
+    const syncedFromJobs = syncOperationalStateFromJobs(data)
+    const syncedForProduction = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(syncedFromJobs))
+    const delayControlAtIso = data.dbUpdatedAt || undefined
+    const withDelayControl = runProductionDelayControl(syncedForProduction, 'Controllo tempi vista responsabile', delayControlAtIso)
+    const result = calculatePlanner(withDelayControl.vehicles, withDelayControl.plannerSettings)
     const calculated = new Map(result.vehicles.map((item) => [item.vehicleId, item.calculatedDeliveryDate]))
-    const vehicles = syncedForProduction.vehicles.map((vehicle) => ({
+    const vehicles = withDelayControl.vehicles.map((vehicle) => ({
       ...vehicle,
       calculatedDeliveryDate: calculated.get(vehicle.id) ?? '',
     }))
@@ -159,12 +213,46 @@ function App() {
     </main>
 
     {modal?.type === 'customer' && <CustomerForm customer={modal.item} onClose={() => setModal(null)} onSave={(input) => { setData(modal.item ? { ...data, customers: updateCustomer(data.customers, modal.item.id, input) } : { ...data, customers: [createCustomer(input), ...data.customers] }); setModal(null) }} setError={setError} />}
-    {modal?.type === 'vehicle' && <VehicleForm vehicle={modal.item} customers={data.customers} onClose={() => setModal(null)} onSave={(input) => {
-      const next = modal.item ? updateVehicle(data, modal.item.id, input) : addVehicle(data, input)
-      const impact = vehicleEconomicImpact(data.vehicles, next.vehicles, data.plannerSettings)
-      setData(next)
-      setNotice(`Fatturato aggiunto € ${impact.addedRevenue.toLocaleString('it-IT')} · margine aggiunto € ${impact.addedMargin.toLocaleString('it-IT')} · obiettivo ${impact.newReachedPercent}% · carico ${impact.sufficient ? 'sufficiente' : 'insufficiente'}.`)
-      setModal(null)
+    {modal?.type === 'vehicle' && <VehicleForm vehicle={modal.item} customers={data.customers} statusOptions={vehicleStatusOptions} onClose={() => setModal(null)} onSave={async (input) => {
+      try {
+        setDuplicateVehicleId(null)
+        const result = await saveVehicleWithPersistenceCheck({
+          data,
+          input,
+          currentVehicle: modal.item,
+          save: saveDatabase,
+          load: loadDatabase,
+        })
+        skipNextAutosaveRef.current = true
+        skipNextHeavySyncRef.current = true
+        setData(result.data)
+        setQuery('')
+        setView('vehicles')
+        setNotice('Vettura salvata')
+        setError('')
+        setModal(null)
+      } catch (problem) {
+        const message = problem instanceof Error ? problem.message : 'Salvataggio vettura non riuscito'
+        const insertedPlateRaw = String(input.plate ?? '').trim()
+        const normalizedPlate = normalizePlate(input.plate)
+        const normalizedVin = String(input.vin ?? '').trim().toUpperCase().replace(/\s+/g, '')
+        const existing = data.vehicles.find((vehicle) =>
+          vehicle.id !== modal.item?.id && (
+            normalizePlate(vehicle.plate) === normalizedPlate
+            || (normalizedVin && String(vehicle.vin ?? '').trim().toUpperCase().replace(/\s+/g, '') === normalizedVin)
+          ),
+        )
+        if (existing) {
+          setDuplicateVehicleId(existing?.id ?? null)
+          if (normalizePlate(existing.plate) === normalizedPlate) {
+            throw new Error(
+              `Questa vettura è già presente nel Parco Veicoli. source=duplicate repository check; targaInserita=${insertedPlateRaw || '-'}; targaNormalizzata=${normalizedPlate || '-'}; conflictVehicleId=${existing.id}; rev=${Math.max(0, Number(data.dbRevision ?? 0))}.`,
+            )
+          }
+          throw new Error('Esiste già una vettura con questo VIN.')
+        }
+        setError(message)
+      }
     }} setError={setError} />}
     {selectedCostVehicle && <VehicleCostModal vehicle={selectedCostVehicle} data={data} onClose={() => setCostModal(null)} onSave={(entry) => {
       setData(addVehicleCostEntry(data, selectedCostVehicle.id, entry))
@@ -344,19 +432,27 @@ function CustomerForm({ customer, onClose, onSave, setError }: { customer?: Cust
   return <Modal title={customer ? 'Modifica cliente' : 'Nuovo cliente'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Tipo cliente<select name="type" defaultValue={customer?.type ?? 'Privato'}><option>Privato</option><option>Azienda</option></select></label><label>Nome / ragione sociale<input name="name" required autoFocus defaultValue={customer?.name} /></label><label>Telefono<input name="phone" required inputMode="tel" defaultValue={customer?.phone} /></label><label>Email<input name="email" type="email" defaultValue={customer?.email} /></label><label>Codice fiscale / P.IVA<input name="taxId" defaultValue={customer?.taxId} /></label><label>Indirizzo<input name="address" defaultValue={customer?.address} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva cliente</button></div></form></Modal>
 }
 
-function VehicleForm({ vehicle, customers, onClose, onSave, setError }: { vehicle?: Vehicle; customers: Customer[]; onClose: () => void; onSave: (vehicle: Omit<Vehicle, 'id' | 'createdAt' | 'coneNumber'>) => void; setError: (error: string) => void }) {
-  const submit = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try {
-    const estimatedHours = Number(form.get('estimatedHours'))
-    const workedHours = Number(form.get('workedHours'))
-    const expectedRevenue = parseMoney(form.get('expectedRevenue'))
-    const expectedMargin = parseMoney(form.get('expectedMargin'))
+function VehicleForm({ vehicle, customers, statusOptions, onClose, onSave, setError }: { vehicle?: Vehicle; customers: Customer[]; statusOptions: Array<{ id: string; label: string }>; onClose: () => void; onSave: (vehicle: Omit<Vehicle, 'id' | 'createdAt' | 'coneNumber'>) => Promise<void> | void; setError: (error: string) => void }) {
+  const [saving, setSaving] = useState(false)
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); setSaving(true); try {
+    const estimatedHours = vehicle?.estimatedHours ?? 0
+    const workedHours = vehicle?.workedHours ?? 0
+    const expectedRevenue = vehicle?.expectedRevenue ?? 0
+    const expectedMargin = vehicle?.expectedMargin ?? 0
+    const status = (vehicle?.status ?? statusOptions[0]?.id ?? 'accettata') as VehicleStatus
+    const priority = vehicle?.priority ?? 'Normale'
+    const plannedEntryDate = vehicle?.plannedEntryDate ?? ''
+    const requestedDeliveryDate = vehicle?.requestedDeliveryDate ?? ''
+    const deliveryDate = vehicle?.deliveryDate ?? requestedDeliveryDate
+    const partsStatus = vehicle?.partsStatus ?? 'Disponibili'
+    const blockReason = vehicle?.blockReason ?? ''
+    const manualPlanningDate = vehicle?.manualPlanningDate ?? ''
+    const calculatedDeliveryDate = vehicle?.calculatedDeliveryDate ?? ''
     if ([estimatedHours, workedHours, expectedRevenue, expectedMargin].some((value) => value < 0)) throw new Error('Ore e importi non possono essere negativi.')
     if (workedHours > estimatedHours) throw new Error('Le ore lavorate non possono superare quelle preventivate.')
-    onSave({ customerId: String(form.get('customerId')), plate: String(form.get('plate')), make: String(form.get('make')), model: String(form.get('model')), color: String(form.get('color')), year: String(form.get('year')), vin: String(form.get('vin')), mileage: String(form.get('mileage')), status: vehicle?.status ?? form.get('status') as VehicleStatus, priority: form.get('priority') as 'Normale' | 'Alta' | 'Urgente', deliveryDate: String(form.get('requestedDeliveryDate')), estimatedHours, workedHours, plannedEntryDate: String(form.get('plannedEntryDate')), requestedDeliveryDate: String(form.get('requestedDeliveryDate')), calculatedDeliveryDate: vehicle?.calculatedDeliveryDate ?? '', expectedRevenue, expectedMargin, partsStatus: form.get('partsStatus') as Vehicle['partsStatus'], blockReason: String(form.get('blockReason')), manualPlanningDate: vehicle?.manualPlanningDate ?? '' }); setError('')
-  } catch (problem) { setError(problem instanceof Error ? problem.message : 'Dati non validi.') } }
-  return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" required defaultValue={vehicle?.make} /></label><label>Modello<input name="model" required defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>VIN<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label>{!vehicle && <label>Stato iniziale<select name="status">{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>}<label>Priorità<select name="priority" defaultValue={vehicle?.priority ?? 'Normale'}><option>Normale</option><option>Alta</option><option>Urgente</option></select></label>
-    <div className="form-section-title">Pianificazione produttiva</div><label>Ore totali preventivate<input name="estimatedHours" type="number" min="0" step="0.25" required defaultValue={vehicle?.estimatedHours ?? 0} /></label><label>Ore già lavorate<input name="workedHours" type="number" min="0" step="0.25" required defaultValue={vehicle?.workedHours ?? 0} /></label><label>Ore rimanenti<input readOnly value={Math.max(0, (vehicle?.estimatedHours ?? 0) - (vehicle?.workedHours ?? 0))} title="Calcolate automaticamente al salvataggio" /></label><label>Ingresso previsto<input name="plannedEntryDate" type="date" defaultValue={vehicle?.plannedEntryDate} /></label><label>Data richiesta dal cliente<input name="requestedDeliveryDate" type="date" defaultValue={vehicle?.requestedDeliveryDate || vehicle?.deliveryDate} /></label><label>Consegna calcolata<input readOnly value={vehicle?.calculatedDeliveryDate || 'Ricalcolata nel Planner'} /></label>
-    <div className="form-section-title">Valore e disponibilità</div><label>Ricavo previsto (€)<input name="expectedRevenue" type="text" inputMode="decimal" defaultValue={vehicle?.expectedRevenue ?? 0} /></label><label>Margine previsto (€)<input name="expectedMargin" type="text" inputMode="decimal" defaultValue={vehicle?.expectedMargin ?? 0} /></label><label>Stato ricambi<select name="partsStatus" defaultValue={vehicle?.partsStatus ?? 'Disponibili'}><option>Disponibili</option><option>Ordinati</option><option>Mancanti</option></select></label><label>Motivo di blocco<input name="blockReason" defaultValue={vehicle?.blockReason} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary">Salva vettura</button></div></form></Modal>
+    await onSave({ customerId: String(form.get('customerId')), plate: String(form.get('plate')), make: String(form.get('make')), model: String(form.get('model')), color: String(form.get('color')), year: String(form.get('year')), vin: String(form.get('vin')), mileage: String(form.get('mileage')), status, priority, deliveryDate, estimatedHours, workedHours, plannedEntryDate, requestedDeliveryDate, calculatedDeliveryDate, expectedRevenue, expectedMargin, partsStatus, blockReason, manualPlanningDate }); setError('')
+  } catch (problem) { setError(problem instanceof Error ? problem.message : 'Dati non validi.') } finally { setSaving(false) } }
+  return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" defaultValue={vehicle?.make} /></label><label>Modello<input name="model" defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>VIN<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary" disabled={saving}>{saving ? 'Salvataggio...' : 'Salva vettura'}</button></div></form></Modal>
 }
 
 function AcceptancePage({ data, customerById, onCreate, onSave }: { data: ErpData; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => void; onSave: (acceptance: AcceptanceCase) => void }) {

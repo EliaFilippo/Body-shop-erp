@@ -149,38 +149,93 @@ export async function loadDatabase(): Promise<ErpData> {
       localStorage.removeItem(STORAGE_KEY)
       return migrated
     }
-    return structuredClone(emptyData)
+    return normalizeData(emptyData)
   } catch {
     const fallback = readFallback()
-    return fallback ? normalizeData(JSON.parse(fallback)) : structuredClone(emptyData)
+    if (fallback) return normalizeData(JSON.parse(fallback))
+    throw new Error('Impossibile caricare il database locale. Nessun fallback disponibile.')
   }
 }
 
 let saveQueue: Promise<void> = Promise.resolve()
 
-async function persistDatabase(data: ErpData): Promise<void> {
-  try {
-    const database = await openDatabase()
-    await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction(STORE, 'readwrite')
-      transaction.objectStore(STORE).put(data, STATE_KEY)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error)
-      transaction.onabort = () => reject(transaction.error)
-    })
-    database.close()
-  } catch {
-    try {
-      if (typeof localStorage === 'undefined') throw new Error()
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    } catch {
-      throw new Error('Impossibile salvare i dati sul dispositivo.')
-    }
+async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sourceData?: ErpData): Promise<void> {
+  if (!isAllowedPersistenceOrigin()) {
+    throw new Error(`Salvataggio bloccato: origin non consentito (${currentOriginLabel()}). Apri il gestionale da ${EXPECTED_APP_ORIGIN}`)
   }
+
+  return withCrossTabSaveLock(async () => {
+    const latest = await readCurrentPersistedSnapshot()
+    const currentRevision = Math.max(0, Number(latest?.dbRevision ?? 0))
+    const incomingRevision = Math.max(0, Number(data.dbRevision ?? 0))
+    let candidate = structuredClone(data)
+    const revisionAwareSnapshot = incomingRevision > 0
+
+    assertUniqueNormalizedPlates(candidate, 'snapshot candidato')
+    if (latest) assertUniqueNormalizedPlates(latest, 'snapshot persistito')
+
+    if (latest && revisionAwareSnapshot && incomingRevision < currentRevision) {
+      if (options.mergeOnConflict === false) {
+        throw new Error(
+          `Salvataggio bloccato: conflitto revisione. source=snapshot/persistence/cross-tab; revPersistita=${currentRevision}; revRichiesta=${incomingRevision}.`,
+        )
+      }
+      candidate = mergeForStaleSave(latest, candidate)
+      assertUniqueNormalizedPlates(candidate, 'merge da stato obsoleto')
+    }
+
+    if (latest && revisionAwareSnapshot) {
+      assertIntegrityReductionAllowed(latest, candidate, Boolean(options.allowCountReduction))
+      assertPlateAvailability(latest, candidate)
+    }
+
+    candidate.dbRevision = Math.max(currentRevision, incomingRevision) + 1
+    candidate.dbUpdatedAt = new Date().toISOString()
+
+    try {
+      const database = await openDatabase()
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(STORE, 'readwrite')
+        transaction.objectStore(STORE).put(candidate, STATE_KEY)
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error)
+        transaction.onabort = () => reject(transaction.error)
+      })
+      database.close()
+      if (sourceData) {
+        sourceData.dbRevision = candidate.dbRevision
+        sourceData.dbUpdatedAt = candidate.dbUpdatedAt
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(REVISION_PING_KEY, JSON.stringify({ rev: candidate.dbRevision, at: candidate.dbUpdatedAt }))
+      }
+    } catch (error) {
+      try {
+        if (typeof localStorage === 'undefined') throw new Error('localStorage non disponibile')
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate))
+        console.error('IndexedDB persistence failed, fallback localStorage used', error)
+        if (sourceData) {
+          sourceData.dbRevision = candidate.dbRevision
+          sourceData.dbUpdatedAt = candidate.dbUpdatedAt
+        }
+        localStorage.setItem(REVISION_PING_KEY, JSON.stringify({ rev: candidate.dbRevision, at: candidate.dbUpdatedAt }))
+      } catch (fallbackError) {
+        console.error('Database persistence failed', error, fallbackError)
+        throw new Error(
+          fallbackError instanceof Error && fallbackError.message
+            ? `Impossibile salvare i dati sul dispositivo. Dettaglio: ${fallbackError.message}`
+            : 'Impossibile salvare i dati sul dispositivo.',
+        )
+      }
+    }
+  })
 }
 
-export function saveDatabase(data: ErpData): Promise<void> {
+export function saveDatabase(data: ErpData, options: SaveDatabaseOptions = {}): Promise<void> {
   const snapshot = structuredClone(data)
-  saveQueue = saveQueue.then(() => persistDatabase(snapshot))
+  saveQueue = saveQueue.then(
+    () => persistDatabase(snapshot, options, data),
+    () => persistDatabase(snapshot, options, data),
+  )
   return saveQueue
 }

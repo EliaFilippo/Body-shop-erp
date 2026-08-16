@@ -94,6 +94,307 @@ function ensureProduction(data: ErpData): ProductionModule {
   }
 }
 
+const phaseTrackingMetric = (data: ErpData) => data.plannerSettings.phaseTrackingMetric === 'man-hours' ? 'man-hours' : 'calendar'
+
+const workflowPhaseNamesByProductionPhase = (phase: ProductionPhase) => {
+  if (phase === 'Da iniziare') return ['Smontaggio']
+  if (phase === 'Lavaggio/Controllo') return ['Lavaggio', 'Controllo qualità']
+  return [phase]
+}
+
+const humanMinutes = (value: number) => Math.max(0, Math.round(value))
+
+function unique(list: string[]) {
+  return Array.from(new Set(list.map((item) => item.trim()).filter(Boolean)))
+}
+
+function sumManWorkedMinutes(phase: JobPhase, atIso: string) {
+  return phase.operatorAssignments.reduce((sum, item) => {
+    if (item.endedAt) return sum + Math.max(item.workedMinutes, elapsedMinutes(item.startedAt, item.endedAt))
+    if (item.activityStatus === 'Attivo') return sum + Math.max(item.workedMinutes, elapsedMinutes(item.startedAt, atIso))
+    return sum + Math.max(0, item.workedMinutes)
+  }, 0)
+}
+
+function calendarWorkedMinutes(phase: JobPhase, atIso: string) {
+  const starts = phase.operatorAssignments.map((item) => item.startedAt).filter(Boolean).sort()
+  const phaseStart = starts[0] || phase.startedAt
+  if (!phaseStart) return Math.max(0, phase.actualMinutes)
+  const phaseEnd = phase.status === 'Completata' ? (phase.endedAt || atIso) : atIso
+  return Math.max(Math.max(0, phase.actualMinutes), elapsedMinutes(phaseStart, phaseEnd))
+}
+
+function findWorkflowJob(data: ErpData, vehicleId: string) {
+  return (data.jobs ?? []).find((job) => job.vehicleId === vehicleId && job.status !== 'Annullata') ?? null
+}
+
+function findTrackedPhase(job: RepairJob, productionPhase: ProductionPhase) {
+  const active = job.phases.find((phase) => phase.status === 'In lavorazione')
+  if (active) return active
+  const names = workflowPhaseNamesByProductionPhase(productionPhase)
+  return job.phases.find((phase) => names.includes(phase.name))
+    || job.phases.find((phase) => phase.status === 'Da fare' && !phase.notRequired)
+    || job.phases.find((phase) => phase.status === 'Completata')
+    || null
+}
+
+function operatorsInPhase(phase: JobPhase) {
+  const active = unique((phase.operatorAssignments ?? [])
+    .filter((item) => item.activityStatus === 'Attivo' && !item.endedAt)
+    .map((item) => item.operatorName))
+  if (active.length) return active
+  return unique((phase.operatorAssignments ?? []).map((item) => item.operatorName))
+}
+
+function paceLevel(consumedPercent: number): ProductionPaceLevel {
+  if (consumedPercent > 100) return 'IN RITARDO'
+  if (consumedPercent >= 80) return 'A RISCHIO'
+  return 'IN ORARIO'
+}
+
+function createPaceHistoryEntry(input: Omit<ProductionPaceHistoryEntry, 'id'>): ProductionPaceHistoryEntry {
+  return { id: makeId('pace'), ...input }
+}
+
+function samePaceStateSemantics(previous: ProductionPaceState, next: ProductionPaceState) {
+  if (previous.id !== next.id) return false
+  if (previous.vehicleId !== next.vehicleId) return false
+  if (previous.jobId !== next.jobId) return false
+  if (previous.phaseId !== next.phaseId) return false
+  if (previous.phaseName !== next.phaseName) return false
+  if (previous.metric !== next.metric) return false
+  if (previous.estimatedMinutes !== next.estimatedMinutes) return false
+  if (previous.workedMinutes !== next.workedMinutes) return false
+  if (previous.residualMinutes !== next.residualMinutes) return false
+  if (previous.consumedPercent !== next.consumedPercent) return false
+  if (previous.level !== next.level) return false
+  if ((previous.preAlertAt ?? '') !== (next.preAlertAt ?? '')) return false
+  if ((previous.delayedAt ?? '') !== (next.delayedAt ?? '')) return false
+  if ((previous.finalDelayMinutes ?? null) !== (next.finalDelayMinutes ?? null)) return false
+  if (previous.operators.length !== next.operators.length) return false
+  for (let index = 0; index < previous.operators.length; index += 1) {
+    if (previous.operators[index] !== next.operators[index]) return false
+  }
+  return true
+}
+
+function buildPaceState(data: ErpData, productionJob: ProductionJobState, atIso: string): ProductionPaceState | null {
+  const workflowJob = findWorkflowJob(data, productionJob.vehicleId)
+  if (!workflowJob) return null
+  const phase = findTrackedPhase(workflowJob, productionJob.phase)
+  if (!phase || phase.notRequired) return null
+  const estimatedMinutes = Math.max(15, Number(phase.estimatedMinutes) || 15)
+  const metric = phaseTrackingMetric(data)
+  const workedMinutes = metric === 'man-hours'
+    ? humanMinutes(sumManWorkedMinutes(phase, atIso))
+    : humanMinutes(calendarWorkedMinutes(phase, atIso))
+  const consumedPercent = Math.max(0, Math.round((workedMinutes / estimatedMinutes) * 100))
+  return {
+    id: `${workflowJob.id}:${phase.id}`,
+    vehicleId: productionJob.vehicleId,
+    jobId: workflowJob.id,
+    phaseId: phase.id,
+    phaseName: phase.name,
+    metric,
+    estimatedMinutes,
+    workedMinutes,
+    residualMinutes: Math.max(0, estimatedMinutes - workedMinutes),
+    consumedPercent,
+    level: paceLevel(consumedPercent),
+    operators: operatorsInPhase(phase),
+    updatedAt: atIso,
+  }
+}
+
+function operatorCompatibleWithPhase(data: ErpData, operatorName: string, phaseName: string) {
+  const operator = data.plannerSettings.operators.find((item) => item.name.trim().toLowerCase() === operatorName.trim().toLowerCase())
+  if (!operator) return false
+  const skills = (operator.skills ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
+  if (!skills.length) return true
+  return skills.some((item) => phaseName.toLowerCase().includes(item))
+}
+
+function findSupportOperator(data: ErpData, state: ProductionPaceState, atIso: string) {
+  const assigned = state.operators.map((item) => item.toLowerCase())
+  const candidates = data.plannerSettings.operators
+    .filter((operator) => operator.active)
+    .filter((operator) => !assigned.includes(operator.name.trim().toLowerCase()))
+    .filter((operator) => operatorCompatibleWithPhase(data, operator.name, state.phaseName))
+  if (!candidates.length) return { operatorName: '', skippedReason: 'Nessun operatore compatibile disponibile.' }
+  for (const operator of candidates) {
+    const nextTask = nextTaskForOperator(data, operator.id, atIso)
+    if (!nextTask) return { operatorName: operator.name, skippedReason: '' }
+    const startsSoon = elapsedMinutes(atIso, nextTask.startAt) <= 90
+    const protectsUrgent = nextTask.priority === 'Urgente' && nextTask.jobId !== state.jobId
+    if (protectsUrgent || startsSoon) continue
+    return { operatorName: operator.name, skippedReason: '' }
+  }
+  return { operatorName: '', skippedReason: 'Riassegnazione evitata per non aggravare altre urgenze.' }
+}
+
+export function paceStateByVehicle(data: ErpData, vehicleId: string, atIso = nowIso()) {
+  const production = ensureProduction(data)
+  const current = production.jobs.find((job) => job.vehicleId === vehicleId)
+  if (!current) return null
+  const computed = buildPaceState(data, current, atIso)
+  if (computed) {
+    const persisted = (production.paceStates ?? []).find((item) => item.id === computed.id)
+    return persisted ? { ...computed, preAlertAt: persisted.preAlertAt, delayedAt: persisted.delayedAt, finalDelayMinutes: persisted.finalDelayMinutes } : computed
+  }
+  return null
+}
+
+export function runProductionDelayControl(data: ErpData, reason = 'Controllo tempi tablet', atIso = nowIso()): ErpData {
+  const production = ensureProduction(data)
+  let nextData = data
+  let paceStates = [...(production.paceStates ?? [])]
+  let paceHistory = [...(production.paceHistory ?? [])]
+  let shouldRecalculatePlanner = false
+  const touched = new Set<string>()
+
+  for (const productionJob of production.jobs) {
+    const nextState = buildPaceState(nextData, productionJob, atIso)
+    if (!nextState) continue
+    touched.add(nextState.id)
+    const previous = paceStates.find((item) => item.id === nextState.id)
+    const merged: ProductionPaceState = {
+      ...previous,
+      ...nextState,
+    }
+
+    if (!previous?.preAlertAt && nextState.level === 'A RISCHIO') {
+      merged.preAlertAt = atIso
+      paceHistory = [createPaceHistoryEntry({
+        at: atIso,
+        event: 'pre-alert',
+        message: `Pre-allerta: consumato ${nextState.consumedPercent}% del previsto in ${nextState.phaseName}.`,
+        operators: nextState.operators,
+        vehicleId: nextState.vehicleId,
+        jobId: nextState.jobId,
+        phaseId: nextState.phaseId,
+        phaseName: nextState.phaseName,
+      }), ...paceHistory]
+    }
+
+    if (!previous?.delayedAt && nextState.level === 'IN RITARDO') {
+      merged.delayedAt = atIso
+      shouldRecalculatePlanner = true
+      const delayMinutes = Math.max(0, nextState.workedMinutes - nextState.estimatedMinutes)
+      const delayedJob = findWorkflowJob(nextData, nextState.vehicleId)
+      const impact = delayedJob?.expectedDeliveryDate
+        ? delayedJob.expectedDeliveryDate < todayKey()
+          ? 'Impatto consegna: vettura gia oltre la data promessa.'
+          : delayedJob.expectedDeliveryDate === todayKey()
+            ? 'Impatto consegna: rischio ritardo su consegna odierna.'
+            : 'Impatto consegna: monitorare scadenza promessa.'
+        : 'Impatto consegna: data promessa non definita.'
+      paceHistory = [createPaceHistoryEntry({
+        at: atIso,
+        event: 'delay-start',
+        message: `Fase in ritardo: +${delayMinutes} min (${nextState.phaseName}). ${impact}`,
+        delayMinutes,
+        operators: nextState.operators,
+        vehicleId: nextState.vehicleId,
+        jobId: nextState.jobId,
+        phaseId: nextState.phaseId,
+        phaseName: nextState.phaseName,
+      }), ...paceHistory]
+
+      const workflowJob = findWorkflowJob(nextData, nextState.vehicleId)
+      const phase = workflowJob?.phases.find((item) => item.id === nextState.phaseId)
+      if (workflowJob && phase) {
+        const support = findSupportOperator(nextData, nextState, atIso)
+        if (support.operatorName) {
+          const activeNames = operatorsInPhase(phase)
+          nextData = updateJobPhaseOperators(nextData, workflowJob.id, phase.id, [...activeNames, support.operatorName], atIso)
+          paceHistory = [createPaceHistoryEntry({
+            at: atIso,
+            event: 'auto-support-assigned',
+            message: `Supporto automatico assegnato: ${support.operatorName}.`,
+            operators: [...nextState.operators, support.operatorName],
+            vehicleId: nextState.vehicleId,
+            jobId: nextState.jobId,
+            phaseId: nextState.phaseId,
+            phaseName: nextState.phaseName,
+          }), ...paceHistory]
+        } else {
+          paceHistory = [createPaceHistoryEntry({
+            at: atIso,
+            event: 'auto-support-skipped',
+            message: support.skippedReason,
+            operators: nextState.operators,
+            vehicleId: nextState.vehicleId,
+            jobId: nextState.jobId,
+            phaseId: nextState.phaseId,
+            phaseName: nextState.phaseName,
+          }), ...paceHistory]
+        }
+      }
+    }
+
+    const workflowJob = findWorkflowJob(nextData, nextState.vehicleId)
+    const workflowPhase = workflowJob?.phases.find((item) => item.id === nextState.phaseId)
+    if (workflowPhase?.status === 'Completata' && merged.delayedAt && merged.finalDelayMinutes == null) {
+      const finalDelayMinutes = Math.max(0, nextState.workedMinutes - nextState.estimatedMinutes)
+      merged.finalDelayMinutes = finalDelayMinutes
+      paceHistory = [createPaceHistoryEntry({
+        at: atIso,
+        event: 'delay-final',
+        message: `Ritardo finale fase: +${finalDelayMinutes} min.`,
+        delayMinutes: finalDelayMinutes,
+        operators: nextState.operators,
+        vehicleId: nextState.vehicleId,
+        jobId: nextState.jobId,
+        phaseId: nextState.phaseId,
+        phaseName: nextState.phaseName,
+      }), ...paceHistory]
+    }
+
+    if (previous && samePaceStateSemantics(previous, merged)) {
+      paceStates = [previous, ...paceStates.filter((item) => item.id !== previous.id)]
+      continue
+    }
+
+    paceStates = [merged, ...paceStates.filter((item) => item.id !== merged.id)]
+  }
+
+  paceStates = paceStates.filter((item) => touched.has(item.id) || item.finalDelayMinutes != null)
+
+  let finalData: ErpData = {
+    ...nextData,
+    production: {
+      ...ensureProduction(nextData),
+      paceStates,
+      paceHistory: paceHistory.slice(0, 400),
+    },
+  }
+
+  if (shouldRecalculatePlanner) {
+    finalData = recalculateOperatorPrograms(finalData, plannerTodayKey(), reason)
+    const latest = paceStates.find((item) => item.level === 'IN RITARDO')
+    if (latest) {
+      finalData = {
+        ...finalData,
+        production: {
+          ...ensureProduction(finalData),
+          paceHistory: [createPaceHistoryEntry({
+            at: atIso,
+            event: 'planner-recalculation',
+            message: `Planner ricalcolato per ritardo su ${latest.phaseName}.`,
+            operators: latest.operators,
+            vehicleId: latest.vehicleId,
+            jobId: latest.jobId,
+            phaseId: latest.phaseId,
+            phaseName: latest.phaseName,
+          }), ...ensureProduction(finalData).paceHistory].slice(0, 400),
+        },
+      }
+    }
+  }
+
+  return finalData
+}
+
 function vehicleToJob(vehicle: Vehicle): ProductionJobState {
   const mappedPhase = vehicle.status.toLowerCase() === 'pronta'
     ? 'Pronta'
