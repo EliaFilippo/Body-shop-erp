@@ -14,6 +14,7 @@ import type {
   VatQuarterStatus,
 } from '../types'
 import { ownerWithdrawalPlannedDateForMonth } from './economic'
+import { isVehicleDeliveredStatus } from './vehicleStatuses'
 import { calculateVatQuarterSnapshot } from './vatQuarterly'
 
 const id = () => crypto.randomUUID()
@@ -369,7 +370,7 @@ export function createInvoice(
   if (!vehicles.length) throw new Error('Seleziona almeno una vettura da fatturare.')
   if (vehicles.some((item) => item.customerId !== input.customerId)) throw new Error('Tutte le vetture devono appartenere allo stesso cliente.')
   if (vehicles.some((item) => item.invoiceId || item.billingStatus === 'Fatturata')) throw new Error('Una o più vetture risultano già fatturate.')
-  if (vehicles.some((item) => item.status !== 'Consegnata' && item.billingStatus !== 'Da fatturare')) throw new Error('Puoi fatturare solo vetture consegnate.')
+  if (vehicles.some((item) => !isVehicleDeliveredStatus(data.plannerSettings, item.status) && item.billingStatus !== 'Da fatturare')) throw new Error('Puoi fatturare solo vetture consegnate.')
 
   const vatRate = Number.isFinite(input.vatRate) ? Number(input.vatRate) : data.financeSettings.defaultVatRate
   const lines = vehicles.map((vehicle) => {

@@ -6,7 +6,10 @@ import type {
   AcceptancePhotoEntry,
   AcceptanceQuote,
   CustomerDocumentDraft,
+  IdentityDocumentOcrResponse,
+  OcrConfidence,
   PlannerSettings,
+  VehicleBookletOcrResponse,
   VehicleBookletDraft,
 } from '../types'
 
@@ -165,6 +168,100 @@ export function createEmptyBookletDraft(): VehicleBookletDraft[] {
   ]
 }
 
+const documentIdentityFieldMap: Record<keyof IdentityDocumentOcrResponse['fields'], keyof CustomerDocumentDraft['fields']> = {
+  firstName: 'name',
+  lastName: 'surname',
+  taxCode: 'taxId',
+  birthDate: 'birthDate',
+  birthPlace: 'birthPlace',
+  residence: 'residence',
+  documentNumber: 'documentNumber',
+  issueDate: 'issueDate',
+  expiryDate: 'expiryDate',
+  issuingAuthority: 'issuingAuthority',
+}
+
+export function confidenceScoreToDraftLevel(confidence: number | null): OcrConfidence {
+  if (confidence === null || confidence < 0.5) return 'low'
+  if (confidence < 0.8) return 'medium'
+  return 'high'
+}
+
+export function mergeCustomerDocumentDraftWithOcr(
+  draft: CustomerDocumentDraft,
+  ocr: IdentityDocumentOcrResponse,
+): CustomerDocumentDraft {
+  const nextFields = { ...draft.fields }
+
+  for (const sourceField of Object.keys(documentIdentityFieldMap) as Array<keyof IdentityDocumentOcrResponse['fields']>) {
+    const targetField = documentIdentityFieldMap[sourceField]
+    const currentField = nextFields[targetField]
+    const recognizedField = ocr.fields[sourceField]
+    const nextValue = recognizedField.value.trim()
+    const nextConfidence = confidenceScoreToDraftLevel(recognizedField.confidence)
+
+    if (nextValue && (currentField.source !== 'manual' || !currentField.value.trim())) {
+      nextFields[targetField] = {
+        ...currentField,
+        value: nextValue,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+      continue
+    }
+
+    if (!currentField.value.trim() && recognizedField.source === 'azure') {
+      nextFields[targetField] = {
+        ...currentField,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+    }
+  }
+
+  return {
+    ...draft,
+    fields: nextFields,
+  }
+}
+
+export function mergeVehicleBookletDraftWithOcr(
+  draft: VehicleBookletDraft,
+  ocr: VehicleBookletOcrResponse,
+): VehicleBookletDraft {
+  const nextFields = { ...draft.fields }
+
+  for (const field of Object.keys(nextFields) as Array<keyof VehicleBookletDraft['fields']>) {
+    const currentField = nextFields[field]
+    const recognizedField = ocr.fields[field]
+    const nextValue = String(recognizedField?.value ?? '').trim()
+    const nextConfidence = confidenceScoreToDraftLevel(recognizedField?.confidence ?? null)
+
+    if (nextValue && (currentField.source !== 'manual' || !currentField.value.trim())) {
+      nextFields[field] = {
+        ...currentField,
+        value: nextValue,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+      continue
+    }
+
+    if (!currentField.value.trim() && recognizedField?.source === 'azure') {
+      nextFields[field] = {
+        ...currentField,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+    }
+  }
+
+  return {
+    ...draft,
+    fields: nextFields,
+  }
+}
+
 function createChecklist(): AcceptanceChecklistItem[] {
   return [
     { id: crypto.randomUUID(), label: 'Danni registrati', checked: false },
@@ -188,6 +285,17 @@ export function createAcceptanceDraft(
     operator: '',
     damageDescription: '',
     accessories: [],
+    accessoriesDraft: {
+      keyCount: '',
+      hasRegistrationCard: false,
+      hasSpareWheelKit: false,
+      hasTriangle: false,
+      hasSafetyVest: false,
+      hasFloorMats: false,
+      hasPersonalItems: false,
+      otherNotes: '',
+      confirmed: false,
+    },
     customerNotes: '',
     checklist: createChecklist(),
     signatureDataUrl: '',
@@ -247,7 +355,9 @@ export function appendAcceptancePhotoEntry(acceptance: AcceptanceCase, photo: Ac
   return {
     ...acceptance,
     photos: nextPhotos,
-    damagePhotos: [...new Set([...(acceptance.damagePhotos ?? []), photo.dataUrl])],
+    damagePhotos: photo.category === 'danni'
+      ? [...new Set([...(acceptance.damagePhotos ?? []), photo.dataUrl])]
+      : [...(acceptance.damagePhotos ?? [])],
     updatedAt: new Date().toISOString(),
   }
 }

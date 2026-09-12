@@ -1,15 +1,22 @@
 import type {
   ErpData,
+  JobPhase,
   ProductionJobState,
   ProductionModule,
   ProductionOperatorIdentity,
+  ProductionPaceHistoryEntry,
+  ProductionPaceLevel,
+  ProductionPaceState,
   ProductionPhase,
   ProductionReport,
   ProductionReportType,
   ProductionWorkLog,
+  RepairJob,
   Vehicle,
   VehicleStatus,
 } from '../../types'
+import { nextTaskForOperator, recalculateOperatorPrograms, todayKey as plannerTodayKey } from '../../services/planner'
+import { updateJobPhaseOperators } from '../../services/workflow'
 
 const DAY_MS = 86_400_000
 
@@ -90,6 +97,8 @@ function ensureProduction(data: ErpData): ProductionModule {
     phaseHistory: [],
     workLogs: [],
     reports: [],
+    paceStates: [],
+    paceHistory: [],
     identities: [DEFAULT_PRODUCTION_IDENTITY],
   }
 }
@@ -412,12 +421,14 @@ function vehicleToJob(vehicle: Vehicle): ProductionJobState {
   }
 }
 
+const isDeliveredVehicle = (vehicle: Vehicle) => vehicle.status.trim().toLowerCase() === 'consegnata'
+
 export function syncProductionJobsFromVehicles(data: ErpData): ErpData {
   const production = ensureProduction(data)
   const jobByVehicle = new Map(production.jobs.map((job) => [job.vehicleId, job]))
-  const activeVehicleIds = new Set(data.vehicles.filter((vehicle) => vehicle.status !== 'consegnata').map((vehicle) => vehicle.id))
+  const activeVehicleIds = new Set(data.vehicles.filter((vehicle) => !isDeliveredVehicle(vehicle)).map((vehicle) => vehicle.id))
   const mergedJobs = data.vehicles
-    .filter((vehicle) => vehicle.status !== 'consegnata')
+    .filter((vehicle) => !isDeliveredVehicle(vehicle))
     .map((vehicle) => {
       const existing = jobByVehicle.get(vehicle.id)
       const base = vehicleToJob(vehicle)

@@ -79,7 +79,7 @@ describe('business overview', () => {
     expect(snapshot.current.margin).toBe(800)
     expect(snapshot.current.expectedCollections).toBe(600)
     expect(snapshot.current.deliveredVehicles).toBe(1)
-    expect(snapshot.current.lateVehicles).toBe(0)
+    expect(snapshot.current.lateVehicles).toBe(1)
     expect(snapshot.points[0].revenue).toBe(1000)
     expect(snapshot.points[0].cost).toBe(0)
     expect(snapshot.points[0].margin).toBe(1000)

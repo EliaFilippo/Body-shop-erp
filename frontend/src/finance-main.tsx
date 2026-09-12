@@ -1,23 +1,37 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import './polyfills/randomUuid'
 import './index.css'
 import './App.css'
 import { FinancePage } from './features/finance/FinancePage'
 import { loadDatabase, saveDatabase } from './services/database'
+import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from './services/originGuard'
 import { emptyData } from './services/erp'
 import type { ErpData } from './types'
 
 export function FinanceApp() {
+  const blockedByOrigin = isFileOrigin()
   const [data, setData] = useState<ErpData>(emptyData)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
+    if (blockedByOrigin) {
+      tryRedirectFromFileOrigin()
+    }
+  }, [blockedByOrigin])
+
+  useEffect(() => {
+    let cancelled = false
     loadDatabase()
-      .then(setData)
+      .then((loaded) => {
+        if (cancelled) return
+        setData(loaded)
+        setReady(true)
+      })
       .catch((problem) => setError(problem instanceof Error ? problem.message : 'Impossibile caricare il database.'))
-      .finally(() => setReady(true))
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -26,6 +40,10 @@ export function FinanceApp() {
   }, [data, ready])
 
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
+
+  if (blockedByOrigin) {
+    return <main className="origin-blocked"><h1>{ORIGIN_BLOCK_MESSAGE}</h1></main>
+  }
 
   return <div className="app-shell finance-standalone">
     <aside className="sidebar">

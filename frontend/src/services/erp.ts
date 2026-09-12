@@ -1,16 +1,71 @@
-import type { ConeEvent, Customer, ErpData, PlannerSettings, Vehicle, VehicleCostEntry, VehicleStatus, VehicleStatusChange } from '../types'
+import type { ConeEvent, Customer, ErpData, InternalMonthlyCostCategory, InternalMonthlyCostItem, PlannerSettings, Vehicle, VehicleCostEntry, VehicleStatus, VehicleStatusChange } from '../types'
 import { calculateVehicleEconomicSnapshot } from './economic'
+import { defaultVehicleStatus, isVehicleConeRequiredStatus, resolveVehicleStatusId } from './vehicleStatuses'
+import { DEFAULT_WEEKLY_WORK_SCHEDULE } from './workCalendar'
 
 export const TOTAL_CONES = 30
 export const STORAGE_KEY = 'carrozzeria-elias-erp-v1'
 
+const INTERNAL_MONTHLY_COST_CATEGORIES: Array<{ category: InternalMonthlyCostCategory; description: string }> = [
+  { category: 'personale', description: 'Personale' },
+  { category: 'affitto', description: 'Affitto' },
+  { category: 'noleggi-leasing', description: 'Noleggi / Leasing' },
+  { category: 'energia', description: 'Energia' },
+  { category: 'assicurazioni', description: 'Assicurazioni' },
+  { category: 'software', description: 'Software' },
+  { category: 'consulenze-amministrazione', description: 'Consulenze / amministrazione' },
+  { category: 'utenze', description: 'Utenze' },
+  { category: 'altri-costi-fissi', description: 'Altri costi fissi' },
+  { category: 'altri-costi-generali', description: 'Altri costi generali' },
+]
+
+const defaultMonthlyCostItems: InternalMonthlyCostItem[] = INTERNAL_MONTHLY_COST_CATEGORIES.map((item) => ({
+  id: crypto.randomUUID(),
+  category: item.category,
+  description: item.description,
+  monthlyAmount: 0,
+  active: true,
+}))
+
 export const defaultPlannerSettings: PlannerSettings = {
   operators: [],
+  standardWorks: [
+    { id: crypto.randomUUID(), name: 'Smontaggio', calculationType: 'per-vehicle', standardMinutes: 60, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Smontaggio', rules: [], active: true, requiredSkill: 'smontaggio', cycleOrder: 10 },
+    { id: crypto.randomUUID(), name: 'Lattoneria', calculationType: 'per-panel', standardMinutes: 30, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Lattoneria', rules: [], active: true, requiredSkill: 'lattoneria', cycleOrder: 20 },
+    { id: crypto.randomUUID(), name: 'Incartatura', calculationType: 'per-vehicle', standardMinutes: 40, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Preparazione', rules: [], active: true, requiredSkill: 'preparazione', cycleOrder: 30 },
+    { id: crypto.randomUUID(), name: 'Scartatura', calculationType: 'per-vehicle', standardMinutes: 40, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Preparazione', rules: [], active: true, requiredSkill: 'preparazione', cycleOrder: 35 },
+    { id: crypto.randomUUID(), name: 'Stuccatura', calculationType: 'per-panel', standardMinutes: 0, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Preparazione', rules: [], active: false, requiredSkill: 'preparazione', cycleOrder: 37 },
+    { id: crypto.randomUUID(), name: 'Preparazione', calculationType: 'per-panel', standardMinutes: 60, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Preparazione', rules: [], active: true, requiredSkill: 'preparazione', cycleOrder: 40 },
+    { id: crypto.randomUUID(), name: 'Verniciatura standard', calculationType: 'per-panel', standardMinutes: 30, technicalWaitMinutes: 360, technicalWaitBlocksPhaseNames: ['Lucidatura', 'Rimontaggio', 'Lavaggio', 'Controllo qualità'], categoryOrPhase: 'Verniciatura', rules: [], active: true, requiredSkill: 'verniciatura', cycleOrder: 50 },
+    { id: crypto.randomUUID(), name: 'Verniciatura perlato', calculationType: 'per-panel', standardMinutes: 45, technicalWaitMinutes: 360, technicalWaitBlocksPhaseNames: ['Lucidatura', 'Rimontaggio', 'Lavaggio', 'Controllo qualità'], categoryOrPhase: 'Verniciatura', rules: [], active: true, requiredSkill: 'verniciatura', cycleOrder: 55 },
+    { id: crypto.randomUUID(), name: 'Rimontaggio', calculationType: 'per-vehicle', standardMinutes: 60, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Rimontaggio', rules: [], active: true, requiredSkill: 'rimontaggio', cycleOrder: 60 },
+    { id: crypto.randomUUID(), name: 'Lavaggio', calculationType: 'per-vehicle', standardMinutes: 20, technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [], categoryOrPhase: 'Lavaggio', rules: [], active: true, requiredSkill: 'lavaggio', cycleOrder: 80 },
+  ],
+  standardWorkRuleHistory: [],
+  standardWorkTimePresets: [],
+  standardWorkPriceList: [],
+  standardWorkPriceHistory: [],
+  internalCostSettings: {
+    internalHourlyRate: 0,
+    minimumMarginPercent: 20,
+    monthlyCostItems: defaultMonthlyCostItems,
+    productiveCapacity: {
+      productiveOperators: 4,
+      hoursPerOperatorPerDay: 8,
+      workingDaysPerMonth: 22,
+      efficiencyPercent: 85,
+    },
+    useManualHourlyRate: false,
+    manualHourlyRate: null,
+    futureHourlyRateBySkill: {},
+  },
   workingDays: [1, 2, 3, 4, 5],
+  weeklyWorkSchedule: structuredClone(DEFAULT_WEEKLY_WORK_SCHEDULE),
   efficiencyPercent: 85,
   safetyMarginPercent: 15,
   holidays: [],
   closures: [],
+  companyClosures: [],
   absences: [],
   monthlyRevenueGoal: 0,
   monthlyRevenueGoalMode: 'automatic',
@@ -23,6 +78,11 @@ export const defaultPlannerSettings: PlannerSettings = {
   economicSafetyMarginPercent: 10,
   monthlyMarginGoal: null,
   monthlyGoalHistory: [],
+  phaseTrackingMetric: 'calendar',
+  deliveryBufferMode: 'percent',
+  deliveryBufferValue: 10,
+  vehicleStatuses: undefined,
+  defaultVehicleStatus: 'accettata',
 }
 
 export const emptyData: ErpData = {
@@ -57,6 +117,8 @@ export const emptyData: ErpData = {
     phaseHistory: [],
     workLogs: [],
     reports: [],
+    paceStates: [],
+    paceHistory: [],
     identities: [
       {
         role: 'production',
@@ -65,6 +127,18 @@ export const emptyData: ErpData = {
       },
     ],
   },
+  estimates: [],
+  jobs: [],
+  workflowCounters: {
+    estimate: 0,
+    job: 0,
+  },
+  qualityChecklistTemplates: [],
+  operatorPrograms: [],
+  operatorProgramHistory: [],
+  operatorProgramRevision: 0,
+  dbRevision: 0,
+  dbUpdatedAt: '',
   financeSettings: {
     defaultVatRate: 22,
     defaultPaymentDays: 30,
@@ -81,9 +155,58 @@ export const emptyData: ErpData = {
 }
 
 export const normalizePlate = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
+export const normalizeVin = (vin: string) => vin.trim().toUpperCase().replace(/\s+/g, '')
 
 const id = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
+
+const waitingSince = (vehicle: Vehicle) => {
+  const latestForCurrentStatus = (vehicle.statusHistory ?? []).find((entry) => entry.to === vehicle.status)
+  return latestForCurrentStatus?.at || vehicle.createdAt
+}
+
+export function isVehicleWaitingForCone(vehicle: Pick<Vehicle, 'status' | 'coneNumber'>, settings: PlannerSettings = defaultPlannerSettings) {
+  return vehicle.coneNumber === null && isVehicleConeRequiredStatus(settings, vehicle.status)
+}
+
+export function reconcileVehicleCones(data: ErpData, skipAutoAssignVehicleIds?: Set<string>): ErpData {
+  let changed = false
+  let history = [...data.coneHistory]
+  let vehicles = data.vehicles.map((vehicle) => {
+    if (vehicle.coneNumber === null) return vehicle
+    if (isVehicleConeRequiredStatus(data.plannerSettings, vehicle.status)) return vehicle
+    changed = true
+    history.unshift(event(vehicle, vehicle.coneNumber, 'Liberato', 'Rilascio automatico: vettura fuori lavorazione'))
+    return { ...vehicle, coneNumber: null }
+  })
+
+  const occupied = new Set(vehicles.flatMap((vehicle) => vehicle.coneNumber ?? []))
+  const byId = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]))
+  const waiting = vehicles
+    .filter((vehicle) => isVehicleWaitingForCone(vehicle, data.plannerSettings))
+    .filter((vehicle) => !skipAutoAssignVehicleIds?.has(vehicle.id))
+    .sort((a, b) => waitingSince(a).localeCompare(waitingSince(b)) || a.createdAt.localeCompare(b.createdAt))
+
+  for (const waitingVehicle of waiting) {
+    const freeCone = Array.from({ length: TOTAL_CONES }, (_, index) => index + 1)
+      .find((cone) => !occupied.has(cone))
+    if (freeCone == null) break
+    const current = byId.get(waitingVehicle.id)
+    if (!current || current.coneNumber !== null) continue
+    changed = true
+    occupied.add(freeCone)
+    byId.set(waitingVehicle.id, { ...current, coneNumber: freeCone })
+    history.unshift(event(waitingVehicle, freeCone, 'Assegnato', 'Assegnazione automatica: primo cono libero'))
+  }
+
+  if (!changed) return data
+  vehicles = data.vehicles.map((vehicle) => byId.get(vehicle.id) ?? vehicle)
+  return {
+    ...data,
+    vehicles,
+    coneHistory: history,
+  }
+}
 
 export function loadData(): ErpData {
   try {
@@ -133,18 +256,23 @@ export function createVehicle(
   vehicles: Vehicle[],
 ): Vehicle {
   const plate = normalizePlate(data.plate)
+  const vin = normalizeVin(data.vin)
   if (plate.length < 5) throw new Error('Inserisci una targa valida.')
   if (vehicles.some((vehicle) => normalizePlate(vehicle.plate) === plate)) {
-    throw new Error(`La targa ${plate} è già presente.`)
+    throw new Error('Esiste già una vettura con questa targa.')
+  }
+  if (vin && vehicles.some((vehicle) => normalizeVin(vehicle.vin) === vin)) {
+    throw new Error('Esiste già una vettura con questo VIN.')
   }
   if (!data.customerId) throw new Error('Seleziona il cliente proprietario.')
-  return { ...data, plate, id: id(), coneNumber: null, createdAt: now() }
+  return { ...data, plate, vin, id: id(), coneNumber: null, statusMode: 'automatic', suggestedStatus: null, createdAt: now() }
 }
 
 export function addVehicle(data: ErpData, input: Omit<Vehicle, 'id' | 'createdAt' | 'coneNumber'>): ErpData {
-  const vehicle = createVehicle(input, data.vehicles)
+  const initialStatus = resolveVehicleStatusId(data.plannerSettings, input.status || defaultVehicleStatus(data.plannerSettings))
+  const vehicle = createVehicle({ ...input, status: initialStatus }, data.vehicles)
   const next = { ...data, vehicles: [vehicle, ...data.vehicles] }
-  return input.status === 'Confermata' ? changeVehicleStatus(next, vehicle.id, 'Confermata') : next
+  return changeVehicleStatus(next, vehicle.id, initialStatus, { source: 'automatic', note: 'Stato iniziale vettura.' })
 }
 
 export function updateVehicle(
@@ -155,15 +283,19 @@ export function updateVehicle(
   const current = data.vehicles.find((vehicle) => vehicle.id === vehicleId)
   if (!current) throw new Error('Vettura non trovata.')
   const plate = normalizePlate(input.plate)
+  const vin = normalizeVin(input.vin)
   if (plate.length < 5) throw new Error('Inserisci una targa valida.')
   if (data.vehicles.some((vehicle) => vehicle.id !== vehicleId && normalizePlate(vehicle.plate) === plate)) {
-    throw new Error(`La targa ${plate} è già presente.`)
+    throw new Error('Esiste già una vettura con questa targa.')
+  }
+  if (vin && data.vehicles.some((vehicle) => vehicle.id !== vehicleId && normalizeVin(vehicle.vin) === vin)) {
+    throw new Error('Esiste già una vettura con questo VIN.')
   }
   if (!input.customerId) throw new Error('Seleziona il cliente proprietario.')
   return {
     ...data,
     vehicles: data.vehicles.map((vehicle) =>
-      vehicle.id === vehicleId ? { ...vehicle, ...input, status: current.status, plate } : vehicle,
+      vehicle.id === vehicleId ? { ...vehicle, ...input, status: current.status, plate, vin } : vehicle,
     ),
   }
 }
@@ -279,6 +411,7 @@ const statusHistoryEvent = (
   from: VehicleStatus,
   to: VehicleStatus,
   note: string,
+  source: 'manual' | 'automatic',
 ): VehicleStatusChange => ({
   id: id(),
   vehicleId,
@@ -286,61 +419,101 @@ const statusHistoryEvent = (
   to,
   at: now(),
   note,
+  source,
 })
 
-export function changeVehicleStatus(data: ErpData, vehicleId: string, status: VehicleStatus): ErpData {
+export function changeVehicleStatus(
+  data: ErpData,
+  vehicleId: string,
+  status: VehicleStatus,
+  options?: { source?: 'manual' | 'automatic'; note?: string; forceAutomatic?: boolean },
+): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) throw new Error('Vettura non trovata.')
+  const source = options?.source ?? 'manual'
+  const nextStatus = resolveVehicleStatusId(data.plannerSettings, status)
 
-  let coneNumber = vehicle.coneNumber
   const history = [...data.coneHistory]
   const statusHistory = [...(vehicle.statusHistory ?? [])]
 
-  if (status === 'Confermata' && coneNumber === null) {
-    const occupied = new Set(data.vehicles.flatMap((item) => item.coneNumber ?? []))
-    coneNumber = Array.from({ length: TOTAL_CONES }, (_, index) => index + 1)
-      .find((number) => !occupied.has(number)) ?? null
-    if (coneNumber === null) throw new Error('Tutti i 30 coni sono occupati.')
-    history.unshift(event(vehicle, coneNumber, 'Assegnato', 'Primo cono libero assegnato automaticamente'))
+  if (source === 'automatic' && vehicle.statusMode === 'manual' && vehicle.status !== nextStatus && !options?.forceAutomatic) {
+    return {
+      ...data,
+      vehicles: data.vehicles.map((item) => item.id === vehicleId ? {
+        ...item,
+        suggestedStatus: nextStatus,
+      } : item),
+    }
   }
 
-  if (status === 'Consegnata' && coneNumber !== null) {
-    history.unshift(event(vehicle, coneNumber, 'Liberato', 'Vettura consegnata'))
-    coneNumber = null
+  if (vehicle.status !== nextStatus) {
+    statusHistory.unshift(statusHistoryEvent(
+      vehicleId,
+      vehicle.status,
+      nextStatus,
+      options?.note || `Cambio stato registrato in ${nextStatus}.`,
+      source,
+    ))
   }
 
-  if (vehicle.status !== status) {
-    statusHistory.unshift(statusHistoryEvent(vehicleId, vehicle.status, status, `Cambio stato registrato in ${status}.`))
-  }
-
-  return {
+  return reconcileVehicleCones({
     ...data,
     coneHistory: history,
     vehicles: data.vehicles.map((item) =>
       item.id === vehicleId
         ? {
             ...item,
-            status,
-            coneNumber,
-            deliveredAt: status === 'Consegnata' ? (item.deliveredAt || now()) : item.deliveredAt,
-            billingStatus: status === 'Consegnata' && !item.invoiceId ? 'Da fatturare' : item.billingStatus,
+            status: nextStatus,
+            statusMode: source,
+            suggestedStatus: source === 'automatic' ? item.suggestedStatus : null,
+            coneNumber: item.coneNumber,
+            deliveredAt: nextStatus === resolveVehicleStatusId(data.plannerSettings, 'Consegnata') ? (item.deliveredAt || now()) : item.deliveredAt,
+            billingStatus: nextStatus === resolveVehicleStatusId(data.plannerSettings, 'Consegnata') && !item.invoiceId ? 'Da fatturare' : item.billingStatus,
             statusHistory,
           }
         : item,
     ),
-  }
+  })
 }
 
-export function moveVehicleCone(data: ErpData, vehicleId: string, newCone: number): ErpData {
-  if (newCone < 1 || newCone > TOTAL_CONES) throw new Error('Cono non valido.')
+export function moveVehicleCone(data: ErpData, vehicleId: string, newCone: number | null): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
-  if (!vehicle?.coneNumber) throw new Error('La vettura non ha un cono assegnato.')
-  if (data.vehicles.some((item) => item.id !== vehicleId && item.coneNumber === newCone)) {
+  if (!vehicle) throw new Error('Vettura non trovata.')
+  if (newCone !== null && (newCone < 1 || newCone > TOTAL_CONES)) throw new Error('Cono non valido.')
+  if (newCone !== null && data.vehicles.some((item) => item.id !== vehicleId && item.coneNumber === newCone)) {
     throw new Error(`Il cono ${newCone} è già occupato.`)
   }
   if (vehicle.coneNumber === newCone) return data
+
+  if (newCone === null) {
+    if (vehicle.coneNumber === null) return data
+    return reconcileVehicleCones({
+      ...data,
+      vehicles: data.vehicles.map((item) =>
+        item.id === vehicleId ? { ...item, coneNumber: null } : item,
+      ),
+      coneHistory: [
+        event(vehicle, vehicle.coneNumber, 'Liberato', 'Rilascio manuale cono'),
+        ...data.coneHistory,
+      ],
+    }, new Set([vehicleId]))
+  }
+
+  if (vehicle.coneNumber === null) {
+    return reconcileVehicleCones({
+      ...data,
+      vehicles: data.vehicles.map((item) =>
+        item.id === vehicleId ? { ...item, coneNumber: newCone } : item,
+      ),
+      coneHistory: [
+        event(vehicle, newCone, 'Assegnato', 'Assegnazione manuale cono'),
+        ...data.coneHistory,
+      ],
+    })
+  }
+
   const oldCone = vehicle.coneNumber
-  return {
+  return reconcileVehicleCones({
     ...data,
     vehicles: data.vehicles.map((item) =>
       item.id === vehicleId ? { ...item, coneNumber: newCone } : item,
@@ -350,5 +523,5 @@ export function moveVehicleCone(data: ErpData, vehicleId: string, newCone: numbe
       event(vehicle, oldCone, 'Liberato', `Spostamento manuale al cono ${newCone}`),
       ...data.coneHistory,
     ],
-  }
+  })
 }

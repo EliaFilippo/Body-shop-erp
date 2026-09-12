@@ -177,7 +177,7 @@ describe('cashflow and credit control', () => {
     const snapshot = calculateCashFlowSnapshot(data, '2026-05-01')
     const events = buildCalendarEvents(data, '2026-05-01', 'mese')
 
-    expect(snapshot.windows[0].outflow).toBe(500)
+    expect(snapshot.windows[0].outflow).toBe(3500)
     expect(events.some((event) => event.type === 'vat-quarter' && event.amount === 500)).toBe(true)
   })
 })

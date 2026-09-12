@@ -124,6 +124,12 @@ describe('obiettivo economico', () => {
     expect(impact).toMatchObject({ addedRevenue: 3000, addedMargin: 900, newReachedPercent: 70, sufficient: false })
   })
 
+  it('ZERO IS NOT NEGATIVE: PASS', () => {
+    const impact = vehicleEconomicImpact([car('A', 4000, 20)], [car('A', 4000, 20)], settings, '2026-07-27')
+    expect(impact.addedRevenue).toBe(0)
+    expect(impact.addedMargin).toBe(0)
+  })
+
   it('confronta obiettivo e risultato e propone la previsione di fine mese', () => {
     const projection = calculateMonthlyGoalProjection([car('A', 4000, 20)], settings, '2026-07-27')
     expect(projection.goalRevenue).toBe(10000)
@@ -384,6 +390,8 @@ const emptyErpData = (): ErpData => ({
     phaseHistory: [],
     workLogs: [],
     reports: [],
+    paceStates: [],
+    paceHistory: [],
     identities: [{ role: 'production', operatorId: 'tablet-operator', operatorName: 'Operatore Produzione' }],
   },
   financeSettings: {
