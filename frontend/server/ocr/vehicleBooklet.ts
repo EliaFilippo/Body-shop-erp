@@ -80,18 +80,47 @@ function extractLabelValue(content: string, labels: string[]) {
   return ''
 }
 
+function codeTokenPattern(code: string) {
+  return code
+    .trim()
+    .toUpperCase()
+    .split('')
+    .map((char) => {
+      if (char === '.') return '\\s*[._-]?\\s*'
+      return char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    })
+    .join('\\s*')
+}
+
 function extractCodeValue(content: string, code: string | string[]) {
   const codes = Array.isArray(code) ? code : [code]
-  const expected = new Set(codes.map(normalizeCodeLabel))
   const rows = content.split(/\r?\n/).map((row) => row.trim()).filter(Boolean)
 
-  for (const row of rows) {
-    const match = row.match(/^([A-Z](?:\s*[._-]?\s*\d(?:\s*[._-]?\s*\d)?)?)\s*[:)=\-]?\s*(.+)$/i)
-    if (!match) continue
-    const rowCode = normalizeCodeLabel(match[1])
-    if (!expected.has(rowCode)) continue
-    const value = compact(match[2])
-    if (value) return value
+  // Italian registration certificates frequently place several coded fields
+  // on the same OCR line, e.g. “(P.1) 4806 (P.2) 294.00 (P.3) BENZINA”.
+  // Capture only the text belonging to the requested field and stop at the
+  // next official field marker instead of consuming the rest of the row.
+  const nextCodeBoundary = '(?=\\s*\\(?[A-Z]\\s*(?:[._-]?\\s*\\d(?:\\s*[._-]?\\s*\\d)?)?\\)?\\s*[:)=\\-]?\\s+|$)'
+
+  for (const requestedCode of codes) {
+    const token = codeTokenPattern(requestedCode)
+    const expression = new RegExp(`(?:^|\\s|\\()${token}\\)?\\s*[:)=\\-]?\\s*(.+?)${nextCodeBoundary}`, 'i')
+
+    for (const row of rows) {
+      const match = row.match(expression)
+      const value = match?.[1] ? compact(match[1]) : ''
+      if (value) return value
+    }
+  }
+
+  // Some OCR engines split a marker and its value across adjacent lines.
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    const rowCode = normalizeCodeLabel(rows[index])
+    const expected = codes.map(normalizeCodeLabel)
+    if (expected.includes(rowCode)) {
+      const next = compact(rows[index + 1])
+      if (next) return next
+    }
   }
 
   return ''
@@ -113,17 +142,22 @@ function normalizeVin(value: string) {
 function normalizeEngineDisplacement(value: string) {
   const normalized = compact(value)
   const explicit = normalized.match(/(\d{3,5})\s*(CC|CM3|CM\^3|CM³)\b/i)
-  if (explicit) return `${explicit[1]} cm3`
-  const numberOnly = normalized.match(/\b(\d{3,5})\b/)
-  return numberOnly ? `${numberOnly[1]} cm3` : ''
+  const raw = explicit?.[1] ?? normalized.match(/\b(\d{3,5})\b/)?.[1] ?? ''
+  if (!raw) return ''
+  const displacement = Number(raw)
+  if (!Number.isFinite(displacement) || displacement < 400 || displacement > 12000) return ''
+  return `${Math.round(displacement)} cm3`
 }
 
 function normalizePower(value: string) {
   const normalized = compact(value).replace(',', '.')
-  const explicit = normalized.match(/(\d{2,4}(?:\.\d{1,2})?)\s*(KW|CV)\b/i)
-  if (explicit) return `${explicit[1]} ${explicit[2].toLowerCase()}`
-  const kwOnly = normalized.match(/\b(\d{2,4}(?:\.\d{1,2})?)\b/)
-  return kwOnly ? `${kwOnly[1]} kw` : ''
+  const explicit = normalized.match(/(\d{1,4}(?:\.\d{1,2})?)\s*(KW|CV)\b/i)
+  const raw = explicit?.[1] ?? normalized.match(/\b(\d{1,4}(?:\.\d{1,2})?)\b/)?.[1] ?? ''
+  if (!raw) return ''
+  const power = Number(raw)
+  if (!Number.isFinite(power) || power < 10 || power > 1000) return ''
+  const unit = explicit?.[2]?.toLowerCase() ?? 'kw'
+  return `${raw} ${unit}`
 }
 
 function normalizeOwner(value: string) {
@@ -282,8 +316,8 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   const firstRegistrationRaw = extractCodeValue(content, 'B') || extractLabelValue(content, ['DATA\\s+IMMATRICOLAZIONE', 'IMMATRICOLAZIONE', 'PRIMA\\s+IMMATRICOLAZIONE'])
   const firstRegistrationValue = normalizeDate(firstRegistrationRaw)
   const fuelValue = normalizeFuel(extractCodeValue(content, 'P.3') || extractLabelValue(content, ['ALIMENTAZIONE', 'CARBURANTE']))
-  const displacementValue = normalizeEngineDisplacement(extractCodeValue(content, 'P.1') || extractLabelValue(content, ['CILINDRATA']))
-  const powerValue = normalizePower(extractCodeValue(content, 'P.2') || extractLabelValue(content, ['POTENZA']))
+  const displacementValue = normalizeEngineDisplacement(extractCodeValue(content, 'P.1'))
+  const powerValue = normalizePower(extractCodeValue(content, 'P.2'))
   const ownerValue = normalizeOwner(
     extractCodeValue(content, ['C.1', 'C.1.1', 'C.1.2'])
       || extractLabelValue(content, ['INTESTATARIO', 'PROPRIETARIO']),
@@ -296,8 +330,8 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
     model: toField(modelValue, 0.82),
     firstRegistration: toField(firstRegistrationValue, 0.8),
     fuel: toField(fuelValue, 0.8),
-    engineDisplacement: toField(displacementValue, 0.78),
-    power: toField(powerValue, 0.78),
+    engineDisplacement: toField(displacementValue, 0.9),
+    power: toField(powerValue, 0.9),
     owner: toField(ownerValue, 0.74),
   }
 
