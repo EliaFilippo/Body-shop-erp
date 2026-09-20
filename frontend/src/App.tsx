@@ -18,7 +18,7 @@ import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, re
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
-import { appendAcceptancePhotoEntry, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr } from './services/acceptance'
+import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr, updateConsumptionLine } from './services/acceptance'
 import { FinancePage } from './features/finance/FinancePage'
 import { TodayShopPage } from './features/production/TodayShopPage'
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
@@ -1912,6 +1912,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
   const [documentOcrState, setDocumentOcrState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error' | 'info'; message: string }>({ status: 'idle', message: '' })
   const [vehicleBookletOcrState, setVehicleBookletOcrState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error' | 'info'; message: string }>({ status: 'idle', message: '' })
   const [signatureModalOpen, setSignatureModalOpen] = useState(false)
+  const [quoteOpen, setQuoteOpen] = useState(false)
   const [signatureStrokes, setSignatureStrokes] = useState<Array<Array<{ x: number; y: number }>>>([])
   const intakePhotoInputRef = useRef<HTMLInputElement | null>(null)
   const signaturePadRef = useRef<HTMLDivElement | null>(null)
@@ -2313,9 +2314,28 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
     reader.readAsDataURL(file)
   }
 
+  const quoteSummary = buildAcceptanceQuoteSummary(acceptance.quote)
+  const laborLine = acceptance.quote.lines.find((line) => line.kind === 'labor')
+  const updateLaborHours = (hours: number) => {
+    const currentAcceptance = latestAcceptanceRef.current
+    const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, quantity: Math.max(0, hours) } : line)
+    const withLabor = { ...currentAcceptance.quote, lines: nextLines }
+    const nextQuote = updateConsumptionLine(withLabor, Math.max(0, withLabor.materialPercent) / 100)
+    saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
+  }
+  const updateMaterialPercent = (percent: number) => {
+    const currentAcceptance = latestAcceptanceRef.current
+    const nextQuote = updateConsumptionLine(currentAcceptance.quote, Math.max(0, percent) / 100)
+    saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
+  }
+  const updateVatRate = (vat: number) => {
+    const currentAcceptance = latestAcceptanceRef.current
+    saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, appliedVatRate: Math.max(0, vat) }, updatedAt: new Date().toISOString() })
+  }
   const persistQuote = () => {
     const currentAcceptance = latestAcceptanceRef.current
     saveAcceptance({ ...currentAcceptance, updatedAt: new Date().toISOString() })
+    setQuoteOpen(true)
   }
 
   const updateAccessoriesDraft = (patch: Partial<NonNullable<AcceptanceIntakeData['accessoriesDraft']>>) => {
@@ -2432,6 +2452,24 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
       <div className="form-actions">
         <button type="button" className="primary" onClick={persistQuote}>Avanti → Preventivo</button>
       </div>
+      {quoteOpen && <div className="panel table-panel">
+        <div className="panel-head"><div><span className="eyebrow">PASSAGGIO 3</span><h3>Preventivo</h3><p>Calcolo economico collegato alla pratica.</p></div></div>
+        <div className="form-grid">
+          <label>Ore manodopera<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
+          <label>Tariffa oraria<input value={acceptance.quote.hourlyRate.toFixed(2)} readOnly /></label>
+          <label>Materiale consumo %<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
+          <label>IVA %<input type="number" min="0" step="1" value={acceptance.quote.appliedVatRate} onChange={(event) => updateVatRate(Number(event.target.value))} /></label>
+        </div>
+        <div className="summary-grid">
+          <div className="summary-card"><span>Manodopera</span><strong>{money(quoteSummary.labor.total)}</strong></div>
+          <div className="summary-card"><span>Materiali</span><strong>{money(quoteSummary.materials.total)}</strong></div>
+          <div className="summary-card"><span>Imponibile</span><strong>{money(quoteSummary.taxableAmount)}</strong></div>
+          <div className="summary-card"><span>IVA</span><strong>{money(quoteSummary.vatAmount)}</strong></div>
+          <div className="summary-card"><span>Totale preventivo</span><strong>{money(quoteSummary.total)}</strong></div>
+          <div className="summary-card"><span>Margine previsto</span><strong>{money(quoteSummary.marginEuro)} · {quoteSummary.marginPercent}%</strong></div>
+        </div>
+        <div className="form-actions"><button type="button" className="primary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva preventivo</button></div>
+      </div>}
     </div>
     {expandedDamagePhoto && expandedDamagePhoto.previewSrc && <Modal title={expandedDamagePhoto.photo.name} onClose={() => setExpandedDamagePhotoId(null)}><div className="damage-photo-modal"><img src={expandedDamagePhoto.previewSrc} alt={expandedDamagePhoto.photo.name} /><small>{expandedDamagePhoto.photo.caption || expandedDamagePhoto.photo.name}</small></div></Modal>}
     {expandedDashboardPhoto && expandedDashboardPhoto.previewSrc && <Modal title={expandedDashboardPhoto.photo.name} onClose={() => setExpandedDashboardPhotoId(null)}><div className="damage-photo-modal"><img src={expandedDashboardPhoto.previewSrc} alt={expandedDashboardPhoto.photo.name} /><small>{expandedDashboardPhoto.photo.caption || expandedDashboardPhoto.photo.name}</small></div></Modal>}
