@@ -149,6 +149,20 @@ function extractEngineGroup(content: string) {
   }
 }
 
+function extractCodedIdentifier(content: string, code: 'A' | 'E') {
+  const rows = content.split(/\r?\n/).map((row) => row.trim()).filter(Boolean)
+  const token = codeTokenPattern(code)
+  const sameLine = new RegExp(`(?:^|\\s|\\()${token}\\)?\\s*[:)=\\-]?\\s*([A-Z0-9][A-Z0-9 ._-]{4,28})`, 'i')
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index].toUpperCase()
+    const match = row.match(sameLine)
+    if (match?.[1]) return compact(match[1])
+    if (normalizeCodeLabel(row) === code && rows[index + 1]) return compact(rows[index + 1])
+  }
+  return ''
+}
+
 function normalizePlate(value: string) {
   const direct = compact(value).toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (/^[A-Z]{2}\d{3}[A-Z]{2}$/.test(direct)) return direct
@@ -328,8 +342,8 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   }
 
   const uppercaseContent = content.toUpperCase()
-  const plateValue = normalizePlate(extractCodeValue(content, 'A') || uppercaseContent)
-  const vinValue = normalizeVin(extractCodeValue(content, 'E') || uppercaseContent)
+  const plateValue = normalizePlate(extractCodedIdentifier(content, 'A') || extractCodeValue(content, 'A') || uppercaseContent)
+  const vinValue = normalizeVin(extractCodedIdentifier(content, 'E') || extractCodeValue(content, 'E') || uppercaseContent)
   const makeValue = compact(extractCodeValue(content, 'D.1') || extractLabelValue(content, ['MARCA', 'FABBRICA']))
   const modelValue = compact(
     extractCodeValue(content, 'D.3')
