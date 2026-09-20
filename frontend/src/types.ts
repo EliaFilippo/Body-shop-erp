@@ -292,6 +292,9 @@ export interface PlannerOperator {
   active: boolean
   skills?: string[]
   weeklySchedule?: WeeklyWorkDaySchedule[]
+  costMode?: 'included-in-overhead' | 'external-extra'
+  externalHourlyCost?: number
+  externalVatRate?: number
 }
 
 export interface WorkDayInterval {
