@@ -20,6 +20,7 @@ import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot }
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr, updateConsumptionLine } from './services/acceptance'
 import { FinancePage } from './features/finance/FinancePage'
+import { createQuoteDocument } from './services/documents'
 import { TodayShopPage } from './features/production/TodayShopPage'
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
 import { WorkflowPage } from './features/workflow/WorkflowPage'
@@ -745,8 +746,22 @@ function App() {
           }))
           try {
             const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', lines })
-            setData(next)
-            setNotice('Preventivo numerato creato. Lo trovi in Preventivi / Commesse.')
+            const customerLines = acceptance.quote.lines
+              .filter((line) => line.kind !== 'discount' && line.unitPrice > 0 && line.quantity > 0)
+              .map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, vatRate: acceptance.quote.appliedVatRate }))
+            const discountAmount = acceptance.quote.lines.filter((line) => line.kind === 'discount').reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+            const quoteData = createQuoteDocument(next, {
+              customerId: customer.id,
+              vehicleId: vehicle.id,
+              acceptanceId: acceptance.id,
+              status: 'bozza',
+              notes: acceptance.intake?.damageDescription ?? '',
+              lines: discountAmount > 0
+                ? [...customerLines, { description: 'Sconto commerciale', quantity: 1, unitPrice: 0, vatRate: acceptance.quote.appliedVatRate, discountRate: 0 }]
+                : customerLines,
+            })
+            setData(quoteData)
+            setNotice('Preventivo numerato creato. Disponibile in Preventivi / Commesse e Finance per PDF/stampa cliente.')
           } catch (problem) { setError(problem instanceof Error ? problem.message : 'Errore creazione preventivo.') }
         }} onDeleteDraft={(acceptanceId) => {
           allowCountReductionRef.current = true
