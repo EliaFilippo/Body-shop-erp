@@ -227,6 +227,7 @@ export function WorkflowPage({
   onUpdateVehicleStatus,
   statusOptions,
   statusLabel,
+  initialVehicleId,
 }: {
   data: ErpData
   customerById: (id: string) => Customer | undefined
@@ -237,6 +238,7 @@ export function WorkflowPage({
   onUpdateVehicleStatus: (vehicleId: string, status: string) => void
   statusOptions: Array<{ id: string; label: string }>
   statusLabel: (status: string) => string
+  initialVehicleId?: string
 }) {
   const [modal, setModal] = useState<WorkflowModal | null>(null)
   const [estimateStatusFilter, setEstimateStatusFilter] = useState<'Tutti' | EstimateStatus>('Tutti')
@@ -244,6 +246,14 @@ export function WorkflowPage({
   const [priorityFilter, setPriorityFilter] = useState<'Tutte' | 'Normale' | 'Alta' | 'Urgente'>('Tutte')
   const [responsibleFilter, setResponsibleFilter] = useState('')
   const [customerFilter, setCustomerFilter] = useState('')
+  const initialEstimateOpenedRef = useRef(false)
+
+  useEffect(() => {
+    if (!initialVehicleId || initialEstimateOpenedRef.current) return
+    if (!data.vehicles.some((vehicle) => vehicle.id === initialVehicleId)) return
+    initialEstimateOpenedRef.current = true
+    setModal({ type: 'estimate-create' })
+  }, [data.vehicles, initialVehicleId])
 
   const kpis = useMemo(() => calculateJobKpis(data), [data])
   const workTypeComparison = useMemo(() => workTypeTimeComparison(data), [data])
@@ -407,6 +417,7 @@ export function WorkflowPage({
       title="Nuovo preventivo"
       data={data}
       customerById={customerById}
+      initialVehicleId={initialVehicleId}
       onCancel={() => setModal(null)}
       onSubmit={(payload) => {
         try {
@@ -543,6 +554,7 @@ function EstimateEditor({
   data,
   customerById,
   initial,
+  initialVehicleId,
   onCancel,
   onSubmit,
   onConfirm,
@@ -551,6 +563,7 @@ function EstimateEditor({
   data: ErpData
   customerById: (id: string) => Customer | undefined
   initial?: EstimateDocument
+  initialVehicleId?: string
   onCancel: () => void
   onSubmit: (payload: {
     customerId: string
@@ -592,9 +605,10 @@ function EstimateEditor({
     paintCycle: string
   }
 
-  const [customerId, setCustomerId] = useState(initial?.customerId ?? '')
-  const [vehicleId, setVehicleId] = useState(initial?.vehicleId ?? '')
-  const [plate, setPlate] = useState(initial?.plate ?? '')
+  const initialVehicle = initialVehicleId ? data.vehicles.find((vehicle) => vehicle.id === initialVehicleId) : undefined
+  const [customerId, setCustomerId] = useState(initial?.customerId ?? initialVehicle?.customerId ?? '')
+  const [vehicleId, setVehicleId] = useState(initial?.vehicleId ?? initialVehicle?.id ?? '')
+  const [plate, setPlate] = useState(initial?.plate ?? initialVehicle?.plate ?? '')
   const [companyName, setCompanyName] = useState(initial?.companyName ?? '')
   const [contactName, setContactName] = useState(initial?.contactName ?? '')
   const [date, setDate] = useState(initial?.date ?? new Date().toISOString().slice(0, 10))
@@ -666,7 +680,7 @@ function EstimateEditor({
   const [step, setStep] = useState<EstimateEditorStep>(1)
   const [searchTerm, setSearchTerm] = useState(() => {
     const initialCustomer = initial ? customerById(initial.customerId) : undefined
-    return initial?.plate || initialCustomer?.name || ''
+    return initial?.plate || initialVehicle?.plate || initialCustomer?.name || ''
   })
   const [panelAdvancedOpen, setPanelAdvancedOpen] = useState(false)
   const [advancedMetaOpen, setAdvancedMetaOpen] = useState(false)
