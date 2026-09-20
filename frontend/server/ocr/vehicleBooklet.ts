@@ -177,7 +177,7 @@ function extractVin(content: string) {
 
   // Standard VIN: 17 chars, excluding I/O/Q. This fallback is intentionally
   // strict to avoid treating homologation/type codes as chassis numbers.
-  const candidates = upper.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) ?? []
+  const candidates = upper.match(/\b[A-Z0-9]{17}\b/g) ?? []
   for (const candidate of candidates) {
     const vin = normalizeVin(candidate)
     if (vin) return vin
@@ -207,8 +207,8 @@ function normalizePlate(value: string) {
 }
 
 function normalizeVin(value: string) {
-  const normalized = value.toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g, '')
-  const match = normalized.match(/[A-HJ-NPR-Z0-9]{17}/)
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const match = normalized.match(/[A-Z0-9]{17}/)
   return match?.[0] ?? ''
 }
 
@@ -391,7 +391,8 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   const engineGroup = extractEngineGroup(content)
   // Engine values are accepted only when the complete P.1/P.2/P.3 block is
   // identified. A blank field is safer than importing a tyre width as kW/cm3.
-  const fuelValue = normalizeFuel(engineGroup.fuel || extractCodeValue(content, 'P.3'))
+  const fuelRaw = engineGroup.fuel || extractCodeValue(content, 'P.3')
+  const fuelValue = /\bBENZ\b/i.test(fuelRaw) ? 'BENZINA' : normalizeFuel(fuelRaw)
   const displacementValue = normalizeEngineDisplacement(engineGroup.displacement)
   const powerValue = normalizePower(engineGroup.power)
   const ownerValue = normalizeOwner(
