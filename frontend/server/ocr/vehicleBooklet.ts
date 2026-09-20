@@ -252,7 +252,7 @@ function normalizeFuel(value: string) {
   const normalized = compact(value).toUpperCase()
   if (!normalized) return ''
   if (normalized.includes('DIESEL') || normalized.includes('GASOLIO')) return 'Diesel'
-  if (normalized.includes('BENZINA')) return 'Benzina'
+  if (normalized.includes('BENZINA') || /(^|\\s)BENZ($|\\s)/.test(normalized)) return 'Benzina'
   if (normalized.includes('GPL')) return 'GPL'
   if (normalized.includes('METANO')) return 'Metano'
   if (normalized.includes('ELETTR')) return 'Elettrico'
