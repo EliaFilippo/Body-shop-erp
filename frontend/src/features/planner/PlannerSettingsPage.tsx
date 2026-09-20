@@ -453,7 +453,15 @@ export function PlannerSettingsPage({
         {draft.operators.map((operator) => <div className="settings-row" key={operator.id}>
           <input aria-label="Nome operatore" placeholder="Nome operatore" value={operator.name} onChange={(event) => updateOperator(operator.id, { name: event.target.value })} />
           <input aria-label="Ore giornaliere" type="number" min="0.5" max="24" step="0.5" value={operator.dailyHours} onChange={(event) => updateOperator(operator.id, { dailyHours: Number(event.target.value) })} />
-          <input aria-label="Competenze" placeholder="Competenze (es. lattoneria, verniciatura)" value={(operator.skills ?? []).join(', ')} onChange={(event) => updateOperator(operator.id, { skills: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} />
+          <input aria-label="Competenze" placeholder="Competenze (es. incartatura, scartatura, lavaggio)" value={(operator.skills ?? []).join(', ')} onChange={(event) => updateOperator(operator.id, { skills: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} />
+          <select aria-label="Tipo costo operatore" value={operator.costMode ?? 'included-in-overhead'} onChange={(event) => updateOperator(operator.id, { costMode: event.target.value === 'external-extra' ? 'external-extra' : 'included-in-overhead' })}>
+            <option value="included-in-overhead">Incluso nei costi mensili</option>
+            <option value="external-extra">Collaboratore esterno - costo aggiuntivo</option>
+          </select>
+          {(operator.costMode ?? 'included-in-overhead') === 'external-extra' && <>
+            <label>Costo esterno €/h<input aria-label="Costo esterno orario" type="number" min="0" step="1" value={operator.externalHourlyCost ?? 0} onChange={(event) => updateOperator(operator.id, { externalHourlyCost: Number(event.target.value) })} /></label>
+            <label>IVA costo %<input aria-label="IVA costo esterno" type="number" min="0" step="1" value={operator.externalVatRate ?? 0} onChange={(event) => updateOperator(operator.id, { externalVatRate: Number(event.target.value) })} /></label>
+          </>}
           <label className="check"><input type="checkbox" checked={operator.active} onChange={(event) => updateOperator(operator.id, { active: event.target.checked })} /> Attivo</label>
           <button
             className="danger"
