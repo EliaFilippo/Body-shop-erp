@@ -482,16 +482,6 @@ export async function analyzeVehicleBookletWithAzure(
     const payload = await pollAnalyzeResult(operationLocation, key, fetchImpl, sleep)
     const content = String(payload.analyzeResult?.content ?? '')
     console.info(`LIBRETTO OCR STEP 8 - TEXT RECEIVED: ${content.trim() ? 'SI' : 'NO'}`)
-    // Diagnostic output contains only Azure's recognized document text.
-    // Never print endpoint, subscription key, operation URL or other secrets.
-    const diagnosticText = content
-      .replace(/\\r/g, '')
-      .split('\\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .join(' | ')
-      .slice(0, 12000)
-    console.info(`LIBRETTO OCR RAW TEXT: ${diagnosticText || '[VUOTO]'}`)
     console.info('LIBRETTO OCR STEP 9 - PARSER START')
     const normalized = normalizeAzureVehicleBookletResult(payload)
     console.info('LIBRETTO OCR STEP 10 - PARSER SUCCESS: SI')
