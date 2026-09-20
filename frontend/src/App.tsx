@@ -2316,12 +2316,24 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
   }
 
   const quoteSummary = buildAcceptanceQuoteSummary(acceptance.quote)
+  const internalRateSnapshot = resolveInternalHourlyRate(data.plannerSettings)
+  const fallbackSaleHourlyRate = Math.max(0, internalRateSnapshot.effectiveHourlyRate)
+  const effectiveSaleHourlyRate = acceptance.quote.hourlyRate > 0 ? acceptance.quote.hourlyRate : fallbackSaleHourlyRate
   const laborLine = acceptance.quote.lines.find((line) => line.kind === 'labor')
   const updateLaborHours = (hours: number) => {
     const currentAcceptance = latestAcceptanceRef.current
-    const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, quantity: Math.max(0, hours) } : line)
-    const withLabor = { ...currentAcceptance.quote, lines: nextLines }
+    const saleRate = currentAcceptance.quote.hourlyRate > 0 ? currentAcceptance.quote.hourlyRate : fallbackSaleHourlyRate
+    const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, quantity: Math.max(0, hours), unitPrice: saleRate, unitCost: internalRateSnapshot.effectiveHourlyRate } : line)
+    const withLabor = { ...currentAcceptance.quote, hourlyRate: saleRate, lines: nextLines }
     const nextQuote = updateConsumptionLine(withLabor, Math.max(0, withLabor.materialPercent) / 100)
+    saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
+  }
+  const updateSaleHourlyRate = (rate: number) => {
+    const currentAcceptance = latestAcceptanceRef.current
+    const nextRate = Math.max(0, rate)
+    const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, unitPrice: nextRate, unitCost: internalRateSnapshot.effectiveHourlyRate } : line)
+    const withRate = { ...currentAcceptance.quote, hourlyRate: nextRate, lines: nextLines }
+    const nextQuote = updateConsumptionLine(withRate, Math.max(0, withRate.materialPercent) / 100)
     saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
   }
   const updateMaterialPercent = (percent: number) => {
@@ -2457,7 +2469,8 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
         <div className="panel-head"><div><span className="eyebrow">PASSAGGIO 3</span><h3>Preventivo</h3><p>Calcolo economico collegato alla pratica.</p></div></div>
         <div className="form-grid">
           <label>Ore manodopera<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
-          <label>Tariffa oraria<input value={acceptance.quote.hourlyRate.toFixed(2)} readOnly /></label>
+          <label>Tariffa vendita €/h<input type="number" min="0" step="1" value={effectiveSaleHourlyRate} onChange={(event) => updateSaleHourlyRate(Number(event.target.value))} /></label>
+          <label>Costo interno €/h<input value={internalRateSnapshot.effectiveHourlyRate.toFixed(2)} readOnly /></label>
           <label>Materiale consumo %<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
           <label>IVA %<input type="number" min="0" step="1" value={acceptance.quote.appliedVatRate} onChange={(event) => updateVatRate(Number(event.target.value))} /></label>
         </div>
