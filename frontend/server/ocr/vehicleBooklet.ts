@@ -163,10 +163,16 @@ function extractVin(content: string) {
   const direct = normalizeVin(extractCodedIdentifier(content, 'E'))
   if (direct) return direct
 
+  const upper = content.toUpperCase()
+  // Azure can insert spaces inside a VIN. Rejoin only candidates close to the
+  // explicit (E) field marker before using the strict document-wide fallback.
+  const nearE = upper.match(/(?:^|\\s|\\()E\\)?\\s*[:)=\\-]?\\s*((?:[A-HJ-NPR-Z0-9][ ._-]?){17,22})/i)?.[1] ?? ''
+  const joined = normalizeVin(nearE.replace(/[ ._-]/g, ''))
+  if (joined) return joined
+
   // Standard VIN: 17 chars, excluding I/O/Q. This fallback is intentionally
   // strict to avoid treating homologation/type codes as chassis numbers.
-  const compactContent = content.toUpperCase().replace(/[^A-Z0-9]/g, ' ')
-  const candidates = compactContent.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) ?? []
+  const candidates = upper.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) ?? []
   for (const candidate of candidates) {
     const vin = normalizeVin(candidate)
     if (vin) return vin
