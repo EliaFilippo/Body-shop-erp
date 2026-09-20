@@ -454,6 +454,7 @@ export function PlannerSettingsPage({
           <input aria-label="Nome operatore" placeholder="Nome operatore" value={operator.name} onChange={(event) => updateOperator(operator.id, { name: event.target.value })} />
           <input aria-label="Ore giornaliere" type="number" min="0.5" max="24" step="0.5" value={operator.dailyHours} onChange={(event) => updateOperator(operator.id, { dailyHours: Number(event.target.value) })} />
           <input aria-label="Competenze" placeholder="Competenze (es. incartatura, scartatura, lavaggio)" value={(operator.skills ?? []).join(', ')} onChange={(event) => updateOperator(operator.id, { skills: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} />
+          <label>Costo reale €/h<input aria-label="Costo reale orario operatore" type="number" min="0" step="1" value={operator.hourlyCost ?? 0} onChange={(event) => updateOperator(operator.id, { hourlyCost: Number(event.target.value) })} /></label>
           <select aria-label="Tipo costo operatore" value={operator.costMode ?? 'included-in-overhead'} onChange={(event) => updateOperator(operator.id, { costMode: event.target.value === 'external-extra' ? 'external-extra' : 'included-in-overhead' })}>
             <option value="included-in-overhead">Incluso nei costi mensili</option>
             <option value="external-extra">Collaboratore esterno - costo aggiuntivo</option>
