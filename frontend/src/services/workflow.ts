@@ -266,6 +266,22 @@ function resolveTimePresetMinutes(
 	return Math.max(1, Number(selected.minutes ?? 1))
 }
 
+export function calculateAssignedOperatorExtraCost(
+	operatorName: string | undefined,
+	minutes: number,
+	plannerSettings: PlannerSettings,
+) {
+	const normalizedName = String(operatorName ?? '').trim().toLowerCase()
+	if (!normalizedName || minutes <= 0) return { hourlyCost: 0, vatRate: 0, netCost: 0, vatCost: 0, totalCost: 0 }
+	const operator = plannerSettings.operators.find((item) => item.name.trim().toLowerCase() === normalizedName)
+	if (!operator || operator.costMode !== 'external-extra') return { hourlyCost: 0, vatRate: 0, netCost: 0, vatCost: 0, totalCost: 0 }
+	const hourlyCost = Math.max(0, Number(operator.externalHourlyCost ?? 0))
+	const vatRate = Math.max(0, Number(operator.externalVatRate ?? 0))
+	const netCost = round((minutes / 60) * hourlyCost)
+	const vatCost = round(netCost * vatRate / 100)
+	return { hourlyCost, vatRate, netCost, vatCost, totalCost: round(netCost + vatCost) }
+}
+
 export function computeLineInternalEconomics(line: Partial<EstimateLine>, plannerSettings: PlannerSettings) {
 	const resolvedRate = resolveInternalHourlyRate(plannerSettings)
 	const internalHourlyRate = Math.max(0, Number(resolvedRate.effectiveHourlyRate ?? plannerSettings.internalCostSettings?.internalHourlyRate ?? 0))
