@@ -127,25 +127,20 @@ function extractCodeValue(content: string, code: string | string[]) {
 }
 
 function extractEngineGroup(content: string) {
-  // P.1/P.2/P.3 are printed together in the engine block of Italian registration
-  // certificates. Prefer a single anchored match so tyre sizes (e.g. 275/285)
-  // elsewhere on the document can never be promoted to engine data.
+  // Read each P field independently, but only from its explicit code marker.
+  // This tolerates Azure line breaks while preventing tyre dimensions from
+  // becoming engine values.
   const flat = content.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').toUpperCase()
   const marker = (n: string) => `\\(?\\s*P\\s*[._-]?\\s*${n}\\s*\\)?\\s*[:)=\\-]?\\s*`
-  const p1 = marker('1')
-  const p2 = marker('2')
-  const p3 = marker('3')
-  const match = flat.match(new RegExp(
-    p1 + '(\\d{3,5}(?:[.,]\\d{1,2})?)' +
-    '[^A-Z0-9]{0,20}' + p2 + '(\\d{1,4}(?:[.,]\\d{1,2})?)' +
-    '[^A-Z0-9]{0,20}' + p3 + '([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý /+-]{2,24})',
-    'i',
-  ))
-  if (!match) return { displacement: '', power: '', fuel: '' }
+  const readNumber = (n: string) =>
+    flat.match(new RegExp(marker(n) + '(\\d{1,5}(?:[.,]\\d{1,2})?)', 'i'))?.[1] ?? ''
+  const fuel =
+    flat.match(new RegExp(marker('3') + '([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý /+.-]{2,24}?)(?=\\s*\\(?\\s*P\\s*[._-]?\\s*[45]\\b|\\s+[A-Z]\\s*[.)]|$)', 'i'))?.[1]?.trim() ?? ''
+
   return {
-    displacement: match[1] ?? '',
-    power: match[2] ?? '',
-    fuel: (match[3] ?? '').trim(),
+    displacement: readNumber('1'),
+    power: readNumber('2'),
+    fuel,
   }
 }
 
