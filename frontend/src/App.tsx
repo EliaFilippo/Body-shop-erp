@@ -746,19 +746,22 @@ function App() {
           }))
           try {
             const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', lines })
-            const customerLines = acceptance.quote.lines
+            const positiveLines = acceptance.quote.lines
               .filter((line) => line.kind !== 'discount' && line.unitPrice > 0 && line.quantity > 0)
               .map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, vatRate: acceptance.quote.appliedVatRate }))
             const discountAmount = acceptance.quote.lines.filter((line) => line.kind === 'discount').reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+            const positiveTaxable = positiveLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+            const discountRate = positiveTaxable > 0 ? Math.min(100, (discountAmount / positiveTaxable) * 100) : 0
+            const customerLines = discountRate > 0
+              ? positiveLines.map((line) => ({ ...line, discountRate }))
+              : positiveLines
             const quoteData = createQuoteDocument(next, {
               customerId: customer.id,
               vehicleId: vehicle.id,
               acceptanceId: acceptance.id,
               status: 'bozza',
               notes: acceptance.intake?.damageDescription ?? '',
-              lines: discountAmount > 0
-                ? [...customerLines, { description: 'Sconto commerciale', quantity: 1, unitPrice: 0, vatRate: acceptance.quote.appliedVatRate, discountRate: 0 }]
-                : customerLines,
+              lines: customerLines,
             })
             setData(quoteData)
             setNotice('Preventivo numerato creato. Disponibile in Preventivi / Commesse e Finance per PDF/stampa cliente.')
