@@ -177,6 +177,35 @@ export function calculateInternalProductiveCapacity(plannerSettings: PlannerSett
 	}
 }
 
+export function resolveOperatorHourlyExtraCost(plannerSettings: PlannerSettings, operatorName: string) {
+	const normalized = String(operatorName ?? '').trim().toLowerCase()
+	const operator = plannerSettings.operators.find((item) => item.name.trim().toLowerCase() === normalized)
+	if (!operator || operator.costMode !== 'external-extra') return { hourlyExtraCost: 0, vatRate: 0, external: false }
+	return {
+		hourlyExtraCost: Math.max(0, Number(operator.externalHourlyCost ?? 0)),
+		vatRate: Math.max(0, Number(operator.externalVatRate ?? 0)),
+		external: true,
+	}
+}
+
+export function calculatePhaseCostWithOperator(plannerSettings: PlannerSettings, operatorName: string, plannedMinutes: number) {
+	const base = resolveInternalHourlyRate(plannerSettings)
+	const operatorCost = resolveOperatorHourlyExtraCost(plannerSettings, operatorName)
+	const hours = Math.max(0, Number(plannedMinutes ?? 0)) / 60
+	const structureCost = round(hours * Math.max(0, base.effectiveHourlyRate))
+	const externalExtraCost = round(hours * operatorCost.hourlyExtraCost)
+	return {
+		hours: round(hours),
+		structureHourlyCost: base.effectiveHourlyRate,
+		structureCost,
+		externalHourlyCost: operatorCost.hourlyExtraCost,
+		externalVatRate: operatorCost.vatRate,
+		externalExtraCost,
+		totalCost: round(structureCost + externalExtraCost),
+		external: operatorCost.external,
+	}
+}
+
 export function resolveInternalHourlyRate(plannerSettings: PlannerSettings) {
 	const monthly = calculateInternalCostMonthlyTotals(plannerSettings)
 	const capacity = calculateInternalProductiveCapacity(plannerSettings)
