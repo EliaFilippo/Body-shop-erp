@@ -15,7 +15,7 @@ import type {
   RepairJob,
   Vehicle,
 } from '../types'
-import { estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
+import { calculateOperatorSustainableMinutes, estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
 import { isVehicleDeliveredStatus } from './vehicleStatuses'
 import {
   addDays as calendarAddDays,
@@ -999,7 +999,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const sharedStartAt = selected.reduce((latest, state) => state.nextAt > latest ? state.nextAt : latest, readyAt)
     if (sharedStartAt.slice(0, 10) > horizonEndDate) continue
     const availableToday = selected.map((state) => remainingWorkingMinutesToday(sharedStartAt, data.plannerSettings, state.operator))
-    const duration = Math.max(15, Math.min(residual, ...availableToday))
+    const sustainableByOperator = selected.map((state) => calculateOperatorSustainableMinutes(state.operator.name, residual, data.plannerSettings).sustainableMinutes)
+    const duration = Math.max(15, Math.min(residual, ...availableToday, ...sustainableByOperator))
     if (duration <= 0) continue
 
     const startAt = sharedStartAt
@@ -1026,7 +1027,13 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         endAt,
         plannedMinutes: duration,
         priority: item.job.priority,
-        reason: reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture),
+        reason: (() => {
+          const baseReason = reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)
+          const sustainable = calculateOperatorSustainableMinutes(operatorName, residual, data.plannerSettings)
+          return sustainable.sustainableMinutes < sustainable.baseMinutes
+            ? `${baseReason} · Tempo ricalcolato per costo esterno: ${sustainable.sustainableMinutes} min su ${sustainable.baseMinutes} min`
+            : baseReason
+        })(),
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
