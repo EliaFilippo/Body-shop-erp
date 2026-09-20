@@ -77,6 +77,7 @@ const coneLabel = (vehicle: Pick<Vehicle, 'status' | 'coneNumber'>) => {
 }
 const formatDate = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 const parseMoney = (value: string | FormDataEntryValue | null) => parseMoneyDraft(String(value ?? '')) ?? 0
+const money = (value: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(Number.isFinite(value) ? value : 0)
 const ACCEPTANCE_IMAGE_FILE_TYPES = '.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif,.avif,image/jpeg,image/png,image/webp,image/bmp,image/gif,image/tiff,image/heic,image/heif,image/avif'
 const ACCEPTANCE_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp', 'image/gif', 'image/tiff', 'image/heic', 'image/heif', 'image/avif'])
 const ACCEPTANCE_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tif', '.tiff', '.heic', '.heif', '.avif']
