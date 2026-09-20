@@ -15,7 +15,7 @@ import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { VehicleStatusesSettingsPage } from './features/planner/VehicleStatusesSettingsPage'
 import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours } from './services/planner'
-import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
+import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, computeLineInternalEconomics, createEstimate, resolveInternalHourlyRate, resolvePriceListUnitPrice, resolveStandardRuleForLine } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr, updateConsumptionLine } from './services/acceptance'
@@ -1952,6 +1952,8 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
   const [vehicleBookletOcrState, setVehicleBookletOcrState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error' | 'info'; message: string }>({ status: 'idle', message: '' })
   const [signatureModalOpen, setSignatureModalOpen] = useState(false)
   const [quoteOpen, setQuoteOpen] = useState(false)
+  const [smartDamagePanel, setSmartDamagePanel] = useState('')
+  const [smartDamageWork, setSmartDamageWork] = useState('Verniciatura')
   const [signatureStrokes, setSignatureStrokes] = useState<Array<Array<{ x: number; y: number }>>>([])
   const intakePhotoInputRef = useRef<HTMLInputElement | null>(null)
   const signaturePadRef = useRef<HTMLDivElement | null>(null)
@@ -2394,6 +2396,30 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
   }
   const quoteExtraValue = (kind: 'parts' | 'external' | 'other' | 'discount' | 'surcharge') =>
     acceptance.quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+  const smartDamagePreview = useMemo(() => {
+    if (!smartDamagePanel.trim() || !smartDamageWork.trim()) return null
+    const baseLine = { description: smartDamageWork, standardWorkName: smartDamageWork, panelName: smartDamagePanel, quantity: 1, unitPrice: 0, vatRate: acceptance.quote.appliedVatRate }
+    const listPrice = resolvePriceListUnitPrice(data.plannerSettings.standardWorkPriceList ?? [], baseLine) ?? 0
+    const rule = resolveStandardRuleForLine(data.plannerSettings.standardWorks ?? [], baseLine, data.plannerSettings.standardWorkTimePresets ?? [])
+    const economics = computeLineInternalEconomics({ ...baseLine, unitPrice: listPrice, estimatedMinutes: rule.standardMinutes, lineTotalMinutes: rule.standardMinutes }, data.plannerSettings)
+    return { listPrice, minutes: rule.standardMinutes, economics }
+  }, [acceptance.quote.appliedVatRate, data.plannerSettings, smartDamagePanel, smartDamageWork])
+  const addSmartDamageLine = () => {
+    if (!smartDamagePreview || !smartDamagePanel.trim()) return
+    const currentAcceptance = latestAcceptanceRef.current
+    const hours = smartDamagePreview.minutes / 60
+    const next = {
+      id: crypto.randomUUID(),
+      kind: 'labor' as const,
+      description: `${smartDamageWork} · ${smartDamagePanel}`,
+      quantity: hours,
+      unitCost: smartDamagePreview.economics.internalCostAmount,
+      unitPrice: smartDamagePreview.listPrice > 0 ? smartDamagePreview.listPrice / Math.max(hours, 0.01) : effectiveSaleHourlyRate,
+      source: 'auto' as const,
+    }
+    saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, lines: [...currentAcceptance.quote.lines, next] }, updatedAt: new Date().toISOString() })
+    setSmartDamagePanel('')
+  }
   const persistQuote = () => {
     const currentAcceptance = latestAcceptanceRef.current
     saveAcceptance({ ...currentAcceptance, updatedAt: new Date().toISOString() })
@@ -2516,6 +2542,20 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
       </div>
       {quoteOpen && <div className="panel table-panel">
         <div className="panel-head"><div><span className="eyebrow">PASSAGGIO 3</span><h3>Preventivo</h3><p>Calcolo economico collegato alla pratica.</p></div></div>
+        <div className="preview-card">
+          <h4>Parte danneggiata</h4>
+          <div className="form-grid">
+            <label>Parte / pannello<input value={smartDamagePanel} onChange={(event) => setSmartDamagePanel(event.target.value)} placeholder="Es. Parafango anteriore SX" /></label>
+            <label>Lavorazione<select value={smartDamageWork} onChange={(event) => setSmartDamageWork(event.target.value)}><option>Verniciatura</option><option>Lattoneria</option><option>Preparazione</option><option>Lucidatura</option><option>Smontaggio</option><option>Rimontaggio</option></select></label>
+          </div>
+          {smartDamagePreview && <div className="summary-grid">
+            <div className="summary-card"><span>Prezzo listino</span><strong>{money(smartDamagePreview.listPrice)}</strong></div>
+            <div className="summary-card"><span>Tempo previsto</span><strong>{(smartDamagePreview.minutes / 60).toFixed(2)} h</strong></div>
+            <div className="summary-card"><span>Prezzo minimo consigliato</span><strong>{money(smartDamagePreview.economics.minimumSuggestedPrice)}</strong></div>
+            <div className="summary-card"><span>Margine previsto</span><strong>{smartDamagePreview.economics.theoreticalMarginPercent}%</strong><small>{smartDamagePreview.economics.marginStatus === 'ok' ? 'Dentro obiettivo' : smartDamagePreview.economics.marginStatus === 'loss' ? 'Sotto costo' : 'Margine da verificare'}</small></div>
+          </div>}
+          <div className="form-actions"><button type="button" className="primary" disabled={!smartDamagePreview} onClick={addSmartDamageLine}>+ Aggiungi al preventivo</button></div>
+        </div>
         <div className="form-grid">
           <label>Ore manodopera<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
           <label>Tariffa vendita €/h<input type="number" min="0" step="1" value={effectiveSaleHourlyRate} onChange={(event) => updateSaleHourlyRate(Number(event.target.value))} /></label>
