@@ -2345,6 +2345,17 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
     const currentAcceptance = latestAcceptanceRef.current
     saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, appliedVatRate: Math.max(0, vat) }, updatedAt: new Date().toISOString() })
   }
+  const upsertQuoteExtra = (kind: 'parts' | 'external' | 'other' | 'discount' | 'surcharge', description: string, amount: number) => {
+    const currentAcceptance = latestAcceptanceRef.current
+    const value = Math.max(0, amount)
+    const existing = currentAcceptance.quote.lines.find((line) => line.kind === kind)
+    const nextLines = existing
+      ? currentAcceptance.quote.lines.map((line) => line.id === existing.id ? { ...line, description, quantity: 1, unitPrice: value, unitCost: kind === 'discount' || kind === 'surcharge' ? 0 : value, source: 'manual' as const } : line)
+      : [...currentAcceptance.quote.lines, { id: crypto.randomUUID(), kind, description, quantity: 1, unitPrice: value, unitCost: kind === 'discount' || kind === 'surcharge' ? 0 : value, source: 'manual' as const }]
+    saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, lines: nextLines }, updatedAt: new Date().toISOString() })
+  }
+  const quoteExtraValue = (kind: 'parts' | 'external' | 'other' | 'discount' | 'surcharge') =>
+    acceptance.quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
   const persistQuote = () => {
     const currentAcceptance = latestAcceptanceRef.current
     saveAcceptance({ ...currentAcceptance, updatedAt: new Date().toISOString() })
@@ -2473,10 +2484,20 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
           <label>Costo interno €/h<input value={internalRateSnapshot.effectiveHourlyRate.toFixed(2)} readOnly /></label>
           <label>Materiale consumo %<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
           <label>IVA %<input type="number" min="0" step="1" value={acceptance.quote.appliedVatRate} onChange={(event) => updateVatRate(Number(event.target.value))} /></label>
+          <label>Ricambi €<input type="number" min="0" step="1" value={quoteExtraValue('parts')} onChange={(event) => upsertQuoteExtra('parts', 'Ricambi', Number(event.target.value))} /></label>
+          <label>Lavorazioni esterne €<input type="number" min="0" step="1" value={quoteExtraValue('external')} onChange={(event) => upsertQuoteExtra('external', 'Lavorazioni esterne', Number(event.target.value))} /></label>
+          <label>Altri costi €<input type="number" min="0" step="1" value={quoteExtraValue('other')} onChange={(event) => upsertQuoteExtra('other', 'Altri costi', Number(event.target.value))} /></label>
+          <label>Sconto €<input type="number" min="0" step="1" value={quoteExtraValue('discount')} onChange={(event) => upsertQuoteExtra('discount', 'Sconto', Number(event.target.value))} /></label>
+          <label>Maggiorazione €<input type="number" min="0" step="1" value={quoteExtraValue('surcharge')} onChange={(event) => upsertQuoteExtra('surcharge', 'Maggiorazione', Number(event.target.value))} /></label>
         </div>
         <div className="summary-grid">
           <div className="summary-card"><span>Manodopera</span><strong>{money(quoteSummary.labor.total)}</strong></div>
           <div className="summary-card"><span>Materiali</span><strong>{money(quoteSummary.materials.total)}</strong></div>
+          <div className="summary-card"><span>Ricambi</span><strong>{money(quoteSummary.parts.total)}</strong></div>
+          <div className="summary-card"><span>Lavorazioni esterne</span><strong>{money(quoteSummary.external.total)}</strong></div>
+          <div className="summary-card"><span>Altri costi</span><strong>{money(quoteSummary.other.total)}</strong></div>
+          <div className="summary-card"><span>Sconto</span><strong>- {money(quoteSummary.discount.total)}</strong></div>
+          <div className="summary-card"><span>Maggiorazione</span><strong>{money(quoteSummary.surcharge.total)}</strong></div>
           <div className="summary-card"><span>Imponibile</span><strong>{money(quoteSummary.taxableAmount)}</strong></div>
           <div className="summary-card"><span>IVA</span><strong>{money(quoteSummary.vatAmount)}</strong></div>
           <div className="summary-card"><span>Totale preventivo</span><strong>{money(quoteSummary.total)}</strong></div>
