@@ -162,6 +162,9 @@ function extractRegistrationPlate(content: string) {
 }
 
 function extractVin(content: string) {
+  const codedVin = normalizeVin(extractCodeValue(content, 'E'))
+  if (codedVin) return codedVin
+
   const direct = normalizeVin(extractCodedIdentifier(content, 'E'))
   if (direct) return direct
 
@@ -388,7 +391,7 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   const engineGroup = extractEngineGroup(content)
   // Engine values are accepted only when the complete P.1/P.2/P.3 block is
   // identified. A blank field is safer than importing a tyre width as kW/cm3.
-  const fuelValue = normalizeFuel(engineGroup.fuel)
+  const fuelValue = normalizeFuel(engineGroup.fuel || extractCodeValue(content, 'P.3'))
   const displacementValue = normalizeEngineDisplacement(engineGroup.displacement)
   const powerValue = normalizePower(engineGroup.power)
   const ownerValue = normalizeOwner(
