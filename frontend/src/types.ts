@@ -293,6 +293,9 @@ export interface PlannerOperator {
   skills?: string[]
   weeklySchedule?: WeeklyWorkDaySchedule[]
   costMode?: 'included-in-overhead' | 'external-extra'
+  /** Configurable real hourly cost for individual productivity analysis. */
+  hourlyCost?: number
+  /** Extra hourly cost charged to the job when costMode is external-extra. */
   externalHourlyCost?: number
   externalVatRate?: number
 }
