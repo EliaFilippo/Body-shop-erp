@@ -134,14 +134,16 @@ function extractEngineGroup(content: string) {
   const marker = (n: string) => `\\(?\\s*P\\s*[._-]?\\s*${n}\\s*\\)?\\s*[:)=\\-]?\\s*`
   const readNumber = (n: string) =>
     flat.match(new RegExp(marker(n) + '(\\d{1,5}(?:[.,]\\d{1,2})?)', 'i'))?.[1] ?? ''
-  const fuel =
-    flat.match(new RegExp(marker('3') + '([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý /+.-]{2,24}?)(?=\\s*\\(?\\s*P\\s*[._-]?\\s*[45]\\b|\\s+[A-Z]\\s*[.)]|$)', 'i'))?.[1]?.trim() ?? ''
 
-  return {
-    displacement: readNumber('1'),
-    power: readNumber('2'),
-    fuel,
-  }
+  const displacement = readNumber('1')
+  // P.2 must be read from the same engine sequence that starts at P.1.
+  // This prevents a later OCR fragment such as a 285 tyre width from being
+  // accepted as engine power when another P.2-like token is misread.
+  const engineTail = flat.match(new RegExp(marker('1') + '\\d{3,5}(?:[.,]\\d{1,2})?([\\s\\S]{0,90})', 'i'))?.[1] ?? ''
+  const power = engineTail.match(new RegExp(marker('2') + '(\\d{1,4}(?:[.,]\\d{1,2})?)', 'i'))?.[1] ?? ''
+  const fuel = engineTail.match(new RegExp(marker('3') + '([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý /+.-]{2,24}?)(?=\\s*\\(?\\s*P\\s*[._-]?\\s*[45]\\b|\\s+[A-Z]\\s*[.)]|$)', 'i'))?.[1]?.trim() ?? ''
+
+  return { displacement, power, fuel }
 }
 
 function extractRegistrationPlate(content: string) {
