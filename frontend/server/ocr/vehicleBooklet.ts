@@ -233,6 +233,15 @@ function normalizePower(value: string) {
   return `${raw} ${unit}`
 }
 
+function extractOwner(content: string) {
+  const surname = extractCodeValue(content, ['C.1.1', 'C.2.1'])
+  const name = extractCodeValue(content, ['C.1.2', 'C.2.2'])
+  const full = compact([surname, name].filter(Boolean).join(' '))
+  if (full) return full
+  return extractCodeValue(content, ['C.1', 'C.2'])
+    || extractLabelValue(content, ['INTESTATARIO', 'PROPRIETARIO'])
+}
+
 function normalizeOwner(value: string) {
   const normalized = compact(value)
   if (!normalized) return ''
@@ -395,10 +404,7 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   const fuelValue = /\bBENZ\b/i.test(fuelRaw) ? 'BENZINA' : normalizeFuel(fuelRaw)
   const displacementValue = normalizeEngineDisplacement(engineGroup.displacement)
   const powerValue = normalizePower(engineGroup.power)
-  const ownerValue = normalizeOwner(
-    extractCodeValue(content, ['C.1', 'C.1.1', 'C.1.2'])
-      || extractLabelValue(content, ['INTESTATARIO', 'PROPRIETARIO']),
-  )
+  const ownerValue = normalizeOwner(extractOwner(content))
 
   const fields: VehicleBookletOcrResponse['fields'] = {
     plate: toField(plateValue, 0.95),
