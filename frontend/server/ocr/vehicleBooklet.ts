@@ -339,9 +339,11 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   const firstRegistrationRaw = extractCodeValue(content, 'B') || extractLabelValue(content, ['DATA\\s+IMMATRICOLAZIONE', 'IMMATRICOLAZIONE', 'PRIMA\\s+IMMATRICOLAZIONE'])
   const firstRegistrationValue = normalizeDate(firstRegistrationRaw)
   const engineGroup = extractEngineGroup(content)
-  const fuelValue = normalizeFuel(engineGroup.fuel || extractCodeValue(content, 'P.3') || extractLabelValue(content, ['ALIMENTAZIONE', 'CARBURANTE']))
-  const displacementValue = normalizeEngineDisplacement(engineGroup.displacement || extractCodeValue(content, 'P.1'))
-  const powerValue = normalizePower(engineGroup.power || extractCodeValue(content, 'P.2'))
+  // Engine values are accepted only when the complete P.1/P.2/P.3 block is
+  // identified. A blank field is safer than importing a tyre width as kW/cm3.
+  const fuelValue = normalizeFuel(engineGroup.fuel)
+  const displacementValue = normalizeEngineDisplacement(engineGroup.displacement)
+  const powerValue = normalizePower(engineGroup.power)
   const ownerValue = normalizeOwner(
     extractCodeValue(content, ['C.1', 'C.1.1', 'C.1.2'])
       || extractLabelValue(content, ['INTESTATARIO', 'PROPRIETARIO']),
