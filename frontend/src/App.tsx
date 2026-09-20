@@ -15,7 +15,7 @@ import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { VehicleStatusesSettingsPage } from './features/planner/VehicleStatusesSettingsPage'
 import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours } from './services/planner'
-import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, resolveInternalHourlyRate } from './services/workflow'
+import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr, updateConsumptionLine } from './services/acceptance'
@@ -729,6 +729,25 @@ function App() {
         }} onSave={(acceptance) => {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
+        }} onCreateEstimate={(acceptance) => {
+          const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
+          const customer = customerById(acceptance.customerId)
+          if (!vehicle || !customer) { setError('Cliente o vettura non trovati.'); return }
+          const q = acceptance.quote
+          const lines = q.lines.filter((line) => line.unitPrice > 0 || line.kind === 'labor').map((line) => ({
+            description: line.description,
+            category: line.kind === 'labor' ? 'carrozzeria' as const : line.kind === 'parts' ? 'ricambi' as const : line.kind === 'consumption' ? 'materiali' as const : line.kind === 'external' ? 'servizi esterni' as const : 'altre' as const,
+            quantity: line.kind === 'discount' ? 1 : Math.max(0, line.quantity),
+            unitPrice: line.kind === 'discount' ? 0 : Math.max(0, line.unitPrice),
+            discount: line.kind === 'discount' ? Math.max(0, line.unitPrice) : 0,
+            vatRate: q.appliedVatRate,
+            estimatedMinutes: line.kind === 'labor' ? Math.round(Math.max(0, line.quantity) * 60) : 0,
+          }))
+          try {
+            const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', lines })
+            setData(next)
+            setNotice('Preventivo numerato creato. Lo trovi in Preventivi / Commesse.')
+          } catch (problem) { setError(problem instanceof Error ? problem.message : 'Errore creazione preventivo.') }
         }} onDeleteDraft={(acceptanceId) => {
           allowCountReductionRef.current = true
           const existing = data.acceptances ?? []
@@ -1383,7 +1402,7 @@ function VehicleForm({ vehicle, initialCustomerId, customers, statusOptions, onC
   return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? initialCustomerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" defaultValue={vehicle?.make} /></label><label>Modello<input name="model" defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>Telaio<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary" disabled={saving}>{saving ? 'Salvataggio...' : 'Salva vettura'}</button></div></form></Modal>
 }
 
-function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, onDeleteDraft, onOpenCustomerModal, onOpenVehicleModal }: { data: ErpData; autosaveState: 'idle' | 'saving' | 'saved'; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => string; onSave: (acceptance: AcceptanceCase) => void; onDeleteDraft: (acceptanceId: string) => void; onOpenCustomerModal: (options?: { returnToAcceptance?: boolean; onSavedToAcceptance?: (customerId: string) => void }) => void; onOpenVehicleModal: (options?: { customerId?: string; returnToAcceptance?: boolean; onSavedToAcceptance?: (vehicleId: string) => void }) => void }) {
+function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, onDeleteDraft, onOpenCustomerModal, onOpenVehicleModal, onCreateEstimate }: { data: ErpData; autosaveState: 'idle' | 'saving' | 'saved'; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => string; onSave: (acceptance: AcceptanceCase) => void; onDeleteDraft: (acceptanceId: string) => void; onOpenCustomerModal: (options?: { returnToAcceptance?: boolean; onSavedToAcceptance?: (customerId: string) => void }) => void; onOpenVehicleModal: (options?: { customerId?: string; returnToAcceptance?: boolean; onSavedToAcceptance?: (vehicleId: string) => void }) => void; onCreateEstimate: (acceptance: AcceptanceCase) => void }) {
   const acceptances = useMemo(() => data.acceptances ?? [], [data.acceptances])
   const draftPractices = useMemo(
     () => acceptances
@@ -1775,6 +1794,7 @@ function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, o
       data={data}
       customerById={customerById}
       onSave={onSave}
+      onCreateEstimate={onCreateEstimate}
       openCustomerDetailsRequest={openCustomerDetailsRequest}
       onOpenCustomerDetailsRequestHandled={() => setOpenCustomerDetailsRequest(false)}
       openVehicleDetailsRequest={openVehicleDetailsRequest}
@@ -1888,7 +1908,7 @@ function AcceptanceCasesPage({ data, customerById, onSave, confirmed }: { data: 
   </section>
 }
 
-function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStatus, openCustomerDetailsRequest, onOpenCustomerDetailsRequestHandled, openVehicleDetailsRequest, onOpenVehicleDetailsRequestHandled, pendingCustomerDocumentForOcr, onPendingCustomerDocumentForOcrHandled, pendingVehicleBookletForOcr, onPendingVehicleBookletForOcrHandled }: { acceptance: AcceptanceCase; data: ErpData; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; onChangeStatus?: (status: AcceptanceCase['status']) => void; openCustomerDetailsRequest?: boolean; onOpenCustomerDetailsRequestHandled?: () => void; openVehicleDetailsRequest?: boolean; onOpenVehicleDetailsRequestHandled?: () => void; pendingCustomerDocumentForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingCustomerDocumentForOcrHandled?: () => void; pendingVehicleBookletForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingVehicleBookletForOcrHandled?: () => void }) {
+function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEstimate, onChangeStatus, openCustomerDetailsRequest, onOpenCustomerDetailsRequestHandled, openVehicleDetailsRequest, onOpenVehicleDetailsRequestHandled, pendingCustomerDocumentForOcr, onPendingCustomerDocumentForOcrHandled, pendingVehicleBookletForOcr, onPendingVehicleBookletForOcrHandled }: { acceptance: AcceptanceCase; data: ErpData; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; onCreateEstimate?: (acceptance: AcceptanceCase) => void; onChangeStatus?: (status: AcceptanceCase['status']) => void; openCustomerDetailsRequest?: boolean; onOpenCustomerDetailsRequestHandled?: () => void; openVehicleDetailsRequest?: boolean; onOpenVehicleDetailsRequestHandled?: () => void; pendingCustomerDocumentForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingCustomerDocumentForOcrHandled?: () => void; pendingVehicleBookletForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingVehicleBookletForOcrHandled?: () => void }) {
   const customer = customerById(acceptance.customerId)
   const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
   const intake = {
@@ -2503,7 +2523,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onChangeStat
           <div className="summary-card"><span>Totale preventivo</span><strong>{money(quoteSummary.total)}</strong></div>
           <div className="summary-card"><span>Margine previsto</span><strong>{money(quoteSummary.marginEuro)} · {quoteSummary.marginPercent}%</strong></div>
         </div>
-        <div className="form-actions"><button type="button" className="primary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva preventivo</button></div>
+        <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
       </div>}
     </div>
     {expandedDamagePhoto && expandedDamagePhoto.previewSrc && <Modal title={expandedDamagePhoto.photo.name} onClose={() => setExpandedDamagePhotoId(null)}><div className="damage-photo-modal"><img src={expandedDamagePhoto.previewSrc} alt={expandedDamagePhoto.photo.name} /><small>{expandedDamagePhoto.photo.caption || expandedDamagePhoto.photo.name}</small></div></Modal>}
