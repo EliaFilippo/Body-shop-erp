@@ -126,6 +126,29 @@ function extractCodeValue(content: string, code: string | string[]) {
   return ''
 }
 
+function extractEngineGroup(content: string) {
+  // P.1/P.2/P.3 are printed together in the engine block of Italian registration
+  // certificates. Prefer a single anchored match so tyre sizes (e.g. 275/285)
+  // elsewhere on the document can never be promoted to engine data.
+  const flat = content.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').toUpperCase()
+  const marker = (n: string) => `\\(?\\s*P\\s*[._-]?\\s*${n}\\s*\\)?\\s*[:)=\\-]?\\s*`
+  const p1 = marker('1')
+  const p2 = marker('2')
+  const p3 = marker('3')
+  const match = flat.match(new RegExp(
+    p1 + '(\\d{3,5}(?:[.,]\\d{1,2})?)' +
+    '[^A-Z0-9]{0,20}' + p2 + '(\\d{1,4}(?:[.,]\\d{1,2})?)' +
+    '[^A-Z0-9]{0,20}' + p3 + '([A-ZÀ-ÖØ-Ý][A-ZÀ-ÖØ-Ý /+-]{2,24})',
+    'i',
+  ))
+  if (!match) return { displacement: '', power: '', fuel: '' }
+  return {
+    displacement: match[1] ?? '',
+    power: match[2] ?? '',
+    fuel: (match[3] ?? '').trim(),
+  }
+}
+
 function normalizePlate(value: string) {
   const direct = compact(value).toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (/^[A-Z]{2}\d{3}[A-Z]{2}$/.test(direct)) return direct
@@ -315,9 +338,10 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   )
   const firstRegistrationRaw = extractCodeValue(content, 'B') || extractLabelValue(content, ['DATA\\s+IMMATRICOLAZIONE', 'IMMATRICOLAZIONE', 'PRIMA\\s+IMMATRICOLAZIONE'])
   const firstRegistrationValue = normalizeDate(firstRegistrationRaw)
-  const fuelValue = normalizeFuel(extractCodeValue(content, 'P.3') || extractLabelValue(content, ['ALIMENTAZIONE', 'CARBURANTE']))
-  const displacementValue = normalizeEngineDisplacement(extractCodeValue(content, 'P.1'))
-  const powerValue = normalizePower(extractCodeValue(content, 'P.2'))
+  const engineGroup = extractEngineGroup(content)
+  const fuelValue = normalizeFuel(engineGroup.fuel || extractCodeValue(content, 'P.3') || extractLabelValue(content, ['ALIMENTAZIONE', 'CARBURANTE']))
+  const displacementValue = normalizeEngineDisplacement(engineGroup.displacement || extractCodeValue(content, 'P.1'))
+  const powerValue = normalizePower(engineGroup.power || extractCodeValue(content, 'P.2'))
   const ownerValue = normalizeOwner(
     extractCodeValue(content, ['C.1', 'C.1.1', 'C.1.2'])
       || extractLabelValue(content, ['INTESTATARIO', 'PROPRIETARIO']),
