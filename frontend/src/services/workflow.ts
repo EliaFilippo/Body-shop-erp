@@ -266,6 +266,25 @@ function resolveTimePresetMinutes(
 	return Math.max(1, Number(selected.minutes ?? 1))
 }
 
+export function calculateOperatorSustainableMinutes(
+	operatorName: string | undefined,
+	basePlannedMinutes: number,
+	plannerSettings: PlannerSettings,
+) {
+	const baseMinutes = Math.max(0, Number(basePlannedMinutes) || 0)
+	const structureRate = Math.max(0, resolveInternalHourlyRate(plannerSettings).effectiveHourlyRate)
+	const normalizedName = String(operatorName ?? '').trim().toLowerCase()
+	const operator = plannerSettings.operators.find((item) => item.name.trim().toLowerCase() === normalizedName)
+	const extraRate = operator?.costMode === 'external-extra' ? Math.max(0, Number(operator.externalHourlyCost ?? operator.hourlyCost ?? 0)) : 0
+	if (!baseMinutes || extraRate <= 0 || structureRate <= 0) {
+		return { baseMinutes, sustainableMinutes: baseMinutes, structureRate, extraRate, combinedRate: structureRate + extraRate }
+	}
+	const originalCostBudget = (baseMinutes / 60) * structureRate
+	const combinedRate = structureRate + extraRate
+	const sustainableMinutes = Math.max(0, Math.floor((originalCostBudget / combinedRate) * 60))
+	return { baseMinutes, sustainableMinutes, structureRate, extraRate, combinedRate }
+}
+
 export function calculateAssignedOperatorExtraCost(
 	operatorName: string | undefined,
 	minutes: number,
