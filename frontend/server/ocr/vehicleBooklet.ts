@@ -149,6 +149,34 @@ function extractEngineGroup(content: string) {
   }
 }
 
+function extractRegistrationPlate(content: string) {
+  const direct = extractCodedIdentifier(content, 'A')
+  const normalized = normalizePlate(direct)
+  if (normalized) return normalized
+
+  const candidates = content.toUpperCase().match(/\b[A-Z]{2}\s*\d{3}\s*[A-Z]{2}\b/g) ?? []
+  for (const candidate of candidates) {
+    const plate = normalizePlate(candidate)
+    if (plate) return plate
+  }
+  return ''
+}
+
+function extractVin(content: string) {
+  const direct = normalizeVin(extractCodedIdentifier(content, 'E'))
+  if (direct) return direct
+
+  // Standard VIN: 17 chars, excluding I/O/Q. This fallback is intentionally
+  // strict to avoid treating homologation/type codes as chassis numbers.
+  const compactContent = content.toUpperCase().replace(/[^A-Z0-9]/g, ' ')
+  const candidates = compactContent.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) ?? []
+  for (const candidate of candidates) {
+    const vin = normalizeVin(candidate)
+    if (vin) return vin
+  }
+  return ''
+}
+
 function extractCodedIdentifier(content: string, code: 'A' | 'E') {
   const rows = content.split(/\r?\n/).map((row) => row.trim()).filter(Boolean)
   const token = codeTokenPattern(code)
@@ -342,8 +370,8 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
   }
 
   const uppercaseContent = content.toUpperCase()
-  const plateValue = normalizePlate(extractCodedIdentifier(content, 'A') || extractCodeValue(content, 'A') || uppercaseContent)
-  const vinValue = normalizeVin(extractCodedIdentifier(content, 'E') || extractCodeValue(content, 'E') || uppercaseContent)
+  const plateValue = extractRegistrationPlate(content)
+  const vinValue = extractVin(content)
   const makeValue = compact(extractCodeValue(content, 'D.1') || extractLabelValue(content, ['MARCA', 'FABBRICA']))
   const modelValue = compact(
     extractCodeValue(content, 'D.3')
