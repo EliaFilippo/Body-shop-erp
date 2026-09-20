@@ -93,9 +93,16 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
   const taxableAmount = round(laborTotal + partsTotal + materialsTotal + externalTotal + otherTotal + surchargeTotal - discountTotal)
   const vatAmount = round(taxableAmount * quote.appliedVatRate / 100)
   const total = round(taxableAmount + vatAmount)
-  const costLive = round(laborTotal + partsTotal + materialsTotal + externalTotal + otherTotal)
-  const marginEuro = round(total - costLive)
-  const marginPercent = total ? round((marginEuro / total) * 100) : 0
+  const directCost = (kind: AcceptanceLine['kind']) =>
+    quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * Math.max(0, line.unitCost), 0)
+  const laborCost = directCost('labor')
+  const partsCost = directCost('parts')
+  const materialsCost = directCost('consumption')
+  const externalCost = directCost('external')
+  const otherCost = directCost('other')
+  const costLive = round(laborCost + partsCost + materialsCost + externalCost + otherCost)
+  const marginEuro = round(taxableAmount - costLive)
+  const marginPercent = taxableAmount ? round((marginEuro / taxableAmount) * 100) : 0
   return {
     labor: { total: laborTotal, lines: laborLines(quote).length },
     parts: { total: partsTotal, lines: quote.lines.filter((line) => line.kind === 'parts').length },
