@@ -35,12 +35,16 @@ function normalizeRow(row: CloudSnapshotRow): CloudSnapshot {
 }
 
 async function responseMessage(response: Response) {
+  let code: unknown
   try {
-    const payload = await response.json() as { message?: string }
-    return payload.message || `Errore cloud (${response.status}).`
+    const payload = await response.json() as { code?: unknown } | null
+    code = payload?.code
   } catch {
-    return `Errore cloud (${response.status}).`
+    // Anche una risposta non JSON deve produrre un messaggio comprensibile.
   }
+  if (response.status === 401) return 'La sessione cloud non è valida o è scaduta. Accedi di nuovo al gestionale.'
+  if (response.status === 403 || code === '42501') return 'Accesso ai dati cloud negato. Occorre verificare i permessi del gestionale su Supabase.'
+  return `Sincronizzazione cloud non riuscita (errore ${response.status}). Riprova tra poco.`
 }
 
 export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot | null> {
