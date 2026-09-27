@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { getCloudAuthConfig, signInWithPassword, signOutCloud } from './cloudAuth'
+import { bootstrapCloudCompany, getCloudAuthConfig, signInWithPassword, signOutCloud } from './cloudAuth'
 
 const config = { url: 'https://project.supabase.co', anonKey: 'public-anon-key' }
 
@@ -24,5 +24,19 @@ describe('autenticazione cloud', () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 204 })) as unknown as typeof fetch
     await expect(signOutCloud({ accessToken: 'token' }, config, fetcher)).resolves.toBeUndefined()
     expect(fetcher).toHaveBeenCalledWith(`${config.url}/auth/v1/logout`, expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('crea o recupera l’azienda del primo utente autenticato', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify([{ company_id: 'company-1', company_name: 'Carrozzeria Elias', role: 'owner' }]), { status: 200 })) as unknown as typeof fetch
+    await expect(bootstrapCloudCompany({ accessToken: 'token' }, ' Carrozzeria Elias ', ' Filippo Elia ', config, fetcher)).resolves.toEqual({ companyId: 'company-1', companyName: 'Carrozzeria Elias', role: 'owner' })
+    expect(fetcher).toHaveBeenCalledWith(`${config.url}/rest/v1/rpc/bootstrap_company`, expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ p_company_name: 'Carrozzeria Elias', p_member_display_name: 'Filippo Elia' }),
+    }))
+  })
+
+  it('mostra l’errore restituito dal bootstrap cloud', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ message: 'Autenticazione richiesta' }), { status: 401 })) as unknown as typeof fetch
+    await expect(bootstrapCloudCompany({ accessToken: 'token' }, 'Carrozzeria Elias', 'Filippo Elia', config, fetcher)).rejects.toThrow('Autenticazione richiesta')
   })
 })

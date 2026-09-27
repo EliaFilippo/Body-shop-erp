@@ -11,6 +11,12 @@ export interface CloudAuthSession {
   email: string
 }
 
+export interface CloudCompanyMembership {
+  companyId: string
+  companyName: string
+  role: 'owner' | 'office' | 'production'
+}
+
 interface SupabaseTokenResponse {
   access_token?: string
   refresh_token?: string
@@ -18,6 +24,12 @@ interface SupabaseTokenResponse {
   user?: { id?: string; email?: string }
   error_description?: string
   msg?: string
+}
+
+interface SupabaseCompanyMembership {
+  company_id?: string
+  company_name?: string
+  role?: string
 }
 
 export function getCloudAuthConfig(env: Record<string, unknown> = import.meta.env): CloudAuthConfig | null {
@@ -53,4 +65,33 @@ export async function signOutCloud(session: Pick<CloudAuthSession, 'accessToken'
     headers: { apikey: config.anonKey, Authorization: `Bearer ${session.accessToken}` },
   })
   if (!response.ok) throw new Error('Disconnessione cloud non riuscita.')
+}
+
+export async function bootstrapCloudCompany(
+  session: Pick<CloudAuthSession, 'accessToken'>,
+  companyName: string,
+  displayName: string,
+  config: CloudAuthConfig,
+  fetcher: typeof fetch = fetch,
+): Promise<CloudCompanyMembership> {
+  const response = await fetcher(`${config.url}/rest/v1/rpc/bootstrap_company`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: config.anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+    },
+    body: JSON.stringify({ p_company_name: companyName.trim(), p_member_display_name: displayName.trim() }),
+  })
+  const payload = await response.json() as SupabaseCompanyMembership[] | { message?: string }
+  if (!response.ok || !Array.isArray(payload) || !payload[0]?.company_id) {
+    throw new Error(!Array.isArray(payload) && payload.message ? payload.message : 'Creazione azienda cloud non riuscita.')
+  }
+  const membership = payload[0]
+  if (!['owner', 'office', 'production'].includes(String(membership.role))) throw new Error('Ruolo cloud non valido.')
+  return {
+    companyId: String(membership.company_id),
+    companyName: String(membership.company_name ?? ''),
+    role: membership.role as CloudCompanyMembership['role'],
+  }
 }

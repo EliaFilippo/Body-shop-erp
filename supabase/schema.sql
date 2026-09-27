@@ -58,6 +58,65 @@ as $$
   );
 $$;
 
+-- Consente al primo utente autenticato di creare in sicurezza la propria azienda.
+-- La funzione può essere richiamata una sola volta per account: se esiste già
+-- un'appartenenza restituisce quella esistente senza creare duplicati.
+create or replace function public.bootstrap_company(
+  p_company_name text,
+  p_member_display_name text
+)
+returns table (company_id uuid, company_name text, role text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  existing_company_id uuid;
+  new_company_id uuid;
+begin
+  if current_user_id is null then
+    raise exception 'Autenticazione richiesta';
+  end if;
+
+  select cm.company_id
+  into existing_company_id
+  from public.company_members cm
+  where cm.user_id = current_user_id and cm.active
+  order by cm.created_at
+  limit 1;
+
+  if existing_company_id is not null then
+    return query
+      select c.id, c.name, cm.role
+      from public.companies c
+      join public.company_members cm on cm.company_id = c.id
+      where c.id = existing_company_id and cm.user_id = current_user_id;
+    return;
+  end if;
+
+  if nullif(trim(p_company_name), '') is null or nullif(trim(p_member_display_name), '') is null then
+    raise exception 'Nome azienda e nome utente sono obbligatori';
+  end if;
+
+  insert into public.companies (name)
+  values (trim(p_company_name))
+  returning id into new_company_id;
+
+  insert into public.company_members (company_id, user_id, display_name, role)
+  values (new_company_id, current_user_id, trim(p_member_display_name), 'owner');
+
+  return query
+    select c.id, c.name, cm.role
+    from public.companies c
+    join public.company_members cm on cm.company_id = c.id
+    where c.id = new_company_id and cm.user_id = current_user_id;
+end;
+$$;
+
+revoke all on function public.bootstrap_company(text, text) from public;
+grant execute on function public.bootstrap_company(text, text) to authenticated;
+
 drop policy if exists companies_member_read on public.companies;
 create policy companies_member_read on public.companies for select using (public.is_active_company_member(id));
 
