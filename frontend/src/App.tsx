@@ -442,14 +442,16 @@ function DatabaseDiagnosticsSettingsPage({ data, onRefreshSnapshot, onRestore, s
 
 function UsersSettingsPage({ data, onChange, setNotice, setError }: { data: ErpData; onChange: (next: ErpData) => void; setNotice: (message: string) => void; setError: (message: string) => void }) {
   const [displayName, setDisplayName] = useState('')
+  const [email, setEmail] = useState('')
   const [role, setRole] = useState<UserRole>('production')
   const users = data.users ?? []
 
   const addUser = () => {
     try {
-      const user = createAppUser(displayName, role)
+      const user = createAppUser(displayName, role, new Date().toISOString(), email)
       onChange({ ...data, users: upsertAppUser(users, user) })
       setDisplayName('')
+      setEmail('')
       setRole('production')
       setNotice(`Utente ${user.displayName} creato come ${USER_ROLE_LABELS[user.role]}.`)
       setError('')
@@ -490,6 +492,7 @@ function UsersSettingsPage({ data, onChange, setNotice, setError }: { data: ErpD
       <div className="panel-head"><div><span className="eyebrow">NUOVO PROFILO</span><h3>Aggiungi utente</h3></div></div>
       <div className="form-grid">
         <label>Nome e cognome<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Nome operatore" /></label>
+        <label>Email accesso cloud<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nome@azienda.it" /></label>
         <label>Ruolo<select value={role} onChange={(event) => setRole(event.target.value as UserRole)}><option value="production">Produzione</option><option value="office">Ufficio</option><option value="owner">Titolare</option></select></label>
       </div>
       <div className="form-actions"><button type="button" className="primary" onClick={addUser}>Crea utente</button></div>
@@ -498,7 +501,7 @@ function UsersSettingsPage({ data, onChange, setNotice, setError }: { data: ErpD
       <div className="panel-head"><div><span className="eyebrow">PROFILI</span><h3>Utenti configurati</h3></div></div>
       <div className="settings-list">
         {users.map((user) => <article className="settings-row" key={user.id}>
-          <div><strong>{user.displayName}</strong><div>{user.active ? 'Attivo' : 'Disattivato'} · storico conservato</div></div>
+          <div><strong>{user.displayName}</strong><div>{user.email || 'Email cloud da configurare'} · {user.active ? 'Attivo' : 'Disattivato'} · storico conservato</div></div>
           <select aria-label={`Ruolo ${user.displayName}`} value={user.role} disabled={!user.active} onChange={(event) => updateRole(user.id, event.target.value as UserRole)}><option value="owner">Titolare</option><option value="office">Ufficio</option><option value="production">Produzione</option></select>
           <button type="button" className={user.active ? 'danger' : 'secondary'} onClick={() => toggleActive(user.id, !user.active)}>{user.active ? 'Disattiva' : 'Riattiva'}</button>
         </article>)}
