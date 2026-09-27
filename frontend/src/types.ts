@@ -1,4 +1,15 @@
-export type View = 'dashboard' | 'today-shop' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'settings' | 'planner-settings' | 'vehicle-statuses' | 'work-hours' | 'price-list' | 'internal-costs' | 'operator-program' | 'monthly-goals' | 'database-diagnostics' | 'acceptance' | 'pending-cases' | 'confirmed-cases' | 'finance' | 'estimates-jobs'
+export type View = 'dashboard' | 'today-shop' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'settings' | 'planner-settings' | 'vehicle-statuses' | 'work-hours' | 'price-list' | 'internal-costs' | 'operator-program' | 'monthly-goals' | 'database-diagnostics' | 'users' | 'acceptance' | 'pending-cases' | 'confirmed-cases' | 'finance' | 'estimates-jobs'
+export type UserRole = 'owner' | 'office' | 'production'
+
+export interface AppUser {
+  id: string
+  displayName: string
+  role: UserRole
+  active: boolean
+  operatorId?: string | null
+  createdAt: string
+  updatedAt: string
+}
 export type CustomerType = 'Concessionario' | 'Privato' | 'Assicurazione' | 'Società' | 'Azienda'
 export type VehicleStatus = string
 export type VehicleStatusSemantic = 'accepted' | 'planning' | 'waiting' | 'waiting-parts' | 'phase' | 'in-work' | 'ready' | 'delivered' | 'blocked' | 'cancelled' | 'custom'
@@ -1117,6 +1128,7 @@ export interface JobWorkflowKpis {
 }
 
 export interface ErpData {
+  users?: AppUser[]
   customers: Customer[]
   vehicles: Vehicle[]
   coneHistory: ConeEvent[]
