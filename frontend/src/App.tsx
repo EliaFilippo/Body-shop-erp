@@ -6,7 +6,7 @@ import { Modal } from './components/Modal'
 import { DocumentCapturePanel, queueDocumentCaptureFile } from './components/DocumentCapturePanel'
 import { parseMoneyDraft } from './components/money'
 import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, isVehicleWaitingForCone, TOTAL_CONES, emptyData, normalizePlate, updateCustomer } from './services/erp'
-import { loadDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
+import { createDatabaseCheckpoint, loadDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
 import { analyzeDatabaseIntegrity, prepareDuplicateResolution, resolveDuplicatePlate, type DatabaseIntegrityReport, type DuplicateResolutionResult } from './services/database'
 import { removePriceListItem, setPriceListItemActive, upsertPriceListItem } from './services/priceList'
 import { PlannerPage } from './features/planner/PlannerPage.tsx'
@@ -31,7 +31,11 @@ import { saveVehicleWithPersistenceCheck } from './services/vehiclePersistence.t
 import { listSelectableVehicleStatuses, resolveVehicleStatusId, resolveVehicleStatusLabel } from './services/vehicleStatuses'
 import { DEFAULT_WEEKLY_WORK_SCHEDULE, intervalsToText, normalizeWeeklyWorkSchedule } from './services/workCalendar'
 import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from './services/originGuard'
-import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, StandardWorkPriceListItem, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
+import { backupFilename, parseBackup, serializeBackup } from './services/backup'
+import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, upsertAppUser } from './services/accessControl'
+import { bootstrapCloudCompany, getCloudAuthConfig, signInWithPassword, signOutCloud, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
+import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
+import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' }, { id: 'today-shop', label: 'Oggi in carrozzeria' }, { id: 'customers', label: 'Clienti' },
@@ -52,6 +56,7 @@ const settingsNav: { id: View; label: string }[] = [
   { id: 'price-list', label: 'Listino prezzi' },
   { id: 'internal-costs', label: 'Costi e tariffe interne' },
   { id: 'monthly-goals', label: 'Obiettivi' },
+  { id: 'users', label: 'Utenti e permessi' },
   { id: 'database-diagnostics', label: 'Diagnostica database' },
 ]
 const titleOverrides: Partial<Record<View, string>> = {
@@ -60,6 +65,7 @@ const titleOverrides: Partial<Record<View, string>> = {
   'vehicle-statuses': 'Stati vettura',
   'internal-costs': 'Costi e tariffe interne',
   'monthly-goals': 'Obiettivi',
+  users: 'Utenti e permessi',
   'database-diagnostics': 'Diagnostica database',
 }
 const settingsCards: Array<{ id: View; title: string; description: string }> = [
@@ -69,6 +75,7 @@ const settingsCards: Array<{ id: View; title: string; description: string }> = [
   { id: 'price-list', title: 'Listino prezzi', description: 'Prezzi per pannello, lavorazione, estensione e variante' },
   { id: 'internal-costs', title: 'Costi e tariffe interne', description: 'Spese mensili, capacità produttiva, tariffa oraria interna e marginalità' },
   { id: 'monthly-goals', title: 'Obiettivi', description: 'Obiettivi produttivi ed economici' },
+  { id: 'users', title: 'Utenti e permessi', description: 'Profili titolare, ufficio e produzione con accessi separati' },
   { id: 'database-diagnostics', title: 'Diagnostica database', description: 'Analisi integrità snapshot corrente e risoluzione duplicati guidata' },
 ]
 
@@ -87,6 +94,58 @@ const ACCEPTANCE_CHECKLIST_ACCESSORIES_LABEL = 'Accessori verificati'
 const ACCEPTANCE_CHECKLIST_PHOTOS_LABEL = 'Foto caricate'
 const ACCEPTANCE_CHECKLIST_SIGNATURE_LABEL = 'Firma cliente acquisita'
 const CUSTOMER_DOCUMENT_INPUT_ID = 'acceptance-customer-document-input'
+const CLOUD_SESSION_KEY = 'body-shop-erp.cloud-session.v1'
+
+function readCloudSession(): CloudAuthSession | null {
+  try {
+    const raw = sessionStorage.getItem(CLOUD_SESSION_KEY)
+    if (!raw) return null
+    const value = JSON.parse(raw) as Partial<CloudAuthSession>
+    if (!value.accessToken || !value.userId || !value.email) return null
+    return value as CloudAuthSession
+  } catch {
+    return null
+  }
+}
+
+function CloudLoginScreen({ config, onAuthenticated }: { config: CloudAuthConfig; onAuthenticated: (session: CloudAuthSession, membership: CloudCompanyMembership) => void }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [loginError, setLoginError] = useState('')
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setLoginError('')
+    try {
+      const session = await signInWithPassword(email, password, config)
+      const membership = await bootstrapCloudCompany(session, 'Carrozzeria Elias', 'Filippo Elia', config)
+      sessionStorage.setItem(CLOUD_SESSION_KEY, JSON.stringify(session))
+      setPassword('')
+      onAuthenticated(session, membership)
+    } catch (problem) {
+      setLoginError(problem instanceof Error ? problem.message : 'Accesso non riuscito.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return <main className="cloud-login-shell">
+    <section className="cloud-login-card">
+      <div className="brand cloud-login-brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
+      <span className="eyebrow">ACCESSO SICURO</span>
+      <h1>Entra nel gestionale</h1>
+      <p>Usa l'account aziendale invitato. La password viene inviata direttamente a Supabase e non viene salvata.</p>
+      <form onSubmit={submit} className="cloud-login-form">
+        <label>Email<input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+        <label>Password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+        {loginError && <div className="cloud-login-error" role="alert">{loginError}</div>}
+        <button className="primary" type="submit" disabled={submitting}>{submitting ? 'Accesso in corso…' : 'Accedi'}</button>
+      </form>
+    </section>
+  </main>
+}
 
 function isAcceptedImageFile(file: File) {
   const fileType = String(file.type ?? '').toLowerCase()
@@ -270,11 +329,53 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
   </section>
 }
 
-function DatabaseDiagnosticsSettingsPage({ onRefreshSnapshot, setNotice, setError }: { onRefreshSnapshot: () => Promise<void>; setNotice: (message: string) => void; setError: (message: string) => void }) {
+function DatabaseDiagnosticsSettingsPage({ data, onRefreshSnapshot, onRestore, setNotice, setError }: { data: ErpData; onRefreshSnapshot: () => Promise<void>; onRestore: (restored: ErpData) => Promise<void>; setNotice: (message: string) => void; setError: (message: string) => void }) {
   const [report, setReport] = useState<DatabaseIntegrityReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [resolvingPlate, setResolvingPlate] = useState<string | null>(null)
   const [lastResolution, setLastResolution] = useState<DuplicateResolutionResult | null>(null)
+
+  const downloadBackup = (snapshot: ErpData, prefix = '') => {
+    const createdAt = new Date().toISOString()
+    const blob = new Blob([serializeBackup(snapshot, createdAt)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${prefix}${backupFilename(createdAt)}`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportBackup = () => {
+    downloadBackup(data)
+    setNotice('Backup completo esportato. Conserva il file in un luogo sicuro.')
+    setError('')
+  }
+
+  const importBackup = async (file: File) => {
+    try {
+      const backup = parseBackup(await file.text())
+      const { customers, vehicles, estimates, jobs } = backup.summary
+      const confirmation = [
+        `Backup del ${formatDate(backup.createdAt)}`,
+        `Clienti: ${customers}`,
+        `Veicoli: ${vehicles}`,
+        `Preventivi: ${estimates}`,
+        `Commesse: ${jobs}`,
+        '',
+        'Il database corrente verrà sostituito. Prima verrà scaricato automaticamente un backup di sicurezza.',
+        'Confermi il ripristino?',
+      ].join('\n')
+      if (!window.confirm(confirmation)) return
+      downloadBackup(data, 'prima-del-ripristino-')
+      await onRestore(backup.data)
+      setReport(await analyzeDatabaseIntegrity())
+      setNotice('Backup ripristinato e integrità verificata.')
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Ripristino backup non riuscito.')
+    }
+  }
 
   const analyze = async () => {
     setLoading(true)
@@ -319,6 +420,14 @@ function DatabaseDiagnosticsSettingsPage({ onRefreshSnapshot, setNotice, setErro
   }
 
   return <section className="settings-stack">
+    <section className="panel table-panel">
+      <div className="panel-head"><div><span className="eyebrow">PROTEZIONE DATI</span><h3>Backup e ripristino archivio</h3></div></div>
+      <p>Esporta clienti, veicoli, preventivi, commesse, pianificazione e dati finanziari in un unico file verificabile.</p>
+      <div className="form-actions">
+        <button className="primary" type="button" onClick={exportBackup}>Scarica backup completo</button>
+        <label className="secondary button-file">Ripristina da backup<input type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importBackup(file); event.currentTarget.value = '' }} /></label>
+      </div>
+    </section>
     <div className="welcome">
       <div>
         <span className="eyebrow">DIAGNOSTICA DATABASE</span>
@@ -385,11 +494,85 @@ function DatabaseDiagnosticsSettingsPage({ onRefreshSnapshot, setNotice, setErro
   </section>
 }
 
+function UsersSettingsPage({ data, onChange, setNotice, setError }: { data: ErpData; onChange: (next: ErpData) => void; setNotice: (message: string) => void; setError: (message: string) => void }) {
+  const [displayName, setDisplayName] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<UserRole>('production')
+  const users = data.users ?? []
+
+  const addUser = () => {
+    try {
+      const user = createAppUser(displayName, role, new Date().toISOString(), email)
+      onChange({ ...data, users: upsertAppUser(users, user) })
+      setDisplayName('')
+      setEmail('')
+      setRole('production')
+      setNotice(`Utente ${user.displayName} creato come ${USER_ROLE_LABELS[user.role]}.`)
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Creazione utente non riuscita.')
+    }
+  }
+
+  const updateRole = (userId: string, nextRole: UserRole) => {
+    const target = users.find((user) => user.id === userId)
+    if (!target) return
+    const now = new Date().toISOString()
+    try {
+      if (target.role === 'owner' && nextRole !== 'owner' && users.filter((user) => user.active && user.role === 'owner').length === 1) {
+        throw new Error('Deve rimanere almeno un titolare attivo.')
+      }
+      onChange({ ...data, users: upsertAppUser(users, { ...target, role: nextRole, updatedAt: now }) })
+      setNotice(`Ruolo di ${target.displayName} aggiornato.`)
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Aggiornamento ruolo non riuscito.')
+    }
+  }
+
+  const toggleActive = (userId: string, active: boolean) => {
+    try {
+      onChange({ ...data, users: setUserActive(users, userId, active) })
+      setNotice(active ? 'Utente riattivato.' : 'Utente disattivato. Lo storico rimane conservato.')
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Aggiornamento utente non riuscito.')
+    }
+  }
+
+  return <section className="settings-stack">
+    <div className="welcome"><div><span className="eyebrow">UTENTI E PERMESSI</span><h2>Accessi separati per ruolo</h2><p>Il titolare controlla tutto; l'ufficio gestisce clienti, pratiche e finanza; la produzione vede il lavoro operativo assegnato.</p></div></div>
+    <section className="panel table-panel">
+      <div className="panel-head"><div><span className="eyebrow">NUOVO PROFILO</span><h3>Aggiungi utente</h3></div></div>
+      <div className="form-grid">
+        <label>Nome e cognome<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Nome operatore" /></label>
+        <label>Email accesso cloud<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nome@azienda.it" /></label>
+        <label>Ruolo<select value={role} onChange={(event) => setRole(event.target.value as UserRole)}><option value="production">Produzione</option><option value="office">Ufficio</option><option value="owner">Titolare</option></select></label>
+      </div>
+      <div className="form-actions"><button type="button" className="primary" onClick={addUser}>Crea utente</button></div>
+    </section>
+    <section className="panel table-panel">
+      <div className="panel-head"><div><span className="eyebrow">PROFILI</span><h3>Utenti configurati</h3></div></div>
+      <div className="settings-list">
+        {users.map((user) => <article className="settings-row" key={user.id}>
+          <div><strong>{user.displayName}</strong><div>{user.email || 'Email cloud da configurare'} · {user.active ? 'Attivo' : 'Disattivato'} · storico conservato</div></div>
+          <select aria-label={`Ruolo ${user.displayName}`} value={user.role} disabled={!user.active} onChange={(event) => updateRole(user.id, event.target.value as UserRole)}><option value="owner">Titolare</option><option value="office">Ufficio</option><option value="production">Produzione</option></select>
+          <button type="button" className={user.active ? 'danger' : 'secondary'} onClick={() => toggleActive(user.id, !user.active)}>{user.active ? 'Disattiva' : 'Riattiva'}</button>
+        </article>)}
+      </div>
+    </section>
+  </section>
+}
+
 function App() {
   const blockedByOrigin = isFileOrigin()
+  const cloudConfig = useMemo(() => getCloudAuthConfig(), [])
+  const [cloudSession, setCloudSession] = useState<CloudAuthSession | null>(() => cloudConfig ? readCloudSession() : null)
+  const [cloudMembership, setCloudMembership] = useState<CloudCompanyMembership | null>(null)
   const [data, setData] = useState<ErpData>(emptyData)
   const [databaseReady, setDatabaseReady] = useState(false)
   const [databaseLoaded, setDatabaseLoaded] = useState(false)
+  const activeUser = getDefaultActiveUser(data.users)
   const [view, setView] = useState<View>('dashboard')
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState<
@@ -407,6 +590,68 @@ function App() {
   const skipNextAutosaveRef = useRef(false)
   const skipNextHeavySyncRef = useRef(false)
   const acceptanceAutosaveTimerRef = useRef<number | null>(null)
+  const cloudRevisionRef = useRef<number | null>(null)
+  const cloudReadyRef = useRef(false)
+  const cloudInitializingCompanyRef = useRef<string | null>(null)
+  const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
+
+  useEffect(() => {
+    if (!cloudConfig || !cloudSession || cloudMembership) return
+    void bootstrapCloudCompany(cloudSession, 'Carrozzeria Elias', 'Filippo Elia', cloudConfig)
+      .then(setCloudMembership)
+      .catch(() => {
+        sessionStorage.removeItem(CLOUD_SESSION_KEY)
+        setCloudSession(null)
+      })
+  }, [cloudConfig, cloudMembership, cloudSession])
+
+  useEffect(() => {
+    if (!cloudSession || !databaseReady) return
+    setData((current) => {
+      const owner = getDefaultActiveUser(current.users)
+      if (!owner || (owner.authUserId === cloudSession.userId && owner.email === cloudSession.email)) return current
+      return { ...current, users: upsertAppUser(current.users ?? [], { ...owner, authUserId: cloudSession.userId, email: cloudSession.email, updatedAt: new Date().toISOString() }) }
+    })
+  }, [cloudSession, databaseReady])
+
+  useEffect(() => {
+    if (!cloudConfig || !cloudSession || !cloudMembership || !databaseLoaded || !databaseReady) return
+    if (cloudInitializingCompanyRef.current === cloudMembership.companyId) return
+    cloudInitializingCompanyRef.current = cloudMembership.companyId
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const localSnapshot = await loadDatabase()
+        const remote = await loadCloudSnapshot(cloudMembership.companyId, cloudSession, cloudConfig)
+        if (cancelled) return
+        if (!remote) {
+          const created = await createCloudSnapshot(cloudMembership.companyId, localSnapshot, cloudSession, cloudConfig)
+          cloudRevisionRef.current = created.revision
+          cloudReadyRef.current = true
+          setNotice('Archivio collegato e salvato nel cloud.')
+          return
+        }
+
+        await createDatabaseCheckpoint(localSnapshot, 'prima-sincronizzazione-cloud')
+        await saveDatabase(remote.payload, { allowCountReduction: true, mergeOnConflict: false })
+        const restored = await loadDatabase()
+        if (cancelled) return
+        cloudRevisionRef.current = remote.revision
+        cloudReadyRef.current = true
+        skipNextAutosaveRef.current = true
+        skipNextHeavySyncRef.current = true
+        setData(restored)
+        setNotice('Archivio sincronizzato dal cloud.')
+      } catch (problem) {
+        cloudReadyRef.current = false
+        cloudInitializingCompanyRef.current = null
+        if (!cancelled) setError(problem instanceof Error ? problem.message : 'Sincronizzazione cloud non riuscita.')
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [cloudConfig, cloudMembership, cloudSession, databaseLoaded, databaseReady])
 
   useEffect(() => {
     if (blockedByOrigin) {
@@ -485,18 +730,30 @@ function App() {
       window.clearTimeout(acceptanceAutosaveTimerRef.current)
       acceptanceAutosaveTimerRef.current = null
     }
-    void saveDatabase(data, { allowCountReduction }).catch((problem) => {
-      allowCountReductionRef.current = false
-      setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.')
-      setAcceptanceAutosaveState('idle')
-    }).then(() => {
-      setAcceptanceAutosaveState('saved')
-      acceptanceAutosaveTimerRef.current = window.setTimeout(() => {
+    void saveDatabase(data, { allowCountReduction })
+      .then(async () => {
+        if (cloudConfig && cloudSession && cloudMembership && cloudReadyRef.current && cloudRevisionRef.current !== null) {
+          const snapshot = structuredClone(data)
+          cloudSyncQueueRef.current = cloudSyncQueueRef.current.then(async () => {
+            const expectedRevision = cloudRevisionRef.current
+            if (expectedRevision === null) return
+            const saved = await updateCloudSnapshot(cloudMembership.companyId, expectedRevision, snapshot, cloudSession, cloudConfig)
+            cloudRevisionRef.current = saved.revision
+          })
+          await cloudSyncQueueRef.current
+        }
+        setAcceptanceAutosaveState('saved')
+        acceptanceAutosaveTimerRef.current = window.setTimeout(() => {
+          setAcceptanceAutosaveState('idle')
+          acceptanceAutosaveTimerRef.current = null
+        }, 1400)
+      })
+      .catch((problem) => {
+        allowCountReductionRef.current = false
+        setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.')
         setAcceptanceAutosaveState('idle')
-        acceptanceAutosaveTimerRef.current = null
-      }, 1400)
-    })
-  }, [data, databaseLoaded, databaseReady])
+      })
+  }, [cloudConfig, cloudMembership, cloudSession, data, databaseLoaded, databaseReady])
 
   useEffect(() => () => {
     if (acceptanceAutosaveTimerRef.current !== null) {
@@ -580,6 +837,16 @@ function App() {
   if (blockedByOrigin) {
     return <main className="origin-blocked"><h1>{ORIGIN_BLOCK_MESSAGE}</h1></main>
   }
+  if (cloudConfig && !cloudSession) {
+    return <CloudLoginScreen config={cloudConfig} onAuthenticated={(session, membership) => { setCloudSession(session); setCloudMembership(membership) }} />
+  }
+  const logoutCloud = async () => {
+    if (!cloudConfig || !cloudSession) return
+    try { await signOutCloud(cloudSession, cloudConfig) } catch { /* La sessione locale viene comunque chiusa. */ }
+    sessionStorage.removeItem(CLOUD_SESSION_KEY)
+    setCloudMembership(null)
+    setCloudSession(null)
+  }
   return <div className="app-shell">
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
       <div className="brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
@@ -596,7 +863,7 @@ function App() {
         ].filter(Boolean).join(' ')
         return <button key={item.id} className={className} onClick={() => goToView(item.id)}><Icon name={item.id} /><span>{item.label}</span>{item.id === 'cones' && <b>{occupied.length}</b>}</button>
       })}</nav>
-      <div className="sidebar-foot"><span className="online-dot" /> {databaseReady ? 'Archivio pronto' : 'Caricamento archivio'}</div>
+      <div className="sidebar-foot"><span className="online-dot" /> {cloudMembership ? `${cloudMembership.companyName} · Cloud attivo` : databaseReady ? 'Archivio pronto' : 'Caricamento archivio'}{activeUser && <div>{activeUser.displayName} · {USER_ROLE_LABELS[activeUser.role]}</div>}{cloudSession && <button type="button" className="cloud-logout" onClick={() => void logoutCloud()}>Esci</button>}</div>
     </aside>
     {menu && <button className="menu-overlay" onClick={() => setMenu(false)} aria-label="Chiudi menu" />}
 
@@ -713,7 +980,14 @@ function App() {
           setData({ ...data, plannerSettings })
           setNotice('Obiettivi salvati e storicizzati.')
         }} />}
-        {view === 'database-diagnostics' && <DatabaseDiagnosticsSettingsPage onRefreshSnapshot={async () => {
+        {view === 'users' && <UsersSettingsPage data={data} onChange={setData} setNotice={setNotice} setError={setError} />}
+        {view === 'database-diagnostics' && <DatabaseDiagnosticsSettingsPage data={data} onRefreshSnapshot={async () => {
+          const reloaded = await loadDatabase()
+          skipNextAutosaveRef.current = true
+          skipNextHeavySyncRef.current = true
+          setData(reloaded)
+        }} onRestore={async (restored) => {
+          await saveDatabase(restored, { allowCountReduction: true })
           const reloaded = await loadDatabase()
           skipNextAutosaveRef.current = true
           skipNextHeavySyncRef.current = true

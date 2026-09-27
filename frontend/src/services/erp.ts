@@ -86,6 +86,17 @@ export const defaultPlannerSettings: PlannerSettings = {
 }
 
 export const emptyData: ErpData = {
+  users: [{
+    id: 'owner-filippo-elia',
+    displayName: 'Filippo Elia',
+    email: '',
+    authUserId: null,
+    role: 'owner',
+    active: true,
+    operatorId: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }],
   customers: [],
   vehicles: [],
   coneHistory: [],
