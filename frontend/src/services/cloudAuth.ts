@@ -38,6 +38,35 @@ export function getCloudAuthConfig(env: Record<string, unknown> = import.meta.en
   return url && anonKey ? { url, anonKey } : null
 }
 
+export function getRecoveryAccessToken(hash = globalThis.location?.hash ?? ''): string | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''))
+  if (params.get('type') !== 'recovery') return null
+  return params.get('access_token')?.trim() || null
+}
+
+export async function updateCloudPassword(
+  accessToken: string,
+  password: string,
+  config: CloudAuthConfig,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  if (!accessToken) throw new Error('Link di recupero non valido o scaduto.')
+  if (password.length < 8) throw new Error('La nuova password deve contenere almeno 8 caratteri.')
+  const response = await fetcher(`${config.url}/auth/v1/user`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: config.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ password }),
+  })
+  if (!response.ok) {
+    const payload = await response.json() as { message?: string; msg?: string }
+    throw new Error(payload.message || payload.msg || 'Impossibile aggiornare la password.')
+  }
+}
+
 export async function signInWithPassword(email: string, password: string, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudAuthSession> {
   const normalizedEmail = email.trim().toLowerCase()
   if (!normalizedEmail || !password) throw new Error('Inserisci email e password.')
