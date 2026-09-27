@@ -467,6 +467,8 @@ function normalizeData(value: unknown): ErpData {
     ? candidate.users.map((user) => ({
         id: String(user.id ?? crypto.randomUUID()),
         displayName: String(user.displayName ?? '').trim(),
+        email: String(user.email ?? '').trim().toLowerCase(),
+        authUserId: user.authUserId ? String(user.authUserId) : null,
         role: (user.role === 'office' || user.role === 'production' ? user.role : 'owner') as UserRole,
         active: user.active !== false,
         operatorId: user.operatorId ? String(user.operatorId) : null,
