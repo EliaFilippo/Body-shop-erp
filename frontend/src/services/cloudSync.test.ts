@@ -34,4 +34,24 @@ describe('sincronizzazione snapshot cloud', () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('[]', { status: 200 }))
     await expect(updateCloudSnapshot('company-1', 7, emptyData, session, config, fetcher as unknown as typeof fetch)).rejects.toBeInstanceOf(CloudSnapshotConflictError)
   })
+
+  it.each(['lettura', 'creazione', 'aggiornamento'] as const)('spiega in italiano un errore di permessi durante la %s', async (operation) => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: '42501', message: 'permission denied for table erp_snapshots' }), { status: 403 }))
+    const request = operation === 'lettura'
+      ? loadCloudSnapshot('company-1', session, config, fetcher)
+      : operation === 'creazione'
+        ? createCloudSnapshot('company-1', emptyData, session, config, fetcher)
+        : updateCloudSnapshot('company-1', 1, emptyData, session, config, fetcher)
+    await expect(request).rejects.toThrow('Accesso ai dati cloud negato. Occorre verificare i permessi del gestionale su Supabase.')
+  })
+
+  it('distingue una sessione scaduta da un problema di permessi', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: 'PGRST301', message: 'JWT expired' }), { status: 401 }))
+    await expect(loadCloudSnapshot('company-1', session, config, fetcher)).rejects.toThrow('La sessione cloud non è valida o è scaduta. Accedi di nuovo al gestionale.')
+  })
+
+  it.each(['Service unavailable', JSON.stringify({ message: 'database temporarily unavailable' })])('non mostra errori tecnici in inglese se il servizio non è disponibile', async (body) => {
+    const fetcher = vi.fn(async () => new Response(body, { status: 503 }))
+    await expect(loadCloudSnapshot('company-1', session, config, fetcher)).rejects.toThrow('Sincronizzazione cloud non riuscita (errore 503). Riprova tra poco.')
+  })
 })
