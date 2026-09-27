@@ -31,12 +31,16 @@ export function getDefaultActiveUser(users: AppUser[] | undefined): AppUser | nu
     ?? null
 }
 
-export function createAppUser(displayName: string, role: UserRole, now = new Date().toISOString()): AppUser {
+export function createAppUser(displayName: string, role: UserRole, now = new Date().toISOString(), email = ''): AppUser {
   const normalizedName = displayName.trim().replace(/\s+/g, ' ')
   if (!normalizedName) throw new Error('Inserisci il nome dell’utente.')
+  const normalizedEmail = email.trim().toLowerCase()
+  if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new Error('Inserisci un indirizzo email valido.')
   return {
     id: crypto.randomUUID(),
     displayName: normalizedName,
+    email: normalizedEmail,
+    authUserId: null,
     role,
     active: true,
     operatorId: null,
@@ -48,6 +52,8 @@ export function createAppUser(displayName: string, role: UserRole, now = new Dat
 export function upsertAppUser(users: AppUser[], user: AppUser): AppUser[] {
   const duplicate = users.find((item) => item.id !== user.id && item.displayName.localeCompare(user.displayName, 'it', { sensitivity: 'base' }) === 0)
   if (duplicate) throw new Error('Esiste già un utente con questo nome.')
+  const normalizedEmail = user.email?.trim().toLowerCase()
+  if (normalizedEmail && users.some((item) => item.id !== user.id && item.email?.trim().toLowerCase() === normalizedEmail)) throw new Error('Questa email è già associata a un altro utente.')
   const existing = users.some((item) => item.id === user.id)
   return existing ? users.map((item) => item.id === user.id ? user : item) : [...users, user]
 }
