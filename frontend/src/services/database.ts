@@ -1,4 +1,4 @@
-import type { ErpData, JobPhaseOperatorAssignment, PlannerSettings } from '../types'
+import type { ErpData, JobPhaseOperatorAssignment, PlannerSettings, UserRole } from '../types'
 import { defaultPlannerSettings, emptyData, normalizePlate, normalizeVin, STORAGE_KEY } from './erp'
 import { EXPECTED_APP_ORIGIN, currentOriginLabel, isAllowedPersistenceOrigin } from './originGuard'
 import { defaultVehicleStatus, normalizeVehicleStatuses, resolveVehicleStatusId } from './vehicleStatuses'
@@ -463,6 +463,17 @@ function openDatabase(): Promise<IDBDatabase> {
 function normalizeData(value: unknown): ErpData {
   if (!value || typeof value !== 'object') return structuredClone(emptyData)
   const candidate = value as Partial<ErpData>
+  const users: NonNullable<ErpData['users']> = Array.isArray(candidate.users) && candidate.users.length
+    ? candidate.users.map((user) => ({
+        id: String(user.id ?? crypto.randomUUID()),
+        displayName: String(user.displayName ?? '').trim(),
+        role: (user.role === 'office' || user.role === 'production' ? user.role : 'owner') as UserRole,
+        active: user.active !== false,
+        operatorId: user.operatorId ? String(user.operatorId) : null,
+        createdAt: String(user.createdAt ?? new Date().toISOString()),
+        updatedAt: String(user.updatedAt ?? new Date().toISOString()),
+      })).filter((user) => Boolean(user.displayName))
+    : structuredClone(emptyData.users ?? [])
   const customers = Array.isArray(candidate.customers) ? candidate.customers.map((customer) => ({ ...customer })) : []
   const rawVehicles = Array.isArray(candidate.vehicles) ? candidate.vehicles.map((vehicle) => ({ ...vehicle })) : []
   const sourceStandardWorks = Array.isArray(candidate.plannerSettings?.standardWorks)
@@ -921,6 +932,7 @@ function normalizeData(value: unknown): ErpData {
   const dbRevision = Math.max(0, Number(candidate.dbRevision ?? 0))
   const dbUpdatedAt = String(candidate.dbUpdatedAt ?? '')
   const normalized: ErpData = {
+    users,
     customers,
     vehicles,
     coneHistory,
