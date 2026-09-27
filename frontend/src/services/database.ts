@@ -1015,6 +1015,21 @@ export async function loadDatabase(): Promise<ErpData> {
   }
 }
 
+export async function createDatabaseCheckpoint(data: ErpData, reason = 'manual'): Promise<string> {
+  const safeReason = reason.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '') || 'manual'
+  const key = `backup:${safeReason}:${new Date().toISOString()}`
+  const database = await openDatabase()
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE, 'readwrite')
+    transaction.objectStore(STORE).put(structuredClone(data), key)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+    transaction.onabort = () => reject(transaction.error)
+  })
+  database.close()
+  return key
+}
+
 let saveQueue: Promise<void> = Promise.resolve()
 
 async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sourceData?: ErpData): Promise<void> {
