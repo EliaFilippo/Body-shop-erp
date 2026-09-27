@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { bootstrapCloudCompany, getCloudAuthConfig, signInWithPassword, signOutCloud } from './cloudAuth'
+import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword } from './cloudAuth'
 
 const config = { url: 'https://project.supabase.co', anonKey: 'public-anon-key' }
 
@@ -38,5 +38,26 @@ describe('autenticazione cloud', () => {
   it('mostra l’errore restituito dal bootstrap cloud', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ message: 'Autenticazione richiesta' }), { status: 401 })) as unknown as typeof fetch
     await expect(bootstrapCloudCompany({ accessToken: 'token' }, 'Carrozzeria Elias', 'Filippo Elia', config, fetcher)).rejects.toThrow('Autenticazione richiesta')
+  })
+
+  it('riconosce soltanto un link di recupero Supabase valido', () => {
+    expect(getRecoveryAccessToken('#access_token=recovery-token&type=recovery')).toBe('recovery-token')
+    expect(getRecoveryAccessToken('#access_token=login-token&type=signup')).toBeNull()
+    expect(getRecoveryAccessToken('')).toBeNull()
+  })
+
+  it('aggiorna la password usando il token del link senza salvarla', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ id: 'auth-1' }), { status: 200 })) as unknown as typeof fetch
+    await expect(updateCloudPassword('recovery-token', 'nuova-password', config, fetcher)).resolves.toBeUndefined()
+    expect(fetcher).toHaveBeenCalledWith(`${config.url}/auth/v1/user`, expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ password: 'nuova-password' }),
+    }))
+  })
+
+  it('rifiuta password troppo corte prima di chiamare Supabase', async () => {
+    const fetcher = vi.fn() as unknown as typeof fetch
+    await expect(updateCloudPassword('recovery-token', 'corta', config, fetcher)).rejects.toThrow('almeno 8 caratteri')
+    expect(fetcher).not.toHaveBeenCalled()
   })
 })
