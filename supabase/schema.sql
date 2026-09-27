@@ -131,3 +131,8 @@ create policy snapshots_member_read on public.erp_snapshots for select using (pu
 
 drop policy if exists snapshots_member_write on public.erp_snapshots;
 create policy snapshots_member_write on public.erp_snapshots for all using (public.is_active_company_member(company_id)) with check (public.is_active_company_member(company_id) and updated_by = auth.uid());
+
+-- I privilegi sulle tabelle sono necessari anche quando le policy RLS esistono.
+-- Le policy limitano ogni operazione ai membri attivi della relativa azienda.
+grant select on public.companies, public.company_members to authenticated;
+grant select, insert, update on public.erp_snapshots to authenticated;
