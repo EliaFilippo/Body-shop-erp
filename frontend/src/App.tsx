@@ -31,6 +31,7 @@ import { saveVehicleWithPersistenceCheck } from './services/vehiclePersistence.t
 import { listSelectableVehicleStatuses, resolveVehicleStatusId, resolveVehicleStatusLabel } from './services/vehicleStatuses'
 import { DEFAULT_WEEKLY_WORK_SCHEDULE, intervalsToText, normalizeWeeklyWorkSchedule } from './services/workCalendar'
 import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from './services/originGuard'
+import { backupFilename, parseBackup, serializeBackup } from './services/backup'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, StandardWorkPriceListItem, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
@@ -270,11 +271,53 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
   </section>
 }
 
-function DatabaseDiagnosticsSettingsPage({ onRefreshSnapshot, setNotice, setError }: { onRefreshSnapshot: () => Promise<void>; setNotice: (message: string) => void; setError: (message: string) => void }) {
+function DatabaseDiagnosticsSettingsPage({ data, onRefreshSnapshot, onRestore, setNotice, setError }: { data: ErpData; onRefreshSnapshot: () => Promise<void>; onRestore: (restored: ErpData) => Promise<void>; setNotice: (message: string) => void; setError: (message: string) => void }) {
   const [report, setReport] = useState<DatabaseIntegrityReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [resolvingPlate, setResolvingPlate] = useState<string | null>(null)
   const [lastResolution, setLastResolution] = useState<DuplicateResolutionResult | null>(null)
+
+  const downloadBackup = (snapshot: ErpData, prefix = '') => {
+    const createdAt = new Date().toISOString()
+    const blob = new Blob([serializeBackup(snapshot, createdAt)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${prefix}${backupFilename(createdAt)}`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportBackup = () => {
+    downloadBackup(data)
+    setNotice('Backup completo esportato. Conserva il file in un luogo sicuro.')
+    setError('')
+  }
+
+  const importBackup = async (file: File) => {
+    try {
+      const backup = parseBackup(await file.text())
+      const { customers, vehicles, estimates, jobs } = backup.summary
+      const confirmation = [
+        `Backup del ${formatDate(backup.createdAt)}`,
+        `Clienti: ${customers}`,
+        `Veicoli: ${vehicles}`,
+        `Preventivi: ${estimates}`,
+        `Commesse: ${jobs}`,
+        '',
+        'Il database corrente verrà sostituito. Prima verrà scaricato automaticamente un backup di sicurezza.',
+        'Confermi il ripristino?',
+      ].join('\n')
+      if (!window.confirm(confirmation)) return
+      downloadBackup(data, 'prima-del-ripristino-')
+      await onRestore(backup.data)
+      setReport(await analyzeDatabaseIntegrity())
+      setNotice('Backup ripristinato e integrità verificata.')
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Ripristino backup non riuscito.')
+    }
+  }
 
   const analyze = async () => {
     setLoading(true)
@@ -319,6 +362,14 @@ function DatabaseDiagnosticsSettingsPage({ onRefreshSnapshot, setNotice, setErro
   }
 
   return <section className="settings-stack">
+    <section className="panel table-panel">
+      <div className="panel-head"><div><span className="eyebrow">PROTEZIONE DATI</span><h3>Backup e ripristino archivio</h3></div></div>
+      <p>Esporta clienti, veicoli, preventivi, commesse, pianificazione e dati finanziari in un unico file verificabile.</p>
+      <div className="form-actions">
+        <button className="primary" type="button" onClick={exportBackup}>Scarica backup completo</button>
+        <label className="secondary button-file">Ripristina da backup<input type="file" accept="application/json,.json" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void importBackup(file); event.currentTarget.value = '' }} /></label>
+      </div>
+    </section>
     <div className="welcome">
       <div>
         <span className="eyebrow">DIAGNOSTICA DATABASE</span>
@@ -713,7 +764,13 @@ function App() {
           setData({ ...data, plannerSettings })
           setNotice('Obiettivi salvati e storicizzati.')
         }} />}
-        {view === 'database-diagnostics' && <DatabaseDiagnosticsSettingsPage onRefreshSnapshot={async () => {
+        {view === 'database-diagnostics' && <DatabaseDiagnosticsSettingsPage data={data} onRefreshSnapshot={async () => {
+          const reloaded = await loadDatabase()
+          skipNextAutosaveRef.current = true
+          skipNextHeavySyncRef.current = true
+          setData(reloaded)
+        }} onRestore={async (restored) => {
+          await saveDatabase(restored, { allowCountReduction: true })
           const reloaded = await loadDatabase()
           skipNextAutosaveRef.current = true
           skipNextHeavySyncRef.current = true
