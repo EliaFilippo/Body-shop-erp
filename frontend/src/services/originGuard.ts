@@ -23,7 +23,7 @@ function isAllowedDevOrigin(origin: string) {
     const parsed = new URL(origin)
     if (parsed.protocol !== 'http:') return false
     const port = Number(parsed.port)
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return false
+    if (port !== 5173) return false
     const host = parsed.hostname.toLowerCase()
     if (host === 'localhost' || host === '127.0.0.1') return true
     return isPrivateIpv4Host(host)

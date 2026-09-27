@@ -1746,12 +1746,12 @@ function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, o
           <div className="panel-head"><div><span className="eyebrow">CLIENTE</span><h3>Cliente</h3></div>{currentCustomer && !customerEditing && <button className="secondary" onClick={() => setCustomerEditing(true)}>Verifica / modifica dati cliente</button>}</div>
           <input id={CUSTOMER_DOCUMENT_INPUT_ID} ref={customerDocumentInputRef} aria-label="Carica documento cliente" type="file" accept="image/*" capture="environment" onChange={handleCustomerDocumentChange} style={{ display: 'none' }} />
           {!customerEditing && !currentCustomer ? <div className="planner-actions acceptance-quick-actions">
-            <label htmlFor={CUSTOMER_DOCUMENT_INPUT_ID} className="primary">Acquisisci documento</label>
+            <button type="button" className="primary" onClick={() => customerDocumentInputRef.current?.click()}>Acquisisci documento</button>
             <button type="button" className="secondary" onClick={() => setCustomerEditing(true)}>Cliente esistente</button>
             <button type="button" className="secondary" onClick={openCustomerManualEntry}>Inserisci manualmente</button>
           </div> : customerEditing ? <>
             <div className="planner-actions acceptance-quick-actions">
-              <label htmlFor={CUSTOMER_DOCUMENT_INPUT_ID} className="primary">Acquisisci documento</label>
+              <button type="button" className="primary" onClick={() => customerDocumentInputRef.current?.click()}>Acquisisci documento</button>
               <button type="button" className="secondary" onClick={() => setCustomerEditing(true)}>Cliente esistente</button>
               <button type="button" className="secondary" onClick={openCustomerManualEntry}>Inserisci manualmente</button>
             </div>
@@ -2532,7 +2532,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <label>Didascalia<input value={archiveCaption} onChange={(event) => setArchiveCaption(event.target.value)} placeholder="Inserisci didascalia" /></label>
           {vehicleBookletOcrState.status !== 'idle' && <p className={`acceptance-ocr-status ${vehicleBookletOcrState.status === 'error' ? 'goal-critical' : vehicleBookletOcrState.status === 'loading' ? 'goal-gap' : vehicleBookletOcrState.status === 'success' ? 'goal-ok' : ''}`}>{vehicleBookletOcrState.message}</p>}
           <div className="preview-card"><h4>Libretto</h4>{acceptance.vehicleBooklet[0]?.dataUrl ? <img src={acceptance.vehicleBooklet[0].dataUrl} alt="Libretto" /> : <p>Carica il libretto per l'inserimento dati veicolo.</p>}</div>
-          <div className="preview-card ocr-document-review-card"><h4>Conferma dati vettura</h4><div className="ocr-field-grid">{bookletFields.map(([field, draft]) => <label key={field}><span>{acceptanceFieldLabel(field)}</span><input value={draft.value} onChange={(event) => updateBookletField(field, event.target.value)} /><small>{acceptanceConfidenceLabel(draft.confidence)} · {acceptanceSourceLabel(draft.source)}</small></label>)}</div><div className="ocr-document-actions"><button type="button" className="primary" onClick={confirmVehicleBookletFields}>Conferma dati vettura</button></div></div>
+          <div className="preview-card ocr-document-review-card"><h4>Conferma dati libretto</h4><div className="ocr-field-grid">{bookletFields.map(([field, draft]) => <label key={field}><span>{acceptanceFieldLabel(field)}</span><input value={draft.value} onChange={(event) => updateBookletField(field, event.target.value)} /><small>{acceptanceConfidenceLabel(draft.confidence)} · {acceptanceSourceLabel(draft.source)}</small></label>)}</div><div className="ocr-document-actions"><button type="button" className="primary" onClick={confirmVehicleBookletFields}>Conferma dati vettura</button></div></div>
           <div className="preview-card"><h4>Accessori confermati</h4>{(intake.accessories ?? []).length ? <ul className="accessory-confirmed-list">{(intake.accessories ?? []).map((accessory) => <li key={accessory}>{accessory}</li>)}</ul> : <p>Nessun accessorio confermato.</p>}</div>
           <div className="photo-list">{(acceptance.photos ?? []).map((photo) => <div className="photo-item" key={photo.id}><img src={photo.dataUrl} alt={photo.name} /><div><strong>{photo.name}</strong><small>{photo.category} · {photo.caption || 'Nessuna didascalia'}</small></div><button type="button" className="danger" onClick={() => removePhotoEntry(photo.id)}>Elimina</button></div>)}</div>
         </div>}
@@ -2592,5 +2592,3 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
 
 function Empty({ text }: { text: string }) { return <div className="empty"><div>◇</div><p>{text}</p></div> }
 export default App
-
-

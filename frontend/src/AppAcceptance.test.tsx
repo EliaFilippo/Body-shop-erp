@@ -23,6 +23,43 @@ vi.mock('./services/documentImagePreprocess', () => ({
   })),
 }))
 
+vi.mock('./services/documentCapture', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./services/documentCapture')>()
+  return {
+    ...actual,
+    analyzeDocumentCapture: async (file: File) => ({
+      originalFile: file,
+      originalDataUrl: 'data:image/jpeg;base64,b3JpZ2luYWw=',
+      width: 1600,
+      height: 1000,
+      detectedCorners: [
+        { x: 50, y: 50 },
+        { x: 1550, y: 50 },
+        { x: 1550, y: 950 },
+        { x: 50, y: 950 },
+      ],
+      defaultCorners: [
+        { x: 50, y: 50 },
+        { x: 1550, y: 50 },
+        { x: 1550, y: 950 },
+        { x: 50, y: 950 },
+      ],
+      quality: {
+        resolutionOk: true,
+        blurOk: true,
+        documentSizeOk: true,
+        blurScore: 200,
+        documentAreaRatio: 0.8,
+        issues: [],
+      },
+    }),
+    buildProcessedDocument: async (_dataUrl: string, _points: unknown, fileName: string) => ({
+      file: new File(['processed'], fileName, { type: 'image/jpeg' }),
+      dataUrl: 'data:image/jpeg;base64,cHJvY2Vzc2Vk',
+    }),
+  }
+})
+
 import App from './App'
 
 const makeVehicle = (): NonNullable<ErpData['vehicles']>[number] => ({
@@ -159,9 +196,13 @@ describe('Acceptance flow', () => {
       },
     })
 
-    expect(screen.getByText('Documento acquisito')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Anteprima documento cliente' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Foto e accettazione' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Verifica / modifica dati cliente' })).toBeInTheDocument()
+    })
     expect(screen.queryByPlaceholderText('Nome, telefono o email')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nuova accettazione' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Cliente esistente' }))
 
@@ -180,18 +221,12 @@ describe('Acceptance flow', () => {
       },
     })
 
-    expect(screen.getByText('Libretto acquisito')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Anteprima libretto veicolo' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Foto e accettazione' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Verifica / modifica dati vettura' })).toBeInTheDocument()
+    })
     expect(screen.queryByPlaceholderText('Targa, marca, modello o telaio')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Veicolo esistente' }))
-
-    expect(screen.getByPlaceholderText('Targa, marca, modello o telaio')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /AA123BB.*Fiat.*Panda.*Mario Rossi/i })).toBeInTheDocument()
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Inserisci manualmente' })[1])
-
-    expect(screen.getByRole('heading', { name: 'Nuova vettura' })).toBeInTheDocument()
+    expect(screen.getByText(/AA123BB.*Fiat.*Panda/i)).toBeInTheDocument()
   })
 
   it('salva una nuova vettura da Accettazione, la rilegge dal database e la collega al cliente/pratica corrente', async () => {

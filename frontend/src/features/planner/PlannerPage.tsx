@@ -519,7 +519,11 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
               const remaining = Math.max(0, vehicle.estimatedHours - vehicle.workedHours)
               return <tr className={plan?.blocked ? 'blocked-row' : ''} key={vehicle.id}>
                 <td>
-                  <button className="planner-link-button plate" onClick={() => openVehicleDetail(vehicle.id)}>{vehicle.plate}</button>
+                  <button
+                    aria-label={`Dettaglio pianificazione ${vehicle.plate}`}
+                    className="planner-link-button plate"
+                    onClick={() => openVehicleDetail(vehicle.id)}
+                  >{vehicle.plate}</button>
                   <small>{plan?.blocked ? `Bloccata: ${vehicle.blockReason || 'ricambi mancanti'}` : `${vehicle.make} ${vehicle.model}`}</small>
                   {linkedJob && <small>{linkedJob.number} · fase {workflow?.currentPhase}</small>}
                 </td>

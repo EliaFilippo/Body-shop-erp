@@ -386,7 +386,6 @@ export function normalizeAzureVehicleBookletResult(payload: AzureAnalyzeResultPa
     }
   }
 
-  const uppercaseContent = content.toUpperCase()
   const plateValue = extractRegistrationPlate(content)
   const vinValue = extractVin(content)
   const makeValue = compact(extractCodeValue(content, 'D.1') || extractLabelValue(content, ['MARCA', 'FABBRICA']))

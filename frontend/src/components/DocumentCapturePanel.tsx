@@ -43,6 +43,7 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
   const [captureError, setCaptureError] = useState('')
   const [processing, setProcessing] = useState(false)
   const [finalPreview, setFinalPreview] = useState<{ file: File; dataUrl: string } | null>(null)
+  const [originalSelected, setOriginalSelected] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const galleryInputRef = useRef<HTMLInputElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -58,6 +59,7 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
     setCaptureMessage('')
     setCaptureError('')
     setFinalPreview(null)
+    setOriginalSelected(false)
     activeHandleRef.current = null
     if (cameraInputRef.current) cameraInputRef.current.value = ''
     if (galleryInputRef.current) galleryInputRef.current.value = ''
@@ -85,6 +87,7 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
 
       const processed = await buildProcessedDocument(analyzed.originalDataUrl, analyzed.defaultCorners, analyzed.originalFile.name)
       setFinalPreview(processed)
+      setOriginalSelected(false)
       setCaptureMessage('Documento acquisito. Controlla l\'anteprima prima della lettura OCR.')
     } catch {
       setCaptureError('Acquisizione non riuscita. Riprova con una foto piu nitida.')
@@ -140,6 +143,7 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
       const points = normalizedToPoints(corners, capture.width, capture.height)
       const processed = await buildProcessedDocument(capture.originalDataUrl, points, capture.originalFile.name)
       setFinalPreview(processed)
+      setOriginalSelected(false)
       setCaptureMessage('Documento pronto per la lettura OCR.')
       setManualMode(false)
     } catch {
@@ -149,13 +153,35 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
     }
   }
 
-  const restoreAutomaticCrop = () => {
-    if (!autoCorners) return
-    setCorners(autoCorners)
-    setManualMode(true)
+  const applyAutomaticCrop = async () => {
+    if (!capture || !autoCorners) return
+    setProcessing(true)
+    setCaptureError('')
+    try {
+      setCorners(autoCorners)
+      const points = normalizedToPoints(autoCorners, capture.width, capture.height)
+      const processed = await buildProcessedDocument(capture.originalDataUrl, points, capture.originalFile.name)
+      setFinalPreview(processed)
+      setOriginalSelected(false)
+      setCaptureMessage('Ritaglio automatico applicato. Avvio lettura OCR...')
+      onReadDocument(processed.file, processed.dataUrl)
+    } catch {
+      setCaptureError('Impossibile applicare il ritaglio automatico. Usa la foto originale o regola gli angoli.')
+    } finally {
+      setProcessing(false)
+    }
   }
 
-  const canRead = Boolean(finalPreview && capture && !capture.quality.issues.length)
+  const useOriginalPhoto = () => {
+    if (!capture) return
+    setFinalPreview({ file: capture.originalFile, dataUrl: capture.originalDataUrl })
+    setOriginalSelected(true)
+    setCaptureError('')
+    setCaptureMessage('Foto originale selezionata. Avvio lettura OCR...')
+    onReadDocument(capture.originalFile, capture.originalDataUrl)
+  }
+
+  const canRead = Boolean(finalPreview && capture && (originalSelected || !capture.quality.issues.length))
 
   return <section className="document-capture-panel">
     <h4>Acquisisci documento</h4>
@@ -166,7 +192,7 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
         <button type="button" className="secondary" disabled={disabled || processing} onClick={() => galleryInputRef.current?.click()}>Carica dalla galleria</button>
       </div>
       <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleSelectedFile} style={{ display: 'none' }} />
-      <input ref={galleryInputRef} type="file" accept="image/*" onChange={handleSelectedFile} style={{ display: 'none' }} />
+      <input ref={galleryInputRef} aria-label="Documento identita" type="file" accept="image/*" onChange={handleSelectedFile} style={{ display: 'none' }} />
     </div>}
 
     {capture && <div className="document-capture-workflow">
@@ -197,7 +223,8 @@ export function DocumentCapturePanel({ onReadDocument, disabled = false }: Docum
 
       <div className="document-capture-actions wide">
         <button type="button" className="secondary" disabled={disabled || processing} onClick={() => setManualMode((current) => !current)}>Regola ritaglio manualmente</button>
-        <button type="button" className="secondary" disabled={disabled || processing || !autoCorners} onClick={restoreAutomaticCrop}>Usa ritaglio automatico</button>
+        <button type="button" className="secondary" disabled={disabled || processing || !autoCorners} onClick={() => void applyAutomaticCrop()}>Usa ritaglio automatico</button>
+        <button type="button" className="secondary" disabled={disabled || processing} onClick={useOriginalPhoto}>Usa foto originale</button>
         <button type="button" className="secondary" disabled={disabled || processing} onClick={resetAll}>Rifai foto</button>
       </div>
 
