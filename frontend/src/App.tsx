@@ -33,7 +33,7 @@ import { DEFAULT_WEEKLY_WORK_SCHEDULE, intervalsToText, normalizeWeeklyWorkSched
 import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from './services/originGuard'
 import { backupFilename, parseBackup, serializeBackup } from './services/backup'
 import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, upsertAppUser } from './services/accessControl'
-import { bootstrapCloudCompany, getCloudAuthConfig, signInWithPassword, signOutCloud, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
+import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
 import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
@@ -143,6 +143,50 @@ function CloudLoginScreen({ config, onAuthenticated }: { config: CloudAuthConfig
         {loginError && <div className="cloud-login-error" role="alert">{loginError}</div>}
         <button className="primary" type="submit" disabled={submitting}>{submitting ? 'Accesso in corso…' : 'Accedi'}</button>
       </form>
+    </section>
+  </main>
+}
+
+function CloudPasswordRecoveryScreen({ config, accessToken, onComplete }: { config: CloudAuthConfig; accessToken: string; onComplete: () => void }) {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [recoveryError, setRecoveryError] = useState('')
+  const [completed, setCompleted] = useState(false)
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setRecoveryError('')
+    if (password !== confirmation) {
+      setRecoveryError('Le due password non coincidono.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await updateCloudPassword(accessToken, password, config)
+      setPassword('')
+      setConfirmation('')
+      setCompleted(true)
+    } catch (problem) {
+      setRecoveryError(problem instanceof Error ? problem.message : 'Impossibile aggiornare la password.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return <main className="cloud-login-shell">
+    <section className="cloud-login-card">
+      <div className="brand cloud-login-brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
+      <span className="eyebrow">RECUPERO ACCESSO</span>
+      <h1>{completed ? 'Password aggiornata' : 'Scegli una nuova password'}</h1>
+      {completed
+        ? <><p>La nuova password è attiva. Ora puoi accedere al gestionale.</p><button className="primary" type="button" onClick={onComplete}>Vai all’accesso</button></>
+        : <form onSubmit={submit} className="cloud-login-form">
+          <label>Nuova password<input type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+          <label>Ripeti password<input type="password" autoComplete="new-password" minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>
+          {recoveryError && <div className="cloud-login-error" role="alert">{recoveryError}</div>}
+          <button className="primary" type="submit" disabled={submitting}>{submitting ? 'Aggiornamento…' : 'Salva nuova password'}</button>
+        </form>}
     </section>
   </main>
 }
@@ -567,6 +611,7 @@ function UsersSettingsPage({ data, onChange, setNotice, setError }: { data: ErpD
 function App() {
   const blockedByOrigin = isFileOrigin()
   const cloudConfig = useMemo(() => getCloudAuthConfig(), [])
+  const [recoveryAccessToken, setRecoveryAccessToken] = useState<string | null>(() => getRecoveryAccessToken())
   const [cloudSession, setCloudSession] = useState<CloudAuthSession | null>(() => cloudConfig ? readCloudSession() : null)
   const [cloudMembership, setCloudMembership] = useState<CloudCompanyMembership | null>(null)
   const [data, setData] = useState<ErpData>(emptyData)
@@ -836,6 +881,12 @@ function App() {
   }
   if (blockedByOrigin) {
     return <main className="origin-blocked"><h1>{ORIGIN_BLOCK_MESSAGE}</h1></main>
+  }
+  if (cloudConfig && recoveryAccessToken) {
+    return <CloudPasswordRecoveryScreen config={cloudConfig} accessToken={recoveryAccessToken} onComplete={() => {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+      setRecoveryAccessToken(null)
+    }} />
   }
   if (cloudConfig && !cloudSession) {
     return <CloudLoginScreen config={cloudConfig} onAuthenticated={(session, membership) => { setCloudSession(session); setCloudMembership(membership) }} />
