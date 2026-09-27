@@ -4,6 +4,8 @@ export type UserRole = 'owner' | 'office' | 'production'
 export interface AppUser {
   id: string
   displayName: string
+  email?: string
+  authUserId?: string | null
   role: UserRole
   active: boolean
   operatorId?: string | null
