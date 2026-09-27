@@ -31,7 +31,7 @@ describe('accettazione preventiva', () => {
     const summary = buildAcceptanceQuoteSummary(quote)
     expect(summary.materials.total).toBe(7500)
     expect(summary.total).toBeCloseTo(54900)
-    expect(summary.marginPercent).toBeCloseTo(18.03)
+    expect(summary.marginPercent).toBe(0)
   })
 
   it('genera una pratica di accettazione digitale con checklist e dati di ingresso', () => {
@@ -55,7 +55,7 @@ describe('accettazione preventiva', () => {
     const toggled = toggleAcceptanceChecklistItem(draft, firstItem!.id)
     expect(toggled.intake?.checklist[0].checked).toBe(true)
 
-    const photo = createPhotoArchiveEntry('acc-1', 'veh-1', 'ingresso', 'foto.jpg', 'data:image/jpeg;base64,abc', 'Foto ingresso')
+    const photo = createPhotoArchiveEntry('acc-1', 'veh-1', 'danni', 'foto.jpg', 'data:image/jpeg;base64,abc', 'Foto danni')
     const withPhoto = appendAcceptancePhotoEntry(draft, photo)
     expect(withPhoto.photos).toHaveLength(1)
     expect(withPhoto.damagePhotos).toContain(photo.dataUrl)

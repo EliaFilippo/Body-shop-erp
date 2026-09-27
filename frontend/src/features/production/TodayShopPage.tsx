@@ -6,12 +6,15 @@ import {
   defaultProductionIdentity,
   markVehicleReady,
   openProductionReports,
+  paceStateByVehicle,
   resolveVehicleBlock,
   signalVehicleBlock,
   startVehiclePhase,
   timerMinutesByVehicleAndPhase,
 } from './production'
-import type { Customer, ErpData, ProductionReportType } from '../../types'
+import { isVehicleWaitingForCone } from '../../services/erp'
+import { workflowOperationalSnapshot } from '../../services/workflow'
+import type { Customer, ErpData, ProductionReportType, VehicleStatus } from '../../types'
 
 const dateTime = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
 const humanDuration = (minutes: number) => {
@@ -22,9 +25,15 @@ const humanDuration = (minutes: number) => {
   return `${hours} h ${String(rest).padStart(2, '0')} min`
 }
 
+const coneLabel = (coneNumber: number | null | undefined, status?: string) => {
+  if (coneNumber != null) return String(coneNumber)
+  if (!status) return '—'
+  return isVehicleWaitingForCone({ coneNumber: null, status: status as VehicleStatus }) ? 'In attesa cono (Nessun cono disponibile)' : '—'
+}
+
 const REPORT_OPTIONS: ProductionReportType[] = ['ricambio mancante', 'problema tecnico', 'lavorazione aggiuntiva', 'danno non previsto', 'richiesta all\'ufficio', 'altro']
 
-export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicles, onOpenPractice, onChange, setNotice, setError }: {
+export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicles, onOpenPractice, onChange, setNotice, setError, onUpdateVehicleStatus, statusOptions, statusLabel }: {
   data: ErpData
   customerById: (id: string) => Customer | undefined
   onOpenPlanner: () => void
@@ -33,6 +42,9 @@ export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicle
   onChange: (next: ErpData) => void
   setNotice: (value: string) => void
   setError: (value: string) => void
+  onUpdateVehicleStatus: (vehicleId: string, status: string) => void
+  statusOptions: Array<{ id: string; label: string }>
+  statusLabel: (status: string) => string
 }) {
   const snapshot = buildTodayInShopSnapshot(data)
   const reports = openProductionReports(data)
@@ -46,10 +58,13 @@ export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicle
     return jobs.map((job) => {
       const vehicle = data.vehicles.find((item) => item.id === job.vehicleId)
       const customer = vehicle ? customerById(vehicle.customerId) : undefined
+      const workflowJob = (data.jobs ?? []).find((item) => item.vehicleId === job.vehicleId && item.status !== 'Annullata')
+      const workflow = workflowJob ? workflowOperationalSnapshot(workflowJob) : null
       const activeLog = activeWorkLogForVehicle(data, job.vehicleId)
       const openForVehicle = reports.filter((report) => report.vehicleId === job.vehicleId)
       const elapsed = timerMinutesByVehicleAndPhase(data, job.vehicleId, job.phase)
-      return { job, vehicle, customer, activeLog, openForVehicle, elapsed }
+      const pace = paceStateByVehicle(data, job.vehicleId)
+      return { job, vehicle, customer, workflowJob, workflow, activeLog, openForVehicle, elapsed, pace }
     }).filter((row) => row.vehicle)
   }, [data, reports, customerById])
 
@@ -123,17 +138,23 @@ export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicle
       <div className="panel-head"><div><span className="eyebrow">GESTIONE RAPIDA</span><h3>Pratiche operative</h3></div></div>
       <div className="today-ops-grid">{rows.map((row) => {
         const blocked = row.openForVehicle.length > 0
-        const operatorLabel = row.activeLog?.operatorName || row.openForVehicle[0]?.operatorName || '—'
+        const operatorLabel = row.workflow?.lastOperator || row.activeLog?.operatorName || row.openForVehicle[0]?.operatorName || '—'
         const elapsedLabel = row.activeLog ? humanDuration(row.elapsed) : row.elapsed ? `${row.elapsed} min registrati` : 'Nessun tempo registrato'
+        const activeOperatorsLabel = row.workflow?.activeOperators?.length ? row.workflow.activeOperators.join(', ') : 'Nessuno'
+        const paceLabel = row.pace?.level ?? 'IN ORARIO'
+        const phasePanelNotes = Array.from(new Set((row.workflowJob?.lines ?? [])
+          .filter((line) => String(line.categoryOrPhase ?? '').trim().toLowerCase() === String(row.job.phase ?? '').trim().toLowerCase())
+          .map((line) => String(line.panelWorkNote ?? '').trim())
+          .filter(Boolean)))
         return <article className={selected?.job.vehicleId === row.job.vehicleId ? 'today-vehicle-card active' : 'today-vehicle-card'} key={row.job.vehicleId} onClick={() => setSelectedVehicleId(row.job.vehicleId)}>
           <div className="today-vehicle-head"><strong>{row.vehicle?.plate}</strong><span>{row.customer?.name || 'Cliente'}</span></div>
-          <div className="today-vehicle-info"><small>Cono: {row.vehicle?.coneNumber ?? '—'}</small><small>Fase: {row.job.phase}</small><small>Operatore: {operatorLabel}</small><small>Tempo: {elapsedLabel}</small><small>Consegna prevista: {row.job.promisedAt || 'Non definita'}</small><small>Motivo segnalazione: {row.openForVehicle[0]?.note || row.vehicle?.blockReason || 'Nessuno'}</small></div>
+          <div className="today-vehicle-info"><small>Commessa: {row.workflowJob?.number || '—'}</small><small>Cono: {coneLabel(row.vehicle?.coneNumber, row.vehicle?.status)}</small><small>Stato vettura: {row.vehicle ? <select value={row.vehicle.status} onChange={(event) => { event.stopPropagation(); onUpdateVehicleStatus(row.vehicle!.id, event.target.value) }}>{(statusOptions.some((status) => status.id === row.vehicle!.status) ? statusOptions : [...statusOptions, { id: row.vehicle!.status, label: statusLabel(row.vehicle!.status) }]).map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select> : '—'}</small><small>Fase corrente: {row.workflow?.currentPhase || row.job.phase}</small><small>Avanzamento: {row.workflow?.progressPercent ?? 0}%</small><small>Ultima fase completata: {row.workflow?.lastCompletedPhase || '—'}</small><small>Prossima fase: {row.workflow?.nextPhase || '—'}</small><small>Operatori attivi: {activeOperatorsLabel}</small><small>Operatori coinvolti fase: {row.workflow?.operatorCount ?? 0}</small><small>Durata lavorazione fase: {humanDuration(row.workflow?.phaseDurationMinutes ?? 0)}</small><small>Ore uomo fase: {humanDuration(row.workflow?.manHoursMinutes ?? 0)}</small><small>Operatore ultimo aggiornamento: {operatorLabel}</small><small>Tempo: {elapsedLabel}</small><small>Consegna prevista: {row.job.promisedAt || 'Non definita'}</small><small>Motivo segnalazione: {row.openForVehicle[0]?.note || row.vehicle?.blockReason || 'Nessuno'}</small><small>Stato tabella di marcia: {paceLabel}</small><small>Note pannello fase: {phasePanelNotes.join(' | ') || 'Nessuna'}</small></div>
           <div className="today-actions">
             <button className="primary" onClick={() => quickStart(row.job.vehicleId)}>Avvia fase</button>
             <button className="secondary" onClick={() => quickComplete(row.job.vehicleId)} disabled={row.job.phase === 'Pronta'}>Completa fase</button>
             <button className="secondary" onClick={() => quickReady(row.job.vehicleId)} disabled={row.job.phase === 'Pronta'}>Pronta per consegna</button>
             <button className="secondary" onClick={() => onOpenPractice(row.vehicle?.plate || '')}>Apri pratica</button>
-            <span className={blocked ? 'tag' : 'tag ok'}>{blocked ? `${row.openForVehicle.length} blocchi` : 'Nessun blocco'}</span>
+            <span className={paceLabel === 'IN RITARDO' ? 'tag late' : paceLabel === 'A RISCHIO' ? 'tag warning' : blocked ? 'tag' : 'tag ok'}>{paceLabel === 'IN RITARDO' ? 'IN RITARDO' : paceLabel === 'A RISCHIO' ? 'A RISCHIO' : blocked ? `${row.openForVehicle.length} blocchi` : 'IN ORARIO'}</span>
           </div>
         </article>
       })}</div>
@@ -151,10 +172,10 @@ export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicle
 
     <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">SEGNALAZIONI PRODUZIONE</span><h3>Gestione e risoluzione</h3></div></div>
-      <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Cono</th><th>Fase</th><th>Operatore</th><th>Tempo</th><th>Consegna</th><th>Motivo</th><th>Azione</th></tr></thead><tbody>{reports.map((report) => {
+      <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Cono</th><th>Stato vettura</th><th>Fase</th><th>Operatore</th><th>Tempo</th><th>Consegna</th><th>Motivo</th><th>Azione</th></tr></thead><tbody>{reports.map((report) => {
         const row = rows.find((item) => item.job.vehicleId === report.vehicleId)
         const elapsed = row ? humanDuration(row.elapsed) : '—'
-        return <tr key={report.id}><td><strong>{row?.vehicle?.plate || 'Vettura'}</strong></td><td>{row?.customer?.name || 'Cliente'}</td><td>{row?.vehicle?.coneNumber ?? '—'}</td><td>{row?.job.phase || '—'}</td><td>{report.operatorName}</td><td>{elapsed}</td><td>{row?.job.promisedAt || 'Non definita'}</td><td><strong>{report.type}</strong><small>{report.note}</small><small>{dateTime(report.createdAt)}</small></td><td><button className="primary" onClick={() => quickResolve(report.id)}>Risolvi blocco</button></td></tr>
+        return <tr key={report.id}><td><strong>{row?.vehicle?.plate || 'Vettura'}</strong></td><td>{row?.customer?.name || 'Cliente'}</td><td>{coneLabel(row?.vehicle?.coneNumber, row?.vehicle?.status)}</td><td>{row?.vehicle ? <select value={row.vehicle.status} onChange={(event) => onUpdateVehicleStatus(row.vehicle!.id, event.target.value)}>{(statusOptions.some((status) => status.id === row.vehicle!.status) ? statusOptions : [...statusOptions, { id: row.vehicle!.status, label: statusLabel(row.vehicle!.status) }]).map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select> : '—'}</td><td>{row?.job.phase || '—'}</td><td>{report.operatorName}</td><td>{elapsed}</td><td>{row?.job.promisedAt || 'Non definita'}</td><td><strong>{report.type}</strong><small>{report.note}</small><small>{dateTime(report.createdAt)}</small></td><td><button className="primary" onClick={() => quickResolve(report.id)}>Risolvi blocco</button></td></tr>
       })}</tbody></table></div>
       {!reports.length && <div className="empty">Nessuna segnalazione aperta.</div>}
     </section>

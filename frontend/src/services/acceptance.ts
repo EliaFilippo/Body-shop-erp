@@ -6,7 +6,10 @@ import type {
   AcceptancePhotoEntry,
   AcceptanceQuote,
   CustomerDocumentDraft,
+  IdentityDocumentOcrResponse,
+  OcrConfidence,
   PlannerSettings,
+  VehicleBookletOcrResponse,
   VehicleBookletDraft,
 } from '../types'
 
@@ -90,9 +93,16 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
   const taxableAmount = round(laborTotal + partsTotal + materialsTotal + externalTotal + otherTotal + surchargeTotal - discountTotal)
   const vatAmount = round(taxableAmount * quote.appliedVatRate / 100)
   const total = round(taxableAmount + vatAmount)
-  const costLive = round(laborTotal + partsTotal + materialsTotal + externalTotal + otherTotal)
-  const marginEuro = round(total - costLive)
-  const marginPercent = total ? round((marginEuro / total) * 100) : 0
+  const directCost = (kind: AcceptanceLine['kind']) =>
+    quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * Math.max(0, line.unitCost), 0)
+  const laborCost = directCost('labor')
+  const partsCost = directCost('parts')
+  const materialsCost = directCost('consumption')
+  const externalCost = directCost('external')
+  const otherCost = directCost('other')
+  const costLive = round(laborCost + partsCost + materialsCost + externalCost + otherCost)
+  const marginEuro = round(taxableAmount - costLive)
+  const marginPercent = taxableAmount ? round((marginEuro / taxableAmount) * 100) : 0
   return {
     labor: { total: laborTotal, lines: laborLines(quote).length },
     parts: { total: partsTotal, lines: quote.lines.filter((line) => line.kind === 'parts').length },
@@ -165,6 +175,100 @@ export function createEmptyBookletDraft(): VehicleBookletDraft[] {
   ]
 }
 
+const documentIdentityFieldMap: Record<keyof IdentityDocumentOcrResponse['fields'], keyof CustomerDocumentDraft['fields']> = {
+  firstName: 'name',
+  lastName: 'surname',
+  taxCode: 'taxId',
+  birthDate: 'birthDate',
+  birthPlace: 'birthPlace',
+  residence: 'residence',
+  documentNumber: 'documentNumber',
+  issueDate: 'issueDate',
+  expiryDate: 'expiryDate',
+  issuingAuthority: 'issuingAuthority',
+}
+
+export function confidenceScoreToDraftLevel(confidence: number | null): OcrConfidence {
+  if (confidence === null || confidence < 0.5) return 'low'
+  if (confidence < 0.8) return 'medium'
+  return 'high'
+}
+
+export function mergeCustomerDocumentDraftWithOcr(
+  draft: CustomerDocumentDraft,
+  ocr: IdentityDocumentOcrResponse,
+): CustomerDocumentDraft {
+  const nextFields = { ...draft.fields }
+
+  for (const sourceField of Object.keys(documentIdentityFieldMap) as Array<keyof IdentityDocumentOcrResponse['fields']>) {
+    const targetField = documentIdentityFieldMap[sourceField]
+    const currentField = nextFields[targetField]
+    const recognizedField = ocr.fields[sourceField]
+    const nextValue = recognizedField.value.trim()
+    const nextConfidence = confidenceScoreToDraftLevel(recognizedField.confidence)
+
+    if (nextValue && (currentField.source !== 'manual' || !currentField.value.trim())) {
+      nextFields[targetField] = {
+        ...currentField,
+        value: nextValue,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+      continue
+    }
+
+    if (!currentField.value.trim() && recognizedField.source === 'azure') {
+      nextFields[targetField] = {
+        ...currentField,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+    }
+  }
+
+  return {
+    ...draft,
+    fields: nextFields,
+  }
+}
+
+export function mergeVehicleBookletDraftWithOcr(
+  draft: VehicleBookletDraft,
+  ocr: VehicleBookletOcrResponse,
+): VehicleBookletDraft {
+  const nextFields = { ...draft.fields }
+
+  for (const field of Object.keys(nextFields) as Array<keyof VehicleBookletDraft['fields']>) {
+    const currentField = nextFields[field]
+    const recognizedField = ocr.fields[field]
+    const nextValue = String(recognizedField?.value ?? '').trim()
+    const nextConfidence = confidenceScoreToDraftLevel(recognizedField?.confidence ?? null)
+
+    if (nextValue && (currentField.source !== 'manual' || !currentField.value.trim())) {
+      nextFields[field] = {
+        ...currentField,
+        value: nextValue,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+      continue
+    }
+
+    if (!currentField.value.trim() && recognizedField?.source === 'azure') {
+      nextFields[field] = {
+        ...currentField,
+        confidence: nextConfidence,
+        source: 'azure',
+      }
+    }
+  }
+
+  return {
+    ...draft,
+    fields: nextFields,
+  }
+}
+
 function createChecklist(): AcceptanceChecklistItem[] {
   return [
     { id: crypto.randomUUID(), label: 'Danni registrati', checked: false },
@@ -188,6 +292,17 @@ export function createAcceptanceDraft(
     operator: '',
     damageDescription: '',
     accessories: [],
+    accessoriesDraft: {
+      keyCount: '',
+      hasRegistrationCard: false,
+      hasSpareWheelKit: false,
+      hasTriangle: false,
+      hasSafetyVest: false,
+      hasFloorMats: false,
+      hasPersonalItems: false,
+      otherNotes: '',
+      confirmed: false,
+    },
     customerNotes: '',
     checklist: createChecklist(),
     signatureDataUrl: '',
@@ -247,7 +362,9 @@ export function appendAcceptancePhotoEntry(acceptance: AcceptanceCase, photo: Ac
   return {
     ...acceptance,
     photos: nextPhotos,
-    damagePhotos: [...new Set([...(acceptance.damagePhotos ?? []), photo.dataUrl])],
+    damagePhotos: photo.category === 'danni'
+      ? [...new Set([...(acceptance.damagePhotos ?? []), photo.dataUrl])]
+      : [...(acceptance.damagePhotos ?? [])],
     updatedAt: new Date().toISOString(),
   }
 }

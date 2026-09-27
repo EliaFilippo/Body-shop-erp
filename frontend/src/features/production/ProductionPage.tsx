@@ -1,7 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import '../../App.css'
 import { loadDatabase, saveDatabase } from '../../services/database'
+import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from '../../services/originGuard'
+import { changeVehicleStatus } from '../../services/erp'
+import { nextTaskForOperator, recalculateOperatorPrograms, todayKey } from '../../services/planner'
 import type { ErpData, ProductionOperatorIdentity, ProductionPhase, ProductionReportType } from '../../types'
+import { listSelectableVehicleStatuses, resolveVehicleStatusId } from '../../services/vehicleStatuses'
 import {
   PRODUCTION_PHASES,
   PRODUCTION_REPORT_TYPES,
@@ -11,8 +15,10 @@ import {
   moveProductionPhase,
   openProductionReports,
   pauseProductionTimer,
+  paceStateByVehicle,
   reportProductionIssue,
   resumeProductionTimer,
+  runProductionDelayControl,
   startProductionTimer,
   stopProductionTimer,
   syncProductionJobsFromVehicles,
@@ -22,6 +28,7 @@ import {
 
 const prettyDateTime = (value: string) =>
   new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
+const hhmm = (value: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(value))
 
 interface TabletState {
   data: ErpData
@@ -29,6 +36,7 @@ interface TabletState {
 }
 
 export function ProductionPage() {
+  const blockedByOrigin = isFileOrigin()
   const [state, setState] = useState<TabletState | null>(null)
   const [query, setQuery] = useState('')
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
@@ -36,23 +44,59 @@ export function ProductionPage() {
   const [reportType, setReportType] = useState<ProductionReportType>('richiesta all\'ufficio')
   const [photoDataUrl, setPhotoDataUrl] = useState('')
   const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    void loadDatabase().then((loaded) => {
-      const synced = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(loaded))
-      const identity = defaultProductionIdentity(synced)
-      setState({ data: synced, identity })
-      void saveDatabase(synced)
-    })
+    if (blockedByOrigin) {
+      tryRedirectFromFileOrigin()
+    }
+  }, [blockedByOrigin])
+
+  useEffect(() => {
+    void loadDatabase()
+      .then((loaded) => {
+        const synced = runProductionDelayControl(
+          recalculateOperatorPrograms(syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(loaded)), todayKey(), 'Ricalcolo automatico tablet'),
+          'Controllo tempi in apertura tablet',
+        )
+        const identity = defaultProductionIdentity(synced)
+        setState({ data: synced, identity })
+        void saveDatabase(synced).catch((problem) => setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.'))
+      })
+      .catch((problem) => setError(problem instanceof Error ? problem.message : 'Impossibile caricare il database.'))
+  }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setState((current) => {
+        if (!current) return current
+        const hasRunning = (current.data.production?.workLogs ?? []).some((log) => log.status === 'running')
+        if (!hasRunning) return current
+        const nextData = runProductionDelayControl(current.data, 'Controllo tempi periodico tablet')
+        if (JSON.stringify(nextData.production?.paceStates ?? []) === JSON.stringify(current.data.production?.paceStates ?? [])) {
+          return current
+        }
+        void saveDatabase(nextData).catch((problem) => setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.'))
+        return { ...current, data: nextData }
+      })
+    }, 30_000)
+    return () => clearInterval(timer)
   }, [])
 
   const persist = (nextData: ErpData) => {
-    const synced = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(nextData))
+    const synced = runProductionDelayControl(
+      recalculateOperatorPrograms(syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(nextData)), todayKey(), 'Ricalcolo automatico tablet'),
+      'Controllo tempi dopo operazione tablet',
+    )
     setState((current) => {
       const identity = current?.identity ?? defaultProductionIdentity(synced)
       return { data: synced, identity }
     })
-    void saveDatabase(synced)
+    void saveDatabase(synced).catch((problem) => setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.'))
+  }
+
+  if (blockedByOrigin) {
+    return <main className="origin-blocked"><h1>{ORIGIN_BLOCK_MESSAGE}</h1></main>
   }
 
   if (!state) {
@@ -60,6 +104,7 @@ export function ProductionPage() {
   }
 
   const { data, identity } = state
+  const statusOptions = listSelectableVehicleStatuses(data.plannerSettings)
   const jobs = data.production?.jobs ?? []
   const reports = openProductionReports(data)
   const snapshot = buildTodayInShopSnapshot(data)
@@ -67,7 +112,8 @@ export function ProductionPage() {
     .map((job) => {
       const vehicle = data.vehicles.find((item) => item.id === job.vehicleId)
       const customer = vehicle ? data.customers.find((item) => item.id === vehicle.customerId) : undefined
-      return { job, vehicle, customer }
+      const workflowJob = (data.jobs ?? []).find((item) => item.vehicleId === job.vehicleId && item.status !== 'Annullata')
+      return { job, vehicle, customer, workflowJob }
     })
     .filter((row) => row.vehicle)
     .filter((row) => {
@@ -76,7 +122,20 @@ export function ProductionPage() {
     })
 
   const selected = rows.find((row) => row.job.vehicleId === selectedVehicleId) ?? rows[0]
-
+  const selectedPhasePanelNotes = Array.from(new Set((selected?.workflowJob?.lines ?? [])
+    .filter((line) => String(line.categoryOrPhase ?? '').trim().toLowerCase() === String(selected?.job.phase ?? '').trim().toLowerCase())
+    .map((line) => String(line.panelWorkNote ?? '').trim())
+    .filter(Boolean)))
+  const selectedPhasePanels = Array.from(new Set((selected?.workflowJob?.lines ?? [])
+    .filter((line) => String(line.categoryOrPhase ?? '').trim().toLowerCase() === String(selected?.job.phase ?? '').trim().toLowerCase())
+    .map((line) => String(line.panelName ?? '').trim())
+    .filter(Boolean)))
+  const assignedProgram = (data.operatorPrograms ?? []).find((program) => program.date === todayKey() && program.operatorId === identity.operatorId)
+  const nextTask = nextTaskForOperator(data, identity.operatorId)
+  const selectedPace = selected ? paceStateByVehicle(data, selected.job.vehicleId) : null
+  const latePace = rows
+    .map((row) => paceStateByVehicle(data, row.job.vehicleId))
+    .find((item) => item?.level === 'IN RITARDO')
   const stepPhase = (vehicleId: string, currentPhase: ProductionPhase, direction: -1 | 1) => {
     const index = PRODUCTION_PHASES.indexOf(currentPhase)
     const next = PRODUCTION_PHASES[index + direction]
@@ -154,6 +213,8 @@ export function ProductionPage() {
     </section>
 
     {notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
+    {error && <div className="toast error">{error}<button onClick={() => setError('')}>×</button></div>}
+    {latePace && <section className="delay-banner"><h2>LAVORAZIONE IN RITARDO</h2><p>{latePace.phaseName} - {data.vehicles.find((vehicle) => vehicle.id === latePace.vehicleId)?.plate || 'Vettura'}</p><p>Previsto: {Math.round(latePace.estimatedMinutes / 60)} h</p><p>Effettivo: {Math.floor(latePace.workedMinutes / 60)} h {latePace.workedMinutes % 60} min</p><p>Ritardo: +{Math.max(0, latePace.workedMinutes - latePace.estimatedMinutes)} min</p></section>}
 
     <section className="tablet-kpis">
       <article><span>Segnalazioni aperte</span><strong>{snapshot.alertsOpen}</strong></article>
@@ -166,6 +227,13 @@ export function ProductionPage() {
 
     <section className="tablet-search">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca targa, modello, cliente" />
+    </section>
+
+    <section className="panel table-panel">
+      <div className="panel-head"><div><span className="eyebrow">PROGRAMMA OPERATORE</span><h3>{identity.operatorName}</h3></div><button className="secondary" onClick={() => persist(recalculateOperatorPrograms(data, todayKey(), 'Ricalcolo piano manuale da tablet'))}>Ricalcola piano</button></div>
+      <div className="table-wrap"><table><thead><tr><th>Orario</th><th>Commessa</th><th>Fase</th><th>Vettura</th><th>Durata</th><th>Pannelli / note</th><th>Motivo</th></tr></thead><tbody>{(assignedProgram?.tasks ?? []).map((task) => <tr key={task.id}><td>{hhmm(task.startAt)}-{hhmm(task.endAt)}</td><td>{task.jobNumber}</td><td>{task.phaseName}</td><td>{task.plate}</td><td>{task.plannedMinutes} min</td><td><small>{task.panelNames?.join(', ') || '—'}</small><small>{task.panelNotes?.join(' | ') || 'Nessuna nota pannello'}</small></td><td>{task.reason}</td></tr>)}</tbody></table></div>
+      {!(assignedProgram?.tasks ?? []).length && <div className="empty">Nessuna attivita assegnata per oggi.</div>}
+      {nextTask && <div className="toast success">Prossima attivita: {nextTask.jobNumber} - {nextTask.phaseName} - {nextTask.plate}</div>}
     </section>
 
     <section className="tablet-phases">
@@ -204,9 +272,23 @@ export function ProductionPage() {
       <div className="detail-grid">
         <article>
           <h3>Tempi lavorazione</h3>
+          {selected.vehicle && <label>Stato vettura<select value={selected.vehicle.status} onChange={(event) => {
+            persist(changeVehicleStatus(data, selected.vehicle!.id, resolveVehicleStatusId(data.plannerSettings, event.target.value), { source: 'manual', note: 'Aggiornamento manuale da Produzione.' }))
+            setNotice('Stato vettura aggiornato manualmente.')
+          }}>{(statusOptions.some((status) => status.id === selected.vehicle!.status) ? statusOptions : [...statusOptions, { id: selected.vehicle!.status, label: selected.vehicle!.status }]).map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label>}
+          {!!selectedPhasePanels.length && <p><strong>PANNELLI IN FASE:</strong> {selectedPhasePanels.join(', ')}</p>}
+          {!!selectedPhasePanelNotes.length && <p><strong>NOTE DEL PANNELLO:</strong> {selectedPhasePanelNotes.join(' | ')}</p>}
           <p>Promessa consegna: {selected.job.promisedAt || 'Non definita'}</p>
           <p>Ore stimate: {selected.vehicle?.estimatedHours ?? 0}</p>
           <p>Ore lavorate: {totalWorkedHoursByVehicle(data, selected.job.vehicleId).toFixed(2)}</p>
+          {selectedPace && <div className="pace-box">
+            <p>Tempo previsto: {Math.floor(selectedPace.estimatedMinutes / 60)} h {selectedPace.estimatedMinutes % 60} min</p>
+            <p>Tempo lavorato: {Math.floor(selectedPace.workedMinutes / 60)} h {selectedPace.workedMinutes % 60} min</p>
+            <p>Tempo residuo: {Math.floor(selectedPace.residualMinutes / 60)} h {selectedPace.residualMinutes % 60} min</p>
+            <p>Consumo previsto: {selectedPace.consumedPercent}%</p>
+            <p className={selectedPace.level === 'IN RITARDO' ? 'pace-level late' : selectedPace.level === 'A RISCHIO' ? 'pace-level warning' : 'pace-level normal'}>{selectedPace.level}</p>
+            {selectedPace.level === 'A RISCHIO' && <div className="toast warning">ATTENZIONE - restano {selectedPace.residualMinutes} minuti rispetto al tempo preventivato</div>}
+          </div>}
           <div className="timer-actions">
             <button className="primary" onClick={handleTimer}>{!activeLog ? 'Avvia timer' : activeLog.status === 'running' ? 'Pausa timer' : 'Riprendi timer'}</button>
             <button className="secondary" onClick={closeTimer} disabled={!activeLog}>Chiudi timer</button>
