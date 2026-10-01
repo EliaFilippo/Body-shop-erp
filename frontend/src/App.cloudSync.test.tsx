@@ -186,8 +186,8 @@ describe('avvio e salvataggio cloud', () => {
     render(<App />)
     await screen.findByText('Archivio sincronizzato dal cloud.')
     await waitFor(() => expect(updateCloudSnapshot).toHaveBeenCalled())
-    fireEvent.click(screen.getByRole('button', { name: 'Accettazione', exact: true }))
-    const customerPanel = screen.getByRole('heading', { name: 'Cliente', exact: true }).closest('.panel.table-panel')!
+    fireEvent.click(screen.getByRole('button', { name: 'Accettazione' }))
+    const customerPanel = screen.getByRole('heading', { name: 'Cliente' }).closest<HTMLElement>('.panel.table-panel')!
     fireEvent.click(within(customerPanel).getByRole('button', { name: 'Inserisci manualmente' }))
     fireEvent.change(screen.getByLabelText('Nome / ragione sociale'), { target: { value: 'Cliente accettazione cloud' } })
     fireEvent.change(screen.getByLabelText('Telefono'), { target: { value: '789' } })
