@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { PlannerPage } from './PlannerPage'
 import { emptyData } from '../../services/erp'
@@ -184,7 +184,9 @@ describe('PlannerPage regressione visibilita commessa pianificata', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
+    // La stessa vettura può comparire anche in più giorni del calendario.
+    const plannedVehicles = within(screen.getByRole('heading', { name: 'Vetture pianificate' }).closest('section')!)
+    fireEvent.click(plannedVehicles.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
 
     expect(screen.getByText('Dettaglio pianificazione vettura')).toBeInTheDocument()
     expect(screen.getAllByText('Mario Rossi').length).toBeGreaterThan(0)
@@ -198,11 +200,11 @@ describe('PlannerPage regressione visibilita commessa pianificata', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apri commessa' }))
     expect(openJob).toHaveBeenCalledWith('COMM-00001')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
+    fireEvent.click(plannedVehicles.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
     fireEvent.click(screen.getByRole('button', { name: 'Apri programma operatori' }))
     expect(openProgram).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
+    fireEvent.click(plannedVehicles.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
     fireEvent.click(screen.getByRole('button', { name: 'Ricalcola pianificazione' }))
     expect(recalculatePlanning).toHaveBeenCalledTimes(1)
 
