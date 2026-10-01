@@ -604,6 +604,7 @@ function sanitizeLine(
 		description: line.description.trim(),
 		panelId: String(line.panelId ?? '').trim(),
 		panelName: (line.panelName || '').trim(),
+		damageSeverity: line.damageSeverity === 'grave' ? 'grave' : line.damageSeverity === 'lieve' ? 'lieve' : undefined,
 		panelSide: line.panelSide === 'sx' || line.panelSide === 'dx' || line.panelSide === 'center' ? line.panelSide : '',
 		repairExtent: line.repairExtent === 'mezzo' ? 'mezzo' : 'intero',
 		panelWorkNote: String(line.panelWorkNote ?? '').trim(),
