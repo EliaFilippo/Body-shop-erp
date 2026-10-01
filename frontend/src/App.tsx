@@ -6,7 +6,7 @@ import { Modal } from './components/Modal'
 import { DocumentCapturePanel, queueDocumentCaptureFile } from './components/DocumentCapturePanel'
 import { parseMoneyDraft } from './components/money'
 import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, isVehicleWaitingForCone, TOTAL_CONES, emptyData, normalizePlate, updateCustomer } from './services/erp'
-import { createDatabaseCheckpoint, loadDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
+import { loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
 import { analyzeDatabaseIntegrity, prepareDuplicateResolution, resolveDuplicatePlate, type DatabaseIntegrityReport, type DuplicateResolutionResult } from './services/database'
 import { removePriceListItem, setPriceListItemActive, upsertPriceListItem } from './services/priceList'
 import { PlannerPage } from './features/planner/PlannerPage.tsx'
@@ -614,6 +614,9 @@ function App() {
   const [recoveryAccessToken, setRecoveryAccessToken] = useState<string | null>(() => getRecoveryAccessToken())
   const [cloudSession, setCloudSession] = useState<CloudAuthSession | null>(() => cloudConfig ? readCloudSession() : null)
   const [cloudMembership, setCloudMembership] = useState<CloudCompanyMembership | null>(null)
+  const [cloudReady, setCloudReady] = useState(false)
+  const [cloudInitializationError, setCloudInitializationError] = useState('')
+  const [cloudSyncAttempt, setCloudSyncAttempt] = useState(0)
   const [data, setData] = useState<ErpData>(emptyData)
   const [databaseReady, setDatabaseReady] = useState(false)
   const [databaseLoaded, setDatabaseLoaded] = useState(false)
@@ -637,66 +640,73 @@ function App() {
   const acceptanceAutosaveTimerRef = useRef<number | null>(null)
   const cloudRevisionRef = useRef<number | null>(null)
   const cloudReadyRef = useRef(false)
-  const cloudInitializingCompanyRef = useRef<string | null>(null)
   const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
     if (!cloudConfig || !cloudSession || cloudMembership) return
+    let cancelled = false
     void bootstrapCloudCompany(cloudSession, 'Carrozzeria Elias', 'Filippo Elia', cloudConfig)
-      .then(setCloudMembership)
+      .then((membership) => { if (!cancelled) setCloudMembership(membership) })
       .catch(() => {
+        if (cancelled) return
         sessionStorage.removeItem(CLOUD_SESSION_KEY)
         setCloudSession(null)
       })
+    return () => { cancelled = true }
   }, [cloudConfig, cloudMembership, cloudSession])
 
   useEffect(() => {
-    if (!cloudSession || !databaseReady) return
+    if (!cloudSession || !databaseReady || !cloudReady) return
     setData((current) => {
       const owner = getDefaultActiveUser(current.users)
       if (!owner || (owner.authUserId === cloudSession.userId && owner.email === cloudSession.email)) return current
       return { ...current, users: upsertAppUser(current.users ?? [], { ...owner, authUserId: cloudSession.userId, email: cloudSession.email, updatedAt: new Date().toISOString() }) }
     })
-  }, [cloudSession, databaseReady])
+  }, [cloudSession, databaseReady, cloudReady])
 
   useEffect(() => {
     if (!cloudConfig || !cloudSession || !cloudMembership || !databaseLoaded || !databaseReady) return
-    if (cloudInitializingCompanyRef.current === cloudMembership.companyId) return
-    cloudInitializingCompanyRef.current = cloudMembership.companyId
     let cancelled = false
+    cloudReadyRef.current = false
+    setCloudReady(false)
+    setCloudInitializationError('')
 
     void (async () => {
       try {
         const localSnapshot = await loadDatabase()
+        if (cancelled) return
         const remote = await loadCloudSnapshot(cloudMembership.companyId, cloudSession, cloudConfig)
         if (cancelled) return
         if (!remote) {
           const created = await createCloudSnapshot(cloudMembership.companyId, localSnapshot, cloudSession, cloudConfig)
+          if (cancelled) return
           cloudRevisionRef.current = created.revision
           cloudReadyRef.current = true
+          setCloudReady(true)
+          setData(localSnapshot)
           setNotice('Archivio collegato e salvato nel cloud.')
           return
         }
 
-        await createDatabaseCheckpoint(localSnapshot, 'prima-sincronizzazione-cloud')
-        await saveDatabase(remote.payload, { allowCountReduction: true, mergeOnConflict: false })
-        const restored = await loadDatabase()
+        const restored = await restoreCloudDatabase(remote.payload, localSnapshot.dbRevision ?? 0)
         if (cancelled) return
         cloudRevisionRef.current = remote.revision
         cloudReadyRef.current = true
+        setCloudReady(true)
         skipNextAutosaveRef.current = true
         skipNextHeavySyncRef.current = true
         setData(restored)
         setNotice('Archivio sincronizzato dal cloud.')
       } catch (problem) {
+        if (cancelled) return
         cloudReadyRef.current = false
-        cloudInitializingCompanyRef.current = null
-        if (!cancelled) setError(problem instanceof Error ? problem.message : 'Sincronizzazione cloud non riuscita.')
+        setCloudReady(false)
+        setCloudInitializationError(problem instanceof Error ? problem.message : 'Sincronizzazione cloud non riuscita.')
       }
     })()
 
-    return () => { cancelled = true }
-  }, [cloudConfig, cloudMembership, cloudSession, databaseLoaded, databaseReady])
+    return () => { cancelled = true; cloudReadyRef.current = false }
+  }, [cloudConfig, cloudMembership, cloudSession, databaseLoaded, databaseReady, cloudSyncAttempt])
 
   useEffect(() => {
     if (blockedByOrigin) {
@@ -737,7 +747,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!databaseReady) return
+    if (!databaseReady || (cloudConfig && !cloudReady)) return
 
     let syncing = false
     const onStorage = (event: StorageEvent) => {
@@ -760,10 +770,11 @@ function App() {
 
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [databaseReady])
+  }, [databaseReady, cloudConfig, cloudReady])
 
   useEffect(() => {
     if (!databaseLoaded || !databaseReady) return
+    if (cloudConfig && !cloudReady) return
     if (skipNextAutosaveRef.current) {
       skipNextAutosaveRef.current = false
       return
@@ -778,13 +789,18 @@ function App() {
     void saveDatabase(data, { allowCountReduction })
       .then(async () => {
         if (cloudConfig && cloudSession && cloudMembership && cloudReadyRef.current && cloudRevisionRef.current !== null) {
-          const snapshot = structuredClone(data)
-          cloudSyncQueueRef.current = cloudSyncQueueRef.current.then(async () => {
+          // La persistenza locale può aver unito dati arrivati da altre schede.
+          const snapshot = await loadDatabase()
+          if (!cloudReadyRef.current) return
+          const pushSnapshot = async () => {
+            if (!cloudReadyRef.current) return
             const expectedRevision = cloudRevisionRef.current
             if (expectedRevision === null) return
             const saved = await updateCloudSnapshot(cloudMembership.companyId, expectedRevision, snapshot, cloudSession, cloudConfig)
             cloudRevisionRef.current = saved.revision
-          })
+          }
+          // Un errore temporaneo non deve avvelenare tutti i salvataggi futuri.
+          cloudSyncQueueRef.current = cloudSyncQueueRef.current.then(pushSnapshot, pushSnapshot)
           await cloudSyncQueueRef.current
         }
         setAcceptanceAutosaveState('saved')
@@ -798,7 +814,7 @@ function App() {
         setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.')
         setAcceptanceAutosaveState('idle')
       })
-  }, [cloudConfig, cloudMembership, cloudSession, data, databaseLoaded, databaseReady])
+  }, [cloudConfig, cloudMembership, cloudSession, cloudReady, data, databaseLoaded, databaseReady])
 
   useEffect(() => () => {
     if (acceptanceAutosaveTimerRef.current !== null) {
@@ -806,7 +822,7 @@ function App() {
     }
   }, [])
   useEffect(() => {
-    if (!databaseReady) return
+    if (!databaseLoaded || !databaseReady || (cloudConfig && !cloudReady)) return
     if (skipNextHeavySyncRef.current) {
       skipNextHeavySyncRef.current = false
       return
@@ -848,7 +864,7 @@ function App() {
       operatorProgramHistory: withOperatorProgram.operatorProgramHistory,
       operatorProgramRevision: withOperatorProgram.operatorProgramRevision,
     }))
-  }, [data, data.vehicles, data.plannerSettings, data.plannerAssignments, databaseReady])
+  }, [data, data.vehicles, data.plannerSettings, data.plannerAssignments, databaseLoaded, databaseReady, cloudConfig, cloudReady])
 
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
@@ -895,8 +911,29 @@ function App() {
     if (!cloudConfig || !cloudSession) return
     try { await signOutCloud(cloudSession, cloudConfig) } catch { /* La sessione locale viene comunque chiusa. */ }
     sessionStorage.removeItem(CLOUD_SESSION_KEY)
+    cloudReadyRef.current = false
+    cloudRevisionRef.current = null
+    cloudSyncQueueRef.current = Promise.resolve()
+    setCloudReady(false)
+    setCloudInitializationError('')
     setCloudMembership(null)
     setCloudSession(null)
+  }
+  if (cloudConfig && !cloudReady) {
+    const problem = cloudInitializationError || (!databaseLoaded && error)
+    return <main className="cloud-login-shell">
+      <section className="cloud-login-card">
+        <div className="brand cloud-login-brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
+        <h1>{problem ? 'Sincronizzazione sospesa' : 'Caricamento archivio'}</h1>
+        {problem
+          ? <><p role="alert" className="cloud-login-error">{problem}</p><button type="button" className="primary" onClick={() => {
+            if (!databaseLoaded) { window.location.reload(); return }
+            setCloudSyncAttempt((attempt) => attempt + 1)
+          }}>Riprova sincronizzazione</button></>
+          : <p role="status">Sto sincronizzando i dati prima di aprire il gestionale…</p>}
+        <button type="button" className="cloud-logout" onClick={() => void logoutCloud()}>Esci</button>
+      </section>
+    </main>
   }
   return <div className="app-shell">
     <aside className={menu ? 'sidebar open' : 'sidebar'}>
