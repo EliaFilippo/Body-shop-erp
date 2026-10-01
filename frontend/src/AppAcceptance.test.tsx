@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createCustomer, emptyData } from './services/erp'
+import { createAcceptanceDraft } from './services/acceptance'
 import type { ErpData } from './types'
 
 let persistedData: ErpData
@@ -155,6 +156,42 @@ describe('Acceptance flow', () => {
     })
 
     expect(persistedData.acceptances?.[0]?.customerId).toBe('c-acceptance-1')
+  })
+
+  it('salva il danno grafico e il listino, li ricarica e genera i documenti con stessi tempi e importi', async () => {
+    persistedData.acceptances = [createAcceptanceDraft('c-acceptance-1', 'v-acceptance-1', persistedData.plannerSettings, '2026-10')]
+    const app = render(<App />)
+    await screen.findByText('Archivio pronto')
+    fireEvent.click(screen.getByRole('button', { name: 'Accettazione' }))
+    const openQuote = () => fireEvent.click(screen.getAllByRole('button', { name: 'Avanti → Preventivo' }).find((button) => !(button as HTMLButtonElement).disabled)!)
+    openQuote()
+    fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Lattoneria' }))
+    expect(screen.getByRole('button', { name: 'Crea preventivo numerato' })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Ore Lattoneria'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Prezzo Lattoneria €'), { target: { value: '120' } })
+    fireEvent.blur(screen.getByLabelText('Prezzo Lattoneria €'))
+    fireEvent.click(screen.getByRole('button', { name: 'Memorizza danno lieve' }))
+    await waitFor(() => {
+      expect(persistedData.acceptances![0].quote.damageLines![0]).toMatchObject({ estimatedMinutes: 120, unitPrice: 120 })
+      expect(persistedData.plannerSettings.minorDamagePresets).toHaveLength(1)
+    })
+    app.unmount()
+    render(<App />)
+    await screen.findByText('Archivio pronto')
+    fireEvent.click(screen.getByRole('button', { name: 'Accettazione' }))
+    openQuote()
+    fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX' }))
+    expect(screen.getByLabelText('Ore Lattoneria')).toHaveValue(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Crea preventivo numerato' }))
+    await screen.findByRole('heading', { name: 'Flusso operativo completo vettura' })
+    await waitFor(() => {
+      expect(persistedData.estimates).toHaveLength(1)
+      expect(persistedData.quotes).toHaveLength(1)
+      expect(persistedData.estimates![0].lines[0]).toMatchObject({ panelId: 'porta-ant-sx', damageSeverity: 'lieve', estimatedMinutes: 120 })
+      expect(persistedData.estimates![0].total).toBe(175.68)
+      expect(persistedData.quotes![0].total).toBe(175.68)
+    })
   })
 
   it('salva un nuovo cliente da Accettazione, lo rilegge dal database e lo seleziona nella stessa pratica', async () => {
