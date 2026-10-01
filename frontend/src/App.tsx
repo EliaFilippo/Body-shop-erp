@@ -25,7 +25,7 @@ import { TodayShopPage } from './features/production/TodayShopPage'
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
 import { WorkflowPage } from './features/workflow/WorkflowPage'
 import { DamageQuoteEditor } from './features/workflow/DamageQuoteEditor'
-import { acceptanceEstimateLines, damageQuoteError } from './services/damageQuote'
+import { acceptanceEstimateLines, damageQuoteError, recalculateDamageLine } from './services/damageQuote'
 import { syncOperationalStateFromJobs } from './services/workflow'
 import { DOCUMENT_IDENTITY_OCR_GENERIC_ERROR, readIdentityDocument } from './services/documentIdentityOcr'
 import { VEHICLE_BOOKLET_OCR_GENERIC_ERROR, readVehicleBooklet } from './services/vehicleBookletOcr'
@@ -2724,7 +2724,9 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
     const currentAcceptance = latestAcceptanceRef.current
     const nextRate = Math.max(0, rate)
     const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, unitPrice: nextRate, unitCost: internalRateSnapshot.effectiveHourlyRate } : line)
-    const withRate = { ...currentAcceptance.quote, hourlyRate: nextRate, lines: nextLines }
+    const withRate = { ...currentAcceptance.quote, hourlyRate: nextRate, lines: nextLines,
+      damageLines: currentAcceptance.quote.damageLines?.map((line) => line.damageSeverity !== 'grave' ? line
+        : recalculateDamageLine({ ...line, unitPrice: (line.estimatedMinutes ?? 0) / 60 * nextRate }, data.plannerSettings)) }
     const nextQuote = updateConsumptionLine(withRate, Math.max(0, withRate.materialPercent) / 100)
     saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
   }
