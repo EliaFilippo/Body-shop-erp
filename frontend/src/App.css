@@ -476,3 +476,42 @@ main{min-width:0}header{height:92px;padding:0 32px;display:flex;align-items:cent
 
 .origin-blocked{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg,#f6f7fb)}
 .origin-blocked h1{margin:0;font-size:20px;color:var(--text,#1f2630)}
+.damage-quote{border:1px solid #756346;border-radius:16px;padding:18px;background:#151923;color:#f2eee7}
+.damage-quote .panel-head p{max-width:720px;color:#bbc2cc;line-height:1.5}
+.damage-quote-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,1fr);gap:20px;align-items:start}
+.damage-car-column{position:sticky;top:12px;min-width:0}
+.damage-views,.damage-severity{display:flex;gap:8px;margin-bottom:14px}
+.damage-views button,.damage-severity button{flex:1;min-height:44px}
+.damage-car{display:block;width:100%;min-height:260px;border:1px solid #46505f;border-radius:14px;background:radial-gradient(ellipse at 50% 30%,#303e4e,#141b26 75%);padding:8px}
+.damage-car.view-top{height:390px}
+.damage-glass{fill:#101e2b;stroke:#a6bfca;stroke-width:.6}
+.damage-wheel{fill:#101218;stroke:#abb4c1;stroke-width:1}
+.damage-front{font-size:1.8px;fill:#c6cdd5;letter-spacing:.1px}
+.damage-panel{fill:#aab4c433;stroke:#b9c4d2;stroke-width:.6;cursor:pointer;transition:fill .15s}
+.damage-panel:hover,.damage-panel:focus{fill:#e5bd6966;outline:none}
+.damage-panel.configured{fill:#32926cb3;stroke:#6cd9a8}
+.damage-panel.grave{fill:#b9565ab3;stroke:#fa9a9a}
+.damage-panel.active{stroke:#ffe1a1;stroke-width:1.2;filter:drop-shadow(0 0 1px #d8b779)}
+.damage-legend{font-size:12px;color:#c2c9d4;line-height:1.5}
+.damage-selected{display:flex;flex-wrap:wrap;gap:8px}
+.damage-selected button{font-size:12px;min-height:42px;text-align:left}
+.damage-controls{min-width:0;background:#202633;border:1px solid #49515e;padding:16px;border-radius:12px}
+.damage-controls h4{font-size:20px;margin:0 0 14px}.damage-controls p{line-height:1.5;font-size:13px;color:#d0d5dd}
+.damage-controls>label{display:grid;gap:6px;font-size:13px}.damage-controls small{font-size:12px;line-height:1.4}
+.damage-work-list{display:grid;gap:8px;margin:14px 0}
+.damage-work{border:1px solid #485364;border-radius:9px;padding:10px;background:#171e2a}
+.damage-work-toggle{display:flex!important;align-items:center;gap:10px!important;font-size:14px;min-height:30px;cursor:pointer}
+.damage-work-toggle input{width:20px!important;height:20px!important;margin:0;accent-color:#d8b779}
+.damage-work-values{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-top:10px}
+.damage-work-values label,.damage-work-values>div{display:grid;gap:6px;font-size:12px;min-width:0}
+.damage-work-values input{width:100%;min-width:0}.damage-work-values strong{font-size:18px;align-self:center}
+.damage-incomplete{color:#ffc287!important;line-height:1.5;grid-column:1/-1}
+.damage-hint{padding:10px;border-left:3px solid #d8b779;background:#d8b77915}
+.damage-panel-total{display:flex;flex-direction:column;gap:7px;border-top:1px solid #5a6170;padding-top:14px;margin-bottom:14px}
+.damage-panel-total strong{font-size:19px;color:#f0d29b}.damage-panel-total span{font-size:12px}
+.damage-actions{display:flex;flex-wrap:wrap;gap:8px}.damage-actions button{min-height:42px;font-size:12px}
+.damage-total{position:sticky;bottom:8px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px;padding:15px;background:#292b30;border:1px solid #c8a975;border-radius:12px;box-shadow:0 6px 25px #0008;z-index:2}
+.damage-total>div{display:flex;flex-direction:column;gap:8px}.damage-total span{font-size:12px;color:#d2d5da}.damage-total strong{font-size:21px;color:#f5d99e}
+.damage-extra-details{margin-top:16px;border:1px solid #56525a;border-radius:10px;padding:14px}.damage-extra-details summary{cursor:pointer;padding:6px;font-weight:600}.damage-extra-details[open] summary{margin-bottom:14px}
+@media(max-width:1000px){.damage-quote-layout{grid-template-columns:1fr}.damage-car-column{position:static}.damage-car{min-height:220px;max-height:340px}.damage-car.view-top{height:330px}.damage-controls{padding:12px}}
+@media(max-width:600px){.damage-quote{padding:10px}.damage-total{gap:8px;padding:10px;bottom:0}.damage-total strong{font-size:16px}.damage-total span{font-size:10px}.damage-car{min-height:185px}.damage-views button,.damage-severity button{font-size:13px;padding:10px}.damage-work-values{gap:8px}}
