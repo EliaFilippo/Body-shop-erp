@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { StrictMode } from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { emptyData } from './services/erp'
@@ -132,5 +132,89 @@ describe('avvio e salvataggio cloud', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Le modifiche sono conservate')
     expect((await loadDatabase()).customers[0].name).toBe('Cliente altra scheda')
     expect(updateCloudSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('invia subito vettura e modifiche al cloud, conserva coni e consegna su un altro archivio', async () => {
+    const app = render(<App />)
+    await screen.findByText('Archivio sincronizzato dal cloud.')
+    await waitFor(() => expect(updateCloudSnapshot).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Nuova vettura' }))
+    fireEvent.change(screen.getByLabelText('Cliente'), { target: { value: customer.id } })
+    fireEvent.change(screen.getByLabelText('Targa'), { target: { value: 'CL123UD' } })
+    fireEvent.change(screen.getByLabelText('Marca'), { target: { value: 'Fiat' } })
+    fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'Panda' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
+    await screen.findByText('Vettura salvata')
+    const latestRemote = async () => (await loadCloudSnapshot('company-1', session, { url: 'https://test.supabase.co', anonKey: 'test-public-key' }))!.payload
+    await waitFor(async () => expect((await latestRemote()).vehicles).toEqual([
+      expect.objectContaining({ plate: 'CL123UD', model: 'Panda' }),
+    ]))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica' }))
+    fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'Panda Hybrid' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
+    await waitFor(async () => expect((await latestRemote()).vehicles[0].model).toBe('Panda Hybrid'))
+
+    const row = screen.getByText('CL123UD').closest('tr')!
+    fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'da-pianificare' } })
+    await waitFor(async () => expect((await latestRemote()).vehicles[0].coneNumber).toBe(1))
+    fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'consegnata' } })
+    await waitFor(async () => {
+      const remote = await latestRemote()
+      expect(remote.vehicles[0]).toMatchObject({ status: 'consegnata', coneNumber: null })
+      expect(remote.coneHistory).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: 'Assegnato', coneNumber: 1 }),
+        expect.objectContaining({ action: 'Liberato', coneNumber: 1 }),
+      ]))
+    })
+
+    app.unmount()
+    await act(async () => { await Promise.allSettled(pendingSaves) })
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(DB_NAME)
+      request.onsuccess = () => resolve()
+      request.onerror = () => reject(request.error)
+    })
+    render(<App />)
+    await screen.findByText('Archivio sincronizzato dal cloud.')
+    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    expect(await screen.findByText('CL123UD')).toBeInTheDocument()
+    expect((await loadDatabase()).vehicles[0]).toMatchObject({ model: 'Panda Hybrid', status: 'consegnata', coneNumber: null })
+  })
+
+  it('invia anche il cliente salvato esplicitamente dalla schermata Accettazione', async () => {
+    render(<App />)
+    await screen.findByText('Archivio sincronizzato dal cloud.')
+    await waitFor(() => expect(updateCloudSnapshot).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Accettazione', exact: true }))
+    const customerPanel = screen.getByRole('heading', { name: 'Cliente', exact: true }).closest('.panel.table-panel')!
+    fireEvent.click(within(customerPanel).getByRole('button', { name: 'Inserisci manualmente' }))
+    fireEvent.change(screen.getByLabelText('Nome / ragione sociale'), { target: { value: 'Cliente accettazione cloud' } })
+    fireEvent.change(screen.getByLabelText('Telefono'), { target: { value: '789' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salva cliente' }))
+    await screen.findByText('Cliente salvato')
+    await waitFor(() => expect(vi.mocked(updateCloudSnapshot).mock.calls.some(([, , payload]) =>
+      payload.customers.some((item) => item.name === 'Cliente accettazione cloud'),
+    )).toBe(true))
+  })
+
+  it('segnala un invio vettura fallito, conserva il salvataggio locale e riprende al successivo', async () => {
+    render(<App />)
+    await screen.findByText('Archivio sincronizzato dal cloud.')
+    await waitFor(() => expect(updateCloudSnapshot).toHaveBeenCalled())
+    vi.mocked(updateCloudSnapshot).mockRejectedValueOnce(new Error('Connessione cloud interrotta.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Nuova vettura' }))
+    fireEvent.change(screen.getByLabelText('Cliente'), { target: { value: customer.id } })
+    fireEvent.change(screen.getByLabelText('Targa'), { target: { value: 'RT123RY' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
+    await screen.findByText('Connessione cloud interrotta.')
+    expect((await loadDatabase()).vehicles[0].plate).toBe('RT123RY')
+    fireEvent.click(screen.getByRole('button', { name: 'Modifica' }))
+    fireEvent.change(screen.getByLabelText('Marca'), { target: { value: 'Fiat' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
+    await waitFor(async () => {
+      const remote = await loadCloudSnapshot('company-1', session, { url: 'https://test.supabase.co', anonKey: 'test-public-key' })
+      expect(remote!.payload.vehicles).toEqual([expect.objectContaining({ plate: 'RT123RY', make: 'Fiat' })])
+    })
   })
 })
