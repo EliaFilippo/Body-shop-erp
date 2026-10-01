@@ -474,6 +474,13 @@ export interface StandardWorkTimePreset {
   note?: string
 }
 
+export interface MinorDamagePreset {
+  panelId: string
+  panelName: string
+  updatedAt: string
+  lines: Array<{ workId: string; minutes: number; price: number }>
+}
+
 export type InternalMonthlyCostCategory =
   | 'personale'
   | 'affitto'
@@ -576,6 +583,7 @@ export interface PlannerSettings {
   standardWorks?: StandardWorkDefinition[]
   standardWorkRuleHistory?: StandardWorkRuleHistoryEntry[]
   standardWorkTimePresets?: StandardWorkTimePreset[]
+  minorDamagePresets?: MinorDamagePreset[]
   standardWorkPriceList?: StandardWorkPriceListItem[]
   standardWorkPriceHistory?: StandardWorkPriceHistoryEntry[]
   internalCostSettings?: InternalCostSettings
@@ -884,6 +892,7 @@ export interface AcceptanceQuote {
   appliedVatRate: number
   materialPercent: number
   lines: AcceptanceLine[]
+  damageLines?: EstimateLine[]
 }
 
 export interface AcceptanceChecklistItem {
@@ -956,6 +965,7 @@ export interface EstimateLine {
   category: WorkCategory
   panelId?: string
   panelName?: string
+  damageSeverity?: 'lieve' | 'grave'
   panelSide?: 'sx' | 'dx' | 'center' | ''
   repairExtent?: 'intero' | 'mezzo'
   panelWorkNote?: string
