@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ErpData } from '../types'
-import { analyzeDatabaseIntegrity, loadDatabase, prepareDuplicateResolution, resolveDuplicatePlate, saveDatabase } from './database'
+import { analyzeDatabaseIntegrity, loadDatabase, prepareDuplicateResolution, resolveDuplicatePlate, restoreCloudDatabase, saveDatabase } from './database'
 import { defaultPlannerSettings, emptyData, STORAGE_KEY } from './erp'
 import { EXPECTED_APP_ORIGIN } from './originGuard'
 
@@ -54,6 +54,49 @@ beforeEach(async () => {
 })
 
 describe('database persistente', () => {
+  it.each([10, 900])('importa il payload cloud con contatore %s usando la revisione locale e conserva un checkpoint', async (remoteRevision) => {
+    const local = { ...structuredClone(data), dbRevision: 11 }
+    await saveDatabase(local)
+    expect(local.dbRevision).toBe(12)
+    const remote = { ...structuredClone(emptyData), dbRevision: remoteRevision }
+    const restored = await restoreCloudDatabase(remote, 12)
+    expect(restored.dbRevision).toBe(13)
+    expect((await loadDatabase()).customers).toEqual([])
+    expect(remote.dbRevision).toBe(remoteRevision)
+
+    const checkpoint = await new Promise<ErpData>((resolve, reject) => {
+      const request = indexedDB.open('carrozzeria-elias-erp', 5)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const db = request.result
+        const transaction = db.transaction('erp-state', 'readonly')
+        const cursorRequest = transaction.objectStore('erp-state').openCursor()
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result
+          if (!cursor) { reject(new Error('Checkpoint mancante')); return }
+          if (String(cursor.key).startsWith('backup:prima-sincronizzazione-cloud:')) resolve(cursor.value as ErpData)
+          else cursor.continue()
+        }
+        transaction.oncomplete = () => db.close()
+        transaction.onerror = () => { db.close(); reject(transaction.error) }
+      }
+    })
+    expect(checkpoint.customers).toEqual(local.customers)
+    expect(checkpoint.dbRevision).toBe(12)
+  })
+
+  it.each([0, 12])('non sovrascrive una modifica concorrente durante il caricamento cloud, revisione iniziale %s', async (initialRevision) => {
+    if (initialRevision) await saveDatabase({ ...structuredClone(data), dbRevision: initialRevision - 1 })
+    const snapshotBeforeFetch = await loadDatabase()
+    const changedElsewhere = structuredClone(snapshotBeforeFetch)
+    changedElsewhere.customers.push({ ...data.customers[0], id: 'customer-other-tab', name: 'Modifica da conservare' })
+    const otherSave = saveDatabase(changedElsewhere)
+    const cloudRestore = restoreCloudDatabase(structuredClone(emptyData), snapshotBeforeFetch.dbRevision ?? 0)
+    await otherSave
+    await expect(cloudRestore).rejects.toThrow('Le modifiche sono conservate')
+    expect((await loadDatabase()).customers).toEqual(changedElsewhere.customers)
+  })
+
   it('salva e ricarica lo stato completo da IndexedDB', async () => {
     await saveDatabase(data)
     await expect(loadDatabase()).resolves.toMatchObject({
