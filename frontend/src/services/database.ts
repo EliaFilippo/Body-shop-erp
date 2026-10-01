@@ -20,6 +20,8 @@ export interface IntegritySnapshot {
 export interface SaveDatabaseOptions {
   allowCountReduction?: boolean
   mergeOnConflict?: boolean
+  expectedLocalRevision?: number
+  checkpointReason?: string
 }
 
 export interface OrphanReference {
@@ -1041,6 +1043,9 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
     const latest = await readCurrentPersistedSnapshot()
     const currentRevision = Math.max(0, Number(latest?.dbRevision ?? 0))
     const incomingRevision = Math.max(0, Number(data.dbRevision ?? 0))
+    if (options.expectedLocalRevision !== undefined && currentRevision !== options.expectedLocalRevision) {
+      throw new Error('Sincronizzazione sospesa: i dati locali sono stati aggiornati in un’altra scheda. Le modifiche sono conservate. Riprova la sincronizzazione.')
+    }
     let candidate = structuredClone(data)
     const revisionAwareSnapshot = incomingRevision > 0
 
@@ -1049,9 +1054,7 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
 
     if (latest && revisionAwareSnapshot && incomingRevision < currentRevision) {
       if (options.mergeOnConflict === false) {
-        throw new Error(
-          `Salvataggio bloccato: conflitto revisione. source=snapshot/persistence/cross-tab; revPersistita=${currentRevision}; revRichiesta=${incomingRevision}.`,
-        )
+        throw new Error('Salvataggio sospeso: i dati sono stati aggiornati in un’altra scheda. Ricarica l’archivio prima di salvare di nuovo.')
       }
       candidate = mergeForStaleSave(latest, candidate)
       assertUniqueNormalizedPlates(candidate, 'merge da stato obsoleto')
@@ -1064,6 +1067,10 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
 
     candidate.dbRevision = Math.max(currentRevision, incomingRevision) + 1
     candidate.dbUpdatedAt = new Date().toISOString()
+
+    // Dentro lo stesso lock del controllo revisione e della scrittura: se la
+    // copia di sicurezza fallisce, lo snapshot corrente non viene sostituito.
+    if (options.checkpointReason && latest) await createDatabaseCheckpoint(latest, options.checkpointReason)
 
     try {
       const database = await openDatabase()
@@ -1111,4 +1118,17 @@ export function saveDatabase(data: ErpData, options: SaveDatabaseOptions = {}): 
     () => persistDatabase(snapshot, options, data),
   )
   return saveQueue
+}
+
+export async function restoreCloudDatabase(payload: ErpData, expectedLocalRevision: number): Promise<ErpData> {
+  // dbRevision appartiene al dispositivo che ha scritto il payload: non è la
+  // revisione dello snapshot Supabase e non va confrontata con un altro PC.
+  const restored = normalizeData({ ...payload, dbRevision: expectedLocalRevision })
+  await saveDatabase(restored, {
+    expectedLocalRevision,
+    mergeOnConflict: false,
+    allowCountReduction: true,
+    checkpointReason: 'prima-sincronizzazione-cloud',
+  })
+  return restored
 }
