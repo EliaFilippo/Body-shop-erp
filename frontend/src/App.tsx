@@ -635,7 +635,7 @@ function App() {
   const [notice, setNotice] = useState('')
   const [acceptanceAutosaveState, setAcceptanceAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const allowCountReductionRef = useRef(false)
-  const skipNextAutosaveRef = useRef(false)
+  const nextPersistenceActionRef = useRef<'save-and-sync' | 'sync-only' | 'skip'>('save-and-sync')
   const skipNextHeavySyncRef = useRef(false)
   const acceptanceAutosaveTimerRef = useRef<number | null>(null)
   const cloudRevisionRef = useRef<number | null>(null)
@@ -693,7 +693,7 @@ function App() {
         cloudRevisionRef.current = remote.revision
         cloudReadyRef.current = true
         setCloudReady(true)
-        skipNextAutosaveRef.current = true
+        nextPersistenceActionRef.current = 'skip'
         skipNextHeavySyncRef.current = true
         setData(restored)
         setNotice('Archivio sincronizzato dal cloud.')
@@ -756,7 +756,7 @@ function App() {
       syncing = true
       void loadDatabase()
         .then((reloaded) => {
-          skipNextAutosaveRef.current = true
+          nextPersistenceActionRef.current = 'skip'
           skipNextHeavySyncRef.current = true
           setData(reloaded)
         })
@@ -775,10 +775,9 @@ function App() {
   useEffect(() => {
     if (!databaseLoaded || !databaseReady) return
     if (cloudConfig && !cloudReady) return
-    if (skipNextAutosaveRef.current) {
-      skipNextAutosaveRef.current = false
-      return
-    }
+    const persistenceAction = nextPersistenceActionRef.current
+    nextPersistenceActionRef.current = 'save-and-sync'
+    if (persistenceAction === 'skip' || (persistenceAction === 'sync-only' && !cloudConfig)) return
     const allowCountReduction = allowCountReductionRef.current
     allowCountReductionRef.current = false
     setAcceptanceAutosaveState('saving')
@@ -786,7 +785,10 @@ function App() {
       window.clearTimeout(acceptanceAutosaveTimerRef.current)
       acceptanceAutosaveTimerRef.current = null
     }
-    void saveDatabase(data, { allowCountReduction })
+    // I salvataggi espliciti sono già verificati nel database locale, ma vanno
+    // comunque inviati al cloud. I caricamenti da cloud/altre schede sono esclusi.
+    const localSave = persistenceAction === 'sync-only' ? Promise.resolve() : saveDatabase(data, { allowCountReduction })
+    void localSave
       .then(async () => {
         if (cloudConfig && cloudSession && cloudMembership && cloudReadyRef.current && cloudRevisionRef.current !== null) {
           // La persistenza locale può aver unito dati arrivati da altre schede.
@@ -1071,13 +1073,13 @@ function App() {
         {view === 'users' && <UsersSettingsPage data={data} onChange={setData} setNotice={setNotice} setError={setError} />}
         {view === 'database-diagnostics' && <DatabaseDiagnosticsSettingsPage data={data} onRefreshSnapshot={async () => {
           const reloaded = await loadDatabase()
-          skipNextAutosaveRef.current = true
+          nextPersistenceActionRef.current = 'sync-only'
           skipNextHeavySyncRef.current = true
           setData(reloaded)
         }} onRestore={async (restored) => {
           await saveDatabase(restored, { allowCountReduction: true })
           const reloaded = await loadDatabase()
-          skipNextAutosaveRef.current = true
+          nextPersistenceActionRef.current = 'sync-only'
           skipNextHeavySyncRef.current = true
           setData(reloaded)
         }} setNotice={setNotice} setError={setError} />}
@@ -1159,7 +1161,7 @@ function App() {
           if (!savedCustomerId || !reloaded.customers.some((customer) => customer.id === savedCustomerId)) {
             throw new Error('Salvataggio cliente non riuscito')
           }
-          skipNextAutosaveRef.current = true
+          nextPersistenceActionRef.current = 'sync-only'
           skipNextHeavySyncRef.current = true
           setData(reloaded)
           setView('acceptance')
@@ -1185,7 +1187,7 @@ function App() {
           save: saveDatabase,
           load: loadDatabase,
         })
-        skipNextAutosaveRef.current = true
+        nextPersistenceActionRef.current = 'sync-only'
         skipNextHeavySyncRef.current = true
         setData(result.data)
         setQuery('')
