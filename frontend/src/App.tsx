@@ -15,7 +15,7 @@ import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { VehicleStatusesSettingsPage } from './features/planner/VehicleStatusesSettingsPage'
 import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours } from './services/planner'
-import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, computeLineInternalEconomics, createEstimate, resolveInternalHourlyRate, resolvePriceListUnitPrice, resolveStandardRuleForLine } from './services/workflow'
+import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr, updateConsumptionLine } from './services/acceptance'
@@ -24,6 +24,8 @@ import { createQuoteDocument } from './services/documents'
 import { TodayShopPage } from './features/production/TodayShopPage'
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
 import { WorkflowPage } from './features/workflow/WorkflowPage'
+import { DamageQuoteEditor } from './features/workflow/DamageQuoteEditor'
+import { acceptanceEstimateLines, damageQuoteError, recalculateDamageLine } from './services/damageQuote'
 import { syncOperationalStateFromJobs } from './services/workflow'
 import { DOCUMENT_IDENTITY_OCR_GENERIC_ERROR, readIdentityDocument } from './services/documentIdentityOcr'
 import { VEHICLE_BOOKLET_OCR_GENERIC_ERROR, readVehicleBooklet } from './services/vehicleBookletOcr'
@@ -35,7 +37,7 @@ import { backupFilename, parseBackup, serializeBackup } from './services/backup'
 import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, upsertAppUser } from './services/accessControl'
 import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
 import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
-import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
+import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' }, { id: 'today-shop', label: 'Oggi in carrozzeria' }, { id: 'customers', label: 'Clienti' },
@@ -1094,31 +1096,17 @@ function App() {
         }} onSave={(acceptance) => {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
-        }} onCreateEstimate={(acceptance) => {
+        }} onSaveDamagePreset={(preset) => setData((current) => ({ ...current, plannerSettings: { ...current.plannerSettings,
+          minorDamagePresets: [...(current.plannerSettings.minorDamagePresets ?? []).filter((item) => item.panelId !== preset.panelId), preset],
+        } }))} onCreateEstimate={(acceptance) => {
           const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
           const customer = customerById(acceptance.customerId)
           if (!vehicle || !customer) { setError('Cliente o vettura non trovati.'); return }
-          const q = acceptance.quote
-          const lines = q.lines.filter((line) => line.unitPrice > 0 || line.kind === 'labor').map((line) => ({
-            description: line.description,
-            category: line.kind === 'labor' ? 'carrozzeria' as const : line.kind === 'parts' ? 'ricambi' as const : line.kind === 'consumption' ? 'materiali' as const : line.kind === 'external' ? 'servizi esterni' as const : 'altre' as const,
-            quantity: line.kind === 'discount' ? 1 : Math.max(0, line.quantity),
-            unitPrice: line.kind === 'discount' ? 0 : Math.max(0, line.unitPrice),
-            discount: line.kind === 'discount' ? Math.max(0, line.unitPrice) : 0,
-            vatRate: q.appliedVatRate,
-            estimatedMinutes: line.kind === 'labor' ? Math.round(Math.max(0, line.quantity) * 60) : 0,
-          }))
           try {
+            const lines = acceptanceEstimateLines(acceptance.quote)
             const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', lines })
-            const positiveLines = acceptance.quote.lines
-              .filter((line) => line.kind !== 'discount' && line.unitPrice > 0 && line.quantity > 0)
-              .map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, vatRate: acceptance.quote.appliedVatRate }))
-            const discountAmount = acceptance.quote.lines.filter((line) => line.kind === 'discount').reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
-            const positiveTaxable = positiveLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
-            const discountRate = positiveTaxable > 0 ? Math.min(100, (discountAmount / positiveTaxable) * 100) : 0
-            const customerLines = discountRate > 0
-              ? positiveLines.map((line) => ({ ...line, discountRate }))
-              : positiveLines
+            const customerLines = next.estimates![0].lines.map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
+              vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0 }))
             const quoteData = createQuoteDocument(next, {
               customerId: customer.id,
               vehicleId: vehicle.id,
@@ -1128,6 +1116,7 @@ function App() {
               lines: customerLines,
             })
             setData(quoteData)
+            setView('estimates-jobs')
             setNotice('Preventivo numerato creato. Disponibile in Preventivi / Commesse e Finance per PDF/stampa cliente.')
           } catch (problem) { setError(problem instanceof Error ? problem.message : 'Errore creazione preventivo.') }
         }} onDeleteDraft={(acceptanceId) => {
@@ -1784,7 +1773,7 @@ function VehicleForm({ vehicle, initialCustomerId, customers, statusOptions, onC
   return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? initialCustomerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" defaultValue={vehicle?.make} /></label><label>Modello<input name="model" defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>Telaio<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary" disabled={saving}>{saving ? 'Salvataggio...' : 'Salva vettura'}</button></div></form></Modal>
 }
 
-function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, onDeleteDraft, onOpenCustomerModal, onOpenVehicleModal, onCreateEstimate }: { data: ErpData; autosaveState: 'idle' | 'saving' | 'saved'; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => string; onSave: (acceptance: AcceptanceCase) => void; onDeleteDraft: (acceptanceId: string) => void; onOpenCustomerModal: (options?: { returnToAcceptance?: boolean; onSavedToAcceptance?: (customerId: string) => void }) => void; onOpenVehicleModal: (options?: { customerId?: string; returnToAcceptance?: boolean; onSavedToAcceptance?: (vehicleId: string) => void }) => void; onCreateEstimate: (acceptance: AcceptanceCase) => void }) {
+function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, onDeleteDraft, onOpenCustomerModal, onOpenVehicleModal, onCreateEstimate, onSaveDamagePreset }: { data: ErpData; onSaveDamagePreset?: (preset: MinorDamagePreset) => void; autosaveState: 'idle' | 'saving' | 'saved'; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => string; onSave: (acceptance: AcceptanceCase) => void; onDeleteDraft: (acceptanceId: string) => void; onOpenCustomerModal: (options?: { returnToAcceptance?: boolean; onSavedToAcceptance?: (customerId: string) => void }) => void; onOpenVehicleModal: (options?: { customerId?: string; returnToAcceptance?: boolean; onSavedToAcceptance?: (vehicleId: string) => void }) => void; onCreateEstimate: (acceptance: AcceptanceCase) => void }) {
   const acceptances = useMemo(() => data.acceptances ?? [], [data.acceptances])
   const draftPractices = useMemo(
     () => acceptances
@@ -2177,6 +2166,7 @@ function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, o
       customerById={customerById}
       onSave={onSave}
       onCreateEstimate={onCreateEstimate}
+      onSaveDamagePreset={onSaveDamagePreset}
       openCustomerDetailsRequest={openCustomerDetailsRequest}
       onOpenCustomerDetailsRequestHandled={() => setOpenCustomerDetailsRequest(false)}
       openVehicleDetailsRequest={openVehicleDetailsRequest}
@@ -2290,7 +2280,7 @@ function AcceptanceCasesPage({ data, customerById, onSave, confirmed }: { data: 
   </section>
 }
 
-function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEstimate, onChangeStatus, openCustomerDetailsRequest, onOpenCustomerDetailsRequestHandled, openVehicleDetailsRequest, onOpenVehicleDetailsRequestHandled, pendingCustomerDocumentForOcr, onPendingCustomerDocumentForOcrHandled, pendingVehicleBookletForOcr, onPendingVehicleBookletForOcrHandled }: { acceptance: AcceptanceCase; data: ErpData; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; onCreateEstimate?: (acceptance: AcceptanceCase) => void; onChangeStatus?: (status: AcceptanceCase['status']) => void; openCustomerDetailsRequest?: boolean; onOpenCustomerDetailsRequestHandled?: () => void; openVehicleDetailsRequest?: boolean; onOpenVehicleDetailsRequestHandled?: () => void; pendingCustomerDocumentForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingCustomerDocumentForOcrHandled?: () => void; pendingVehicleBookletForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingVehicleBookletForOcrHandled?: () => void }) {
+function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEstimate, onSaveDamagePreset, onChangeStatus, openCustomerDetailsRequest, onOpenCustomerDetailsRequestHandled, openVehicleDetailsRequest, onOpenVehicleDetailsRequestHandled, pendingCustomerDocumentForOcr, onPendingCustomerDocumentForOcrHandled, pendingVehicleBookletForOcr, onPendingVehicleBookletForOcrHandled }: { acceptance: AcceptanceCase; data: ErpData; onSaveDamagePreset?: (preset: MinorDamagePreset) => void; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; onCreateEstimate?: (acceptance: AcceptanceCase) => void; onChangeStatus?: (status: AcceptanceCase['status']) => void; openCustomerDetailsRequest?: boolean; onOpenCustomerDetailsRequestHandled?: () => void; openVehicleDetailsRequest?: boolean; onOpenVehicleDetailsRequestHandled?: () => void; pendingCustomerDocumentForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingCustomerDocumentForOcrHandled?: () => void; pendingVehicleBookletForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingVehicleBookletForOcrHandled?: () => void }) {
   const customer = customerById(acceptance.customerId)
   const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
   const intake = {
@@ -2316,8 +2306,6 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
   const [vehicleBookletOcrState, setVehicleBookletOcrState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error' | 'info'; message: string }>({ status: 'idle', message: '' })
   const [signatureModalOpen, setSignatureModalOpen] = useState(false)
   const [quoteOpen, setQuoteOpen] = useState(false)
-  const [smartDamagePanel, setSmartDamagePanel] = useState('')
-  const [smartDamageWork, setSmartDamageWork] = useState('Verniciatura')
   const [signatureStrokes, setSignatureStrokes] = useState<Array<Array<{ x: number; y: number }>>>([])
   const intakePhotoInputRef = useRef<HTMLInputElement | null>(null)
   const signaturePadRef = useRef<HTMLDivElement | null>(null)
@@ -2368,7 +2356,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
   const saveAcceptance = (nextAcceptance: AcceptanceCase) => {
     const nextIntake = nextAcceptance.intake ?? latestIntakeRef.current
     const hasDamagePhotos = (nextAcceptance.photos ?? []).some((photo) => photo.category === 'danni') || (nextAcceptance.damagePhotos ?? []).length > 0
-    const hasDamageNotes = Boolean(nextIntake.damageDescription.trim())
+    const hasDamageNotes = Boolean(nextIntake.damageDescription.trim()) || Boolean(nextAcceptance.quote.damageLines?.length)
     const hasSignature = Boolean((nextIntake.signatureDataUrl || nextAcceptance.signatureDataUrl || '').trim())
     const hasAccessoriesConfirmation = Boolean(nextIntake.accessoriesDraft?.confirmed)
     const nextChecklist = (nextIntake.checklist ?? []).map((item) => {
@@ -2736,7 +2724,9 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
     const currentAcceptance = latestAcceptanceRef.current
     const nextRate = Math.max(0, rate)
     const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, unitPrice: nextRate, unitCost: internalRateSnapshot.effectiveHourlyRate } : line)
-    const withRate = { ...currentAcceptance.quote, hourlyRate: nextRate, lines: nextLines }
+    const withRate = { ...currentAcceptance.quote, hourlyRate: nextRate, lines: nextLines,
+      damageLines: currentAcceptance.quote.damageLines?.map((line) => line.damageSeverity !== 'grave' ? line
+        : recalculateDamageLine({ ...line, unitPrice: (line.estimatedMinutes ?? 0) / 60 * nextRate }, data.plannerSettings)) }
     const nextQuote = updateConsumptionLine(withRate, Math.max(0, withRate.materialPercent) / 100)
     saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
   }
@@ -2760,30 +2750,6 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
   }
   const quoteExtraValue = (kind: 'parts' | 'external' | 'other' | 'discount' | 'surcharge') =>
     acceptance.quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
-  const smartDamagePreview = useMemo(() => {
-    if (!smartDamagePanel.trim() || !smartDamageWork.trim()) return null
-    const baseLine = { description: smartDamageWork, standardWorkName: smartDamageWork, panelName: smartDamagePanel, quantity: 1, unitPrice: 0, vatRate: acceptance.quote.appliedVatRate }
-    const listPrice = resolvePriceListUnitPrice(data.plannerSettings.standardWorkPriceList ?? [], baseLine) ?? 0
-    const rule = resolveStandardRuleForLine(data.plannerSettings.standardWorks ?? [], baseLine, data.plannerSettings.standardWorkTimePresets ?? [])
-    const economics = computeLineInternalEconomics({ ...baseLine, unitPrice: listPrice, estimatedMinutes: rule.standardMinutes, lineTotalMinutes: rule.standardMinutes }, data.plannerSettings)
-    return { listPrice, minutes: rule.standardMinutes, economics }
-  }, [acceptance.quote.appliedVatRate, data.plannerSettings, smartDamagePanel, smartDamageWork])
-  const addSmartDamageLine = () => {
-    if (!smartDamagePreview || !smartDamagePanel.trim()) return
-    const currentAcceptance = latestAcceptanceRef.current
-    const hours = smartDamagePreview.minutes / 60
-    const next = {
-      id: crypto.randomUUID(),
-      kind: 'labor' as const,
-      description: `${smartDamageWork} · ${smartDamagePanel}`,
-      quantity: hours,
-      unitCost: smartDamagePreview.economics.internalCostAmount,
-      unitPrice: smartDamagePreview.listPrice > 0 ? smartDamagePreview.listPrice / Math.max(hours, 0.01) : effectiveSaleHourlyRate,
-      source: 'auto' as const,
-    }
-    saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, lines: [...currentAcceptance.quote.lines, next] }, updatedAt: new Date().toISOString() })
-    setSmartDamagePanel('')
-  }
   const persistQuote = () => {
     const currentAcceptance = latestAcceptanceRef.current
     saveAcceptance({ ...currentAcceptance, updatedAt: new Date().toISOString() })
@@ -2906,25 +2872,16 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
       </div>
       {quoteOpen && <div className="panel table-panel">
         <div className="panel-head"><div><span className="eyebrow">PASSAGGIO 3</span><h3>Preventivo</h3><p>Calcolo economico collegato alla pratica.</p></div></div>
-        <div className="preview-card">
-          <h4>Parte danneggiata</h4>
-          <div className="form-grid">
-            <label>Parte / pannello<input value={smartDamagePanel} onChange={(event) => setSmartDamagePanel(event.target.value)} placeholder="Es. Parafango anteriore SX" /></label>
-            <label>Lavorazione<select value={smartDamageWork} onChange={(event) => setSmartDamageWork(event.target.value)}><option>Verniciatura</option><option>Lattoneria</option><option>Preparazione</option><option>Lucidatura</option><option>Smontaggio</option><option>Rimontaggio</option></select></label>
-          </div>
-          {smartDamagePreview && <div className="summary-grid">
-            <div className="summary-card"><span>Prezzo listino</span><strong>{money(smartDamagePreview.listPrice)}</strong></div>
-            <div className="summary-card"><span>Tempo previsto</span><strong>{(smartDamagePreview.minutes / 60).toFixed(2)} h</strong></div>
-            <div className="summary-card"><span>Prezzo minimo consigliato</span><strong>{money(smartDamagePreview.economics.minimumSuggestedPrice)}</strong></div>
-            <div className="summary-card"><span>Margine previsto</span><strong>{smartDamagePreview.economics.theoreticalMarginPercent}%</strong><small>{smartDamagePreview.economics.marginStatus === 'ok' ? 'Dentro obiettivo' : smartDamagePreview.economics.marginStatus === 'loss' ? 'Sotto costo' : 'Margine da verificare'}</small></div>
-          </div>}
-          <div className="form-actions"><button type="button" className="primary" disabled={!smartDamagePreview} onClick={addSmartDamageLine}>+ Aggiungi al preventivo</button></div>
-        </div>
+        <DamageQuoteEditor settings={data.plannerSettings} quote={acceptance.quote} onSavePreset={onSaveDamagePreset} onChange={(quote) => {
+          const current = latestAcceptanceRef.current
+          saveAcceptance({ ...current, quote, updatedAt: new Date().toISOString() })
+        }} />
+        <details className="damage-extra-details"><summary>Altri importi, materiali e IVA</summary>
         <div className="form-grid">
-          <label>Ore manodopera<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
+          <label>Ore manodopera aggiuntive<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
           <label>Tariffa vendita €/h<input type="number" min="0" step="1" value={effectiveSaleHourlyRate} onChange={(event) => updateSaleHourlyRate(Number(event.target.value))} /></label>
           <label>Costo interno €/h<input value={internalRateSnapshot.effectiveHourlyRate.toFixed(2)} readOnly /></label>
-          <label>Materiale consumo %<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
+          <label>Materiali aggiuntivi % (0 se inclusi nei prezzi)<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
           <label>IVA %<input type="number" min="0" step="1" value={acceptance.quote.appliedVatRate} onChange={(event) => updateVatRate(Number(event.target.value))} /></label>
           <label>Ricambi €<input type="number" min="0" step="1" value={quoteExtraValue('parts')} onChange={(event) => upsertQuoteExtra('parts', 'Ricambi', Number(event.target.value))} /></label>
           <label>Lavorazioni esterne €<input type="number" min="0" step="1" value={quoteExtraValue('external')} onChange={(event) => upsertQuoteExtra('external', 'Lavorazioni esterne', Number(event.target.value))} /></label>
@@ -2945,7 +2902,8 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <div className="summary-card"><span>Totale preventivo</span><strong>{money(quoteSummary.total)}</strong></div>
           <div className="summary-card"><span>Margine previsto</span><strong>{money(quoteSummary.marginEuro)} · {quoteSummary.marginPercent}%</strong></div>
         </div>
-        <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
+        </details>
+        <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate || Boolean(damageQuoteError(acceptance.quote.damageLines ?? [])) || quoteSummary.taxableAmount <= 0} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
       </div>}
     </div>
     {expandedDamagePhoto && expandedDamagePhoto.previewSrc && <Modal title={expandedDamagePhoto.photo.name} onClose={() => setExpandedDamagePhotoId(null)}><div className="damage-photo-modal"><img src={expandedDamagePhoto.previewSrc} alt={expandedDamagePhoto.photo.name} /><small>{expandedDamagePhoto.photo.caption || expandedDamagePhoto.photo.name}</small></div></Modal>}

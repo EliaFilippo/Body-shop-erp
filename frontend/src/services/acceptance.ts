@@ -83,7 +83,9 @@ export function createDefaultQuote(settings: PlannerSettings, monthKey: string, 
 }
 
 export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummary {
-  const laborTotal = round(laborLines(quote).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0))
+  const damageLines = quote.damageLines ?? []
+  const laborTotal = round(laborLines(quote).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+    + damageLines.reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0))
   const partsTotal = round(lineTotals(quote, 'parts'))
   const materialsTotal = round(lineTotals(quote, 'consumption'))
   const externalTotal = round(lineTotals(quote, 'external'))
@@ -95,7 +97,7 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
   const total = round(taxableAmount + vatAmount)
   const directCost = (kind: AcceptanceLine['kind']) =>
     quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * Math.max(0, line.unitCost), 0)
-  const laborCost = directCost('labor')
+  const laborCost = directCost('labor') + damageLines.reduce((sum, line) => sum + (line.internalCostAmount ?? 0), 0)
   const partsCost = directCost('parts')
   const materialsCost = directCost('consumption')
   const externalCost = directCost('external')
@@ -104,7 +106,7 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
   const marginEuro = round(taxableAmount - costLive)
   const marginPercent = taxableAmount ? round((marginEuro / taxableAmount) * 100) : 0
   return {
-    labor: { total: laborTotal, lines: laborLines(quote).length },
+    labor: { total: laborTotal, lines: laborLines(quote).length + damageLines.length },
     parts: { total: partsTotal, lines: quote.lines.filter((line) => line.kind === 'parts').length },
     materials: { total: materialsTotal, lines: materialLines(quote).length },
     external: { total: externalTotal, lines: quote.lines.filter((line) => line.kind === 'external').length },
@@ -122,9 +124,9 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
 }
 
 export function updateConsumptionLine(quote: AcceptanceQuote, factor: number) {
-  const labor = quote.lines.find((line) => line.kind === 'labor')
   const current = quote.lines.find((line) => line.kind === 'consumption')
-  const laborAmount = labor ? labor.quantity * labor.unitPrice : 0
+  const laborAmount = quote.lines.filter((line) => line.kind === 'labor').reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+    + (quote.damageLines ?? []).reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0)
   const nextValue = round(laborAmount * factor)
   if (!current) return quote
   const nextLines = quote.lines.map((line) => line.kind === 'consumption' ? { ...line, unitPrice: nextValue, unitCost: nextValue, quantity: 1 } : line)
@@ -284,7 +286,7 @@ export function createAcceptanceDraft(
   settings: PlannerSettings,
   monthKey: string,
 ): AcceptanceCase {
-  const quote = createDefaultQuote(settings, monthKey, 8)
+  const quote = createDefaultQuote(settings, monthKey, 0)
   const intake: AcceptanceIntakeData = {
     mileage: '',
     fuelLevel: '',
