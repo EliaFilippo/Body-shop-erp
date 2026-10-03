@@ -86,7 +86,7 @@ begin
   select o into operator from jsonb_array_elements(coalesce(snapshot->'plannerSettings'->'operators','[]')) o where o->>'id'=p_operator_id;
   if operator is null then raise exception 'Operatore non trovato'; end if;
   with daily as (
-    select d::date day,
+    select d::date work_day,
       coalesce((select sum(greatest(0,extract(epoch from(least(coalesce(s.ended_at,stamp),((d::date+1)::timestamp at time zone 'Europe/Rome'))
         -greatest(s.started_at,(d::date::timestamp at time zone 'Europe/Rome'))))))
         from production_live_segments s where s.company_id=p_company_id and s.operator_id=p_operator_id
@@ -99,9 +99,9 @@ begin
         and s.started_at<((d::date+1)::timestamp at time zone 'Europe/Rome') and stamp>(d::date::timestamp at time zone 'Europe/Rome')
         and d::date=(stamp at time zone 'Europe/Rome')::date) running
     from generate_series(p_from::timestamp,p_to::timestamp,interval '1 day') d
-  ) select jsonb_agg(jsonb_build_object('date',day,'workedSeconds',seconds,'plannedSeconds',planned,
+  ) select jsonb_agg(jsonb_build_object('date',work_day,'workedSeconds',seconds,'plannedSeconds',planned,
       'ordinarySeconds',case when planned is not null then least(seconds,planned) end,
-      'extraSeconds',case when planned is not null then greatest(0,seconds-planned) end,'running',running) order by day),
+      'extraSeconds',case when planned is not null then greatest(0,seconds-planned) end,'running',running) order by work_day),
       sum(seconds),sum(least(seconds,planned)) filter(where planned is not null),sum(greatest(0,seconds-planned)) filter(where planned is not null),
       bool_or(planned is null and seconds>0)
     into rows,worked,ordinary,extra,unconfigured from daily;
