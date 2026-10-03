@@ -7,6 +7,7 @@ create table auth.users(id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 \ir ../schema.sql
 \ir ../migrations/20261003_live_production.sql
+\ir ../migrations/20261003_production_phases_hours.sql
 insert into auth.users values('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002'),('00000000-0000-0000-0000-000000000003'),('00000000-0000-0000-0000-000000000004');
 insert into companies(id,name) values('10000000-0000-0000-0000-000000000001','Test');
 insert into company_members(company_id,user_id,display_name,role) values
@@ -14,7 +15,7 @@ insert into company_members(company_id,user_id,display_name,role) values
  ('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','A','production'),
  ('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000003','B','production');
 insert into erp_snapshots(company_id,revision,payload,updated_by) values('10000000-0000-0000-0000-000000000001',10,
- '{"plannerSettings":{"operators":[{"id":"a","name":"A","active":true},{"id":"b","name":"B","active":true}]},"jobs":[{"id":"j1","number":"1","plate":"TEST1","status":"In lavorazione"},{"id":"j2","number":"2","plate":"TEST2","status":"In lavorazione"}]}',
+ '{"plannerSettings":{"workingDays":[0,1,2,3,4,5,6],"operators":[{"id":"a","name":"A","dailyHours":8,"active":true},{"id":"b","name":"B","dailyHours":8,"active":true}]},"jobs":[{"id":"j1","number":"1","plate":"TEST1","status":"In lavorazione"},{"id":"j2","number":"2","plate":"TEST2","status":"In lavorazione"}]}',
  '00000000-0000-0000-0000-000000000001');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 select production_bind_profile('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','a');

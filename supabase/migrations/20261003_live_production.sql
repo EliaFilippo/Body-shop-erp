@@ -30,7 +30,7 @@ create table if not exists public.production_live_jobs (
 create table if not exists public.production_live_sessions (
   company_id uuid not null, job_id text not null, operator_id text not null,
   user_id uuid not null references auth.users(id), operator_name text not null,
-  status text not null check(status in ('running','paused','finished')),
+  status text not null check(status in ('running','paused','finished')), phase_id text,
   primary key(company_id,job_id,operator_id),
   foreign key(company_id,job_id) references public.production_live_jobs(company_id,job_id)
 );
@@ -38,7 +38,9 @@ create unique index if not exists production_one_running_job
   on public.production_live_sessions(company_id,operator_id) where status='running';
 create table if not exists public.production_live_segments (
   id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid() references auth.users(id),
   company_id uuid not null, job_id text not null, operator_id text not null,
+  phase_id text, ordinary_schedule jsonb,
   rate numeric not null check(rate>0), started_at timestamptz not null default now(), ended_at timestamptz,
   foreign key(company_id,job_id,operator_id) references public.production_live_sessions(company_id,job_id,operator_id),
   check(ended_at is null or ended_at>=started_at)
@@ -96,9 +98,9 @@ begin
       plate=excluded.plate,number=excluded.number,source_revision=excluded.source_revision,approved_by=auth.uid(),approved_at=now();
 end $$;
 
-create or replace function public.production_timer_action(p_company_id uuid,p_job_id text,p_action text)
+create or replace function public.production_timer_action(p_company_id uuid,p_job_id text,p_action text,p_phase_id text default null)
 returns void language plpgsql security definer set search_path=public as $$
-declare profile text; operator jsonb; current_status text; stamp timestamptz:=clock_timestamp();
+declare profile text; operator jsonb; current_status text; current_phase text; snapshot jsonb; job jsonb; phase jsonb; stamp timestamptz:=clock_timestamp();
 begin
   if not public.is_active_company_member(p_company_id) then raise exception 'Accesso aziendale richiesto'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_company_id::text,0));
@@ -112,19 +114,29 @@ begin
   select r into operator from production_live_jobs j,jsonb_array_elements(j.operator_rates) r
     where j.company_id=p_company_id and j.job_id=p_job_id and r->>'id'=profile;
   if operator is null then raise exception 'Budget non confermato per questo operatore'; end if;
-  select status into current_status from production_live_sessions
+  select status,phase_id into current_status,current_phase from production_live_sessions
     where company_id=p_company_id and job_id=p_job_id and operator_id=profile;
   if p_action='start' then
-    if current_status='running' then return; end if; -- repeated request is safe
+    if current_status='running' and current_phase is not distinct from p_phase_id then return; end if;
+    if current_status='running' then raise exception 'Metti in pausa prima di cambiare fase'; end if;
     if exists(select 1 from production_live_sessions where company_id=p_company_id and operator_id=profile and status='running')
       then raise exception 'Metti in pausa la vettura già avviata prima di iniziarne un’altra'; end if;
     if not exists(select 1 from erp_snapshots s,jsonb_array_elements(coalesce(s.payload->'jobs','[]')) j
       where s.company_id=p_company_id and j->>'id'=p_job_id and j->>'status' not in ('Consegnata','Annullata'))
       then raise exception 'La commessa è chiusa'; end if;
-    insert into production_live_sessions values(p_company_id,p_job_id,profile,auth.uid(),operator->>'name','running')
-      on conflict(company_id,job_id,operator_id) do update set status='running',user_id=auth.uid();
-    insert into production_live_segments(company_id,job_id,operator_id,rate,started_at)
-      values(p_company_id,p_job_id,profile,(operator->>'rate')::numeric,stamp);
+    select payload into snapshot from erp_snapshots where company_id=p_company_id;
+    select j into job from jsonb_array_elements(coalesce(snapshot->'jobs','[]')) j where j->>'id'=p_job_id;
+    if exists(select 1 from jsonb_array_elements(coalesce(job->'phases','[]')) ph where not coalesce((ph->>'notRequired')::boolean,false)) then
+      select ph into phase from jsonb_array_elements(job->'phases') ph where ph->>'id'=p_phase_id;
+      if phase is null or coalesce((phase->>'notRequired')::boolean,false) then raise exception 'Scegli una fase da lavorare'; end if;
+      if phase->>'status' in ('Completata','Bloccata') or exists(select 1 from production_phase_checks where company_id=p_company_id and job_id=p_job_id and phase_id=p_phase_id)
+        then raise exception 'La fase è completata o bloccata'; end if;
+    elsif p_phase_id is not null then raise exception 'Fase non disponibile'; end if;
+    insert into production_live_sessions(company_id,job_id,operator_id,user_id,operator_name,status,phase_id)
+      values(p_company_id,p_job_id,profile,auth.uid(),operator->>'name','running',p_phase_id)
+      on conflict(company_id,job_id,operator_id) do update set status='running',user_id=auth.uid(),phase_id=excluded.phase_id;
+    insert into production_live_segments(company_id,job_id,operator_id,rate,started_at,phase_id,ordinary_schedule)
+      values(p_company_id,p_job_id,profile,(operator->>'rate')::numeric,stamp,p_phase_id,production_operator_schedule(snapshot,profile));
   elsif p_action in ('pause','finish') then
     if current_status is null then raise exception 'Nessun lavoro avviato su questa vettura'; end if;
     -- Stop the caller only. A colleague may still be working on this job.
@@ -159,14 +171,21 @@ begin
     'jobs',coalesce((select jsonb_agg(jsonb_build_object('jobId',c.job_id,'plate',c.plate,'number',c.number,
       'remainingSeconds',case when greatest(c.active_rate,c.own_rate)>0 then greatest(0,c.initial_budget-c.spent)/
         (case when c.active_rate>0 then c.active_rate else c.own_rate end)*3600 else null end,
+      'ownRemainingSeconds',case when c.own_rate>0 then greatest(0,c.initial_budget-c.spent)/c.own_rate*3600 else null end,
+      'ownBurnFactor',case when c.own_rate>0 then c.active_rate/c.own_rate else 0 end,
+      'ownPhaseId',(select ss.phase_id from production_live_sessions ss where ss.company_id=c.company_id and ss.job_id=c.job_id and ss.operator_id=profile),
       'remainingPercent',greatest(0,c.initial_budget-c.spent)/c.initial_budget*100,'activeCount',c.active_count,
       'ownStatus',(select ss.status from production_live_sessions ss where ss.company_id=c.company_id and ss.job_id=c.job_id and ss.operator_id=profile),
       'operators',coalesce((select jsonb_agg(jsonb_build_object('name',ss.operator_name,'status',ss.status)) from production_live_sessions ss
-        where ss.company_id=c.company_id and ss.job_id=c.job_id),'[]'::jsonb))) from clocks c),'[]'::jsonb)) into result;
+        where ss.company_id=c.company_id and ss.job_id=c.job_id),'[]'::jsonb)) || production_job_details(p_company_id,c.job_id)) from clocks c),'[]'::jsonb)) into result;
+  result:=result || jsonb_build_object('today',case when profile is not null then production_hours_report(p_company_id,profile,(stamp at time zone 'Europe/Rome')::date,(stamp at time zone 'Europe/Rome')::date) else null end,
+    'staff',case when member_role in ('owner','office') then coalesce((select jsonb_agg(jsonb_build_object('operatorId',o->>'id','name',o->>'name',
+      'today',production_hours_report(p_company_id,o->>'id',(stamp at time zone 'Europe/Rome')::date,(stamp at time zone 'Europe/Rome')::date)))
+      from erp_snapshots s,jsonb_array_elements(coalesce(s.payload->'plannerSettings'->'operators','[]')) o where s.company_id=p_company_id),'[]'::jsonb) else '[]'::jsonb end);
   return result;
 end $$;
 revoke all on function public.production_bind_profile(uuid,uuid,text),public.production_prepare_job(uuid,text,bigint,numeric,jsonb),
-  public.production_timer_action(uuid,text,text),public.production_live_feed(uuid) from public;
+  public.production_timer_action(uuid,text,text,text),public.production_live_feed(uuid) from public;
 grant execute on function public.production_bind_profile(uuid,uuid,text),public.production_prepare_job(uuid,text,bigint,numeric,jsonb),
-  public.production_timer_action(uuid,text,text),public.production_live_feed(uuid) to authenticated;
+  public.production_timer_action(uuid,text,text,text),public.production_live_feed(uuid) to authenticated;
 commit;

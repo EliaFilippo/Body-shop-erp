@@ -6,11 +6,22 @@ export interface LiveClock {
   jobId: string; plate: string; number: string; remainingSeconds: number | null;
   remainingPercent: number; activeCount: number; ownStatus: 'running' | 'paused' | 'finished' | null;
   operators: { name: string; status: string }[];
+  ownRemainingSeconds?: number | null; ownBurnFactor?: number; ownPhaseId?: string | null;
+  phases?: LivePhase[];
+  tasks?: { id: string; description: string; panel?: string; quantity: number }[];
+}
+export interface LivePhase { id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
+export interface HoursDay { date: string; workedSeconds: number; plannedSeconds: number | null; ordinarySeconds: number | null; extraSeconds: number | null; running: boolean }
+export interface HoursReport {
+  operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];
+  workedSeconds: number; ordinarySeconds: number | null; extraSeconds: number | null; unconfigured: boolean;
 }
 export interface LiveFeed {
   companyId: string; serverNow: string; role: 'owner' | 'office' | 'production';
   operatorName: string | null; jobs: LiveClock[];
   members: { userId: string; name: string; operatorId: string | null }[];
+  today?: HoursReport | null;
+  staff?: { operatorId: string; name: string; today: HoursReport }[];
 }
 
 export async function refreshProductionSession(session: CloudAuthSession, config: CloudAuthConfig): Promise<CloudAuthSession> {
@@ -54,7 +65,45 @@ export function liveCountdown(clock: LiveClock, elapsedSeconds: number) {
   const seconds = clock.remainingSeconds === null ? null : Math.max(0, clock.remainingSeconds - (clock.activeCount > 0 ? elapsed : 0))
   const percent = clock.activeCount > 0 && clock.remainingSeconds && clock.remainingSeconds > 0
     ? Math.max(0, clock.remainingPercent * (seconds ?? 0) / clock.remainingSeconds) : clock.remainingPercent
-  return { seconds, percent, warning: percent <= 20, exhausted: percent <= 0 }
+  const individualSeconds = clock.ownRemainingSeconds === undefined ? seconds : clock.ownRemainingSeconds === null ? null
+    : Math.max(0, clock.ownRemainingSeconds - elapsed * (clock.ownBurnFactor ?? 0))
+  return { seconds, individualSeconds, percent, warning: percent <= 20, exhausted: percent <= 0 }
+}
+
+/** Productive time only: one running segment per operator, pauses excluded. */
+export function interpolateHours(report: HoursReport, elapsedSeconds: number) {
+  const elapsed = Math.max(0, elapsedSeconds)
+  const days = report.days.map(day => {
+    const workedSeconds = day.workedSeconds + (day.running ? elapsed : 0)
+    return { ...day, workedSeconds, ordinarySeconds: day.plannedSeconds === null ? null : Math.min(workedSeconds, day.plannedSeconds),
+      extraSeconds: day.plannedSeconds === null ? null : Math.max(0, workedSeconds - day.plannedSeconds) }
+  })
+  const unconfigured = days.some(d => d.plannedSeconds === null && d.workedSeconds > 0)
+  return { ...report, days, workedSeconds: days.reduce((sum, d) => sum + d.workedSeconds, 0), unconfigured,
+    ordinarySeconds: unconfigured ? null : days.reduce((sum, d) => sum + (d.ordinarySeconds ?? 0), 0),
+    extraSeconds: unconfigured ? null : days.reduce((sum, d) => sum + (d.extraSeconds ?? 0), 0) }
+}
+
+export interface PhaseCheckUpdate { jobId: string; phaseId: string; checkedBy: string; checkedAt: string; workedSeconds: number }
+/** Import canonical signatures without letting an old office snapshot erase them. */
+export function applyLivePhaseChecks(data: ErpData, checks: PhaseCheckUpdate[]): ErpData {
+  let changed = false
+  const jobs = (data.jobs ?? []).map(job => {
+    let jobChanged = false
+    const history = [...job.history]
+    const phases = job.phases.map(phase => {
+      const check = checks.find(c => c.jobId === job.id && c.phaseId === phase.id)
+      if (!check || !check.checkedBy || !Number.isFinite(Date.parse(check.checkedAt))) return phase
+      if (phase.status === 'Completata' && phase.completedByName === check.checkedBy && phase.completedAt === check.checkedAt && phase.tabletWorkedSeconds === check.workedSeconds) return phase
+      changed = true; jobChanged = true
+      const historyId = `tablet:${job.id}:${phase.id}:${check.checkedAt}`
+      if (!history.some(h => h.id === historyId)) history.unshift({ id: historyId, at: check.checkedAt, actor: check.checkedBy, message: `Fase ${phase.name} completata da tablet.` })
+      return { ...phase, status: 'Completata' as const, completedByName: check.checkedBy, completedAt: check.checkedAt,
+        endedAt: check.checkedAt, tabletWorkedSeconds: check.workedSeconds }
+    })
+    return jobChanged ? { ...job, phases, history } : job
+  })
+  return changed ? { ...data, jobs } : data
 }
 
 export async function productionRpc<T>(name: string, body: Record<string, unknown>, session: CloudAuthSession,

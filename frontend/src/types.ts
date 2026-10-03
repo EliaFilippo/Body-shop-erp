@@ -1056,6 +1056,9 @@ export interface EstimateDocument {
 export interface JobPhase {
   id: string
   name: string
+  completedByName?: string
+  completedAt?: string
+  tabletWorkedSeconds?: number
   status: JobPhaseStatus
   notRequired?: boolean
   cycleOrder?: number

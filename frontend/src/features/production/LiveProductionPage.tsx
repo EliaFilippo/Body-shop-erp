@@ -4,6 +4,7 @@ import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../serv
 import { loadCloudSnapshot, type CloudSnapshot } from '../../services/cloudSync'
 import { liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
 import './liveProduction.css'
+import { EmployeeHours, HoursTotals } from './EmployeeHours'
 
 const config = getCloudAuthConfig()
 const sessionKey = 'body-shop-erp.cloud-session.v1'
@@ -25,6 +26,7 @@ export function LiveProductionPage() {
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
   const sessionRef = useRef(session)
   sessionRef.current = session
@@ -142,24 +144,47 @@ export function LiveProductionPage() {
     {session && feed && <>
       {!feed.operatorName && <p className="live-alert">Il titolare deve collegare questo account al tuo operatore prima di avviare il lavoro.</p>}
       <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 2 secondi'}</p>
+      {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
+        <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
       <p>Il tempo è condiviso fra tutti gli operatori attivi sulla vettura. Pausa e Fine riguardano soltanto il tuo lavoro. Fine non chiude la commessa.</p>
       <section className="live-job-grid" aria-label="Vetture disponibili">
         {feed.jobs.map(job => {
           const clock = liveCountdown(job, (performance.now() - lastSample.current) / 1000)
+          const availablePhases = (job.phases ?? []).filter(p => !p.notRequired && !['Completata', 'Bloccata'].includes(p.status))
+          const selected = [phaseChoices[job.jobId], job.ownPhaseId, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
+          const requiresPhase = (job.phases ?? []).some(p => !p.notRequired)
           return <article key={job.jobId} className={`live-job ${!stale && clock.warning ? 'live-warning' : ''}`}>
             <h2>{job.plate}</h2><p>Commessa {job.number}</p>
-            <p>{job.activeCount > 0 ? `Tempo residuo con ${job.activeCount} operatori attivi` : 'Ore residue se lavori da solo'}</p>
-            <strong className="live-clock" aria-label="Tempo residuo">{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong>
+            <p>Ore disponibili per te · costo totale del tuo operatore</p>
+            <strong className="live-clock" aria-label="Ore disponibili per te">{stale ? 'Da aggiornare' : clockText(clock.individualSeconds)}</strong>
+            {job.activeCount > 0 && <p>{`Tempo residuo con ${job.activeCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
-            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || job.ownStatus === 'running' || !!(ownRunning && ownRunning.jobId !== job.jobId)}
-              onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'start' })}>{job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
+            {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy || job.ownStatus === 'running'}
+              onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
+              {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
+              {availablePhases.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>}
+            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected) || !!(ownRunning && ownRunning.jobId !== job.jobId)}
+              onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'start', p_phase_id: selected || null })}>{job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
+            {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{task.description}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}
+            {!!job.phases?.length && <section className="live-phases" aria-label={`Fasi di ${job.plate}`}><h3>Avanzamento fasi</h3>
+              <p>{availablePhases[0] ? `Prossima fase da completare: ${availablePhases[0].name}` : 'Nessuna fase aperta e disponibile'}</p>
+              <ol>{job.phases.filter(p => !p.notRequired).map(phase => <li key={phase.id}>
+                <strong>{phase.status === 'Completata' ? '✓ ' : ''}{phase.name}</strong>
+                {phase.checkedBy && phase.checkedAt ? <p>Visto di {phase.checkedBy} · {new Date(phase.checkedAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
+                  : <p>{phase.status === 'Completata' ? 'Completata nel gestionale · visto non registrato' : phase.status}</p>}
+                {phase.blockedReason && phase.status === 'Bloccata' && <p>{phase.blockedReason}</p>}
+                {!['Completata', 'Bloccata'].includes(phase.status) && <button disabled={busy || stale || !phase.canComplete}
+                  onClick={() => void act('production_complete_phase', { p_job_id: job.jobId, p_phase_id: phase.id })}>✓ Completa {phase.name}</button>}
+              </li>)}</ol><p>Il visto registra chi ha completato la fase e ferma il suo timer su quella fase. Gli altri operatori devono prima mettere in pausa o terminare il lavoro sulla stessa fase.</p>
+            </section>}
           </article>
         })}
         {!feed.jobs.length && <p>Il titolare deve confermare il budget della prima commessa.</p>}
       </section>
+      {['owner', 'office'].includes(feed.role) && <EmployeeHours feed={feed} session={session} config={config!} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />}
       {feed.role === 'owner' && snapshot && <details className="live-admin"><summary>Configurazione tablet e budget · Titolare</summary>
         <h2>Collega gli account agli operatori</h2><p>Gli account devono già appartenere all’azienda. Un profilo per operatore.</p>
         {feed.members.map(member => <label key={member.userId}>{member.name}<select aria-label={`Operatore per ${member.name}`} value={member.operatorId ?? ''} disabled={busy}

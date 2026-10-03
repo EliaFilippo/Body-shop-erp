@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Database isolation, economic budget, pause and idempotency
         run: psql -f supabase/tests/live_production.sql
+      - name: Phase signatures, employee hours, overtime and Rome midnight
+        run: psql -f supabase/tests/production_phases_hours.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
