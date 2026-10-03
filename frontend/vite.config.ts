@@ -5,6 +5,7 @@ import { documentIdentityOcrPlugin } from './server/viteOcrPlugin.js'
 export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? '/Body-shop-erp/' : '/',
   plugins: [react(), documentIdentityOcrPlugin()],
+  build: { rollupOptions: { input: { main: 'index.html', production: 'production.html' } } },
   server: {
     host: true,
     port: 5173,
