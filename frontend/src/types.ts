@@ -478,7 +478,7 @@ export interface MinorDamagePreset {
   panelId: string
   panelName: string
   updatedAt: string
-  lines: Array<{ workId: string; minutes: number; price: number }>
+  lines: Array<{ workId: string; minutes: number; price: number; priceVariant?: string; materialsIncluded?: boolean }>
 }
 
 export type InternalMonthlyCostCategory =
@@ -966,6 +966,8 @@ export interface EstimateLine {
   panelId?: string
   panelName?: string
   damageSeverity?: 'lieve' | 'grave'
+  materialsIncluded?: boolean
+  priceVariant?: string
   panelSide?: 'sx' | 'dx' | 'center' | ''
   repairExtent?: 'intero' | 'mezzo'
   panelWorkNote?: string
