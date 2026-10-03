@@ -24,6 +24,12 @@ select production_prepare_job('10000000-0000-0000-0000-000000000001','j2',10,120
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
 select production_timer_action('10000000-0000-0000-0000-000000000001','j1','start');
 select production_timer_action('10000000-0000-0000-0000-000000000001','j1','start');
+set role authenticated;
+do $$begin
+  if (select count(*) from erp_snapshots)<>0 then raise exception 'Production role sees financial snapshot'; end if;
+  if production_live_feed('10000000-0000-0000-0000-000000000001')->>'operatorName'<>'A' then raise exception 'Production feed not available'; end if;
+end $$;
+reset role;
 do $$begin
   if (select count(*) from production_live_segments)<>1 then raise exception 'Duplicate start'; end if;
   begin
@@ -55,6 +61,11 @@ end $$;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
 select production_timer_action('10000000-0000-0000-0000-000000000001','j1','finish');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+set role authenticated;
+do $$begin
+  if (select count(*) from erp_snapshots)<>1 then raise exception 'Owner lost ERP access'; end if;
+end $$;
+reset role;
 do $$begin
   begin
     perform production_prepare_job('10000000-0000-0000-0000-000000000001','j1',10,999,'[{"id":"a","name":"A","rate":1}]');
