@@ -18,10 +18,12 @@ describe('tablet budget clock', () => {
     data.plannerSettings.operators = [{ id: 'a', name: 'A', active: true, dailyHours: 8, hourlyCost: 20 }, { id: 'b', name: 'B', active: true, dailyHours: 8, hourlyCost: 30 }]
     const job = { status: 'In lavorazione', taxableAmount: 200, lines: [
       { category: 'carrozzeria', quantity: 1, unitPrice: 150, discount: 0 },
-      { category: 'ricambi', quantity: 1, unitPrice: 50, discount: 0, budgetDirectCost: 40 },
+      { category: 'ricambi', quantity: 1, unitPrice: 50, discount: 0, budgetDirectUnitCost: 40 },
     ] } as RepairJob
     expect(prepareLiveJob(data, job)).toMatchObject({ budget: 130, materials: 30, directCosts: 40, operators: [{ id: 'a', rate: 50 }, { id: 'b', rate: 60 }] })
-    delete job.lines[1].budgetDirectCost
+    job.lines[1].quantity = 2
+    expect(prepareLiveJob(data, job).directCosts).toBe(80)
+    delete job.lines[1].budgetDirectUnitCost
     expect(() => prepareLiveJob(data, job)).toThrow('costi diretti')
     data.plannerSettings.operators[0].hourlyCost = 0
     expect(() => prepareLiveJob(data, job)).toThrow('costo orario')
