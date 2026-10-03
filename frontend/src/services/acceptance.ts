@@ -126,7 +126,7 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
 export function updateConsumptionLine(quote: AcceptanceQuote, factor: number) {
   const current = quote.lines.find((line) => line.kind === 'consumption')
   const laborAmount = quote.lines.filter((line) => line.kind === 'labor').reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
-    + (quote.damageLines ?? []).reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0)
+    + (quote.damageLines ?? []).filter((line) => !line.materialsIncluded).reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0)
   const nextValue = round(laborAmount * factor)
   if (!current) return quote
   const nextLines = quote.lines.map((line) => line.kind === 'consumption' ? { ...line, unitPrice: nextValue, unitCost: nextValue, quantity: 1 } : line)

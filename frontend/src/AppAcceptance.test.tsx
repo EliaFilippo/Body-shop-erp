@@ -166,6 +166,7 @@ describe('Acceptance flow', () => {
     const openQuote = () => fireEvent.click(screen.getAllByRole('button', { name: 'Avanti → Preventivo' }).find((button) => !(button as HTMLButtonElement).disabled)!)
     openQuote()
     fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX' }))
+    fireEvent.click(screen.getByText('Altre lavorazioni e tempi separati'))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Lattoneria' }))
     expect(screen.getByRole('button', { name: 'Crea preventivo numerato' })).toBeDisabled()
     fireEvent.change(screen.getByLabelText('Ore Lattoneria'), { target: { value: '2' } })

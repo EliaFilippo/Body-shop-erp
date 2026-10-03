@@ -589,6 +589,8 @@ function EstimateEditor({
       panelId: line.panelId,
       panelName: line.panelName,
       damageSeverity: line.damageSeverity,
+      materialsIncluded: line.materialsIncluded,
+      priceVariant: line.priceVariant,
       panelSide: line.panelSide,
       repairExtent: line.repairExtent,
       panelWorkNote: line.panelWorkNote,

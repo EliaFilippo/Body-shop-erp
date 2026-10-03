@@ -507,6 +507,11 @@ main{min-width:0}header{height:92px;padding:0 32px;display:flex;align-items:cent
 .damage-work-values input{width:100%;min-width:0}.damage-work-values strong{font-size:18px;align-self:center}
 .damage-incomplete{color:#ffc287!important;line-height:1.5;grid-column:1/-1}
 .damage-hint{padding:10px;border-left:3px solid #d8b779;background:#d8b77915}
+.damage-panel-picker{display:grid;gap:8px;margin:14px 0;font-size:13px}.damage-panel-picker select{width:100%;min-height:44px;max-width:100%}.damage-whole{width:100%;min-height:44px;margin-bottom:14px}
+.elias-price-choices{display:grid;gap:10px;padding:12px;border:1px solid #a58c61;border-radius:10px;margin-bottom:14px;background:#26251f}.elias-price-choices>small{line-height:1.5;color:#d3cbbb}
+.elias-price-choice{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid #63583f;padding-top:10px;font-size:14px}.elias-price-choice>div{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.elias-price-choice button{min-height:44px;white-space:nowrap;color:#ffe1a1;min-width:80px}
+.elias-materials{display:block;color:#a8dbbf;margin:8px 0}.elias-price-table{overflow-x:auto}.elias-price-table table{width:100%;text-align:left}.elias-price-table th,.elias-price-table td{padding:9px;border-bottom:1px solid #485364}.elias-price-table td:last-child{white-space:nowrap}
+@media(max-width:600px){.elias-price-choice{align-items:flex-start;flex-direction:column}.elias-price-choice>div{justify-content:flex-start;width:100%}.elias-price-choices{padding:10px}}
 .damage-panel-total{display:flex;flex-direction:column;gap:7px;border-top:1px solid #5a6170;padding-top:14px;margin-bottom:14px}
 .damage-panel-total strong{font-size:19px;color:#f0d29b}.damage-panel-total span{font-size:12px}
 .damage-actions{display:flex;flex-wrap:wrap;gap:8px}.damage-actions button{min-height:42px;font-size:12px}
