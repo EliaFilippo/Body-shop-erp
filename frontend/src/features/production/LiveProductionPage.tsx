@@ -128,7 +128,7 @@ export function LiveProductionPage() {
   const ownRunning = feed?.jobs.find(j => j.ownStatus === 'running')
 
   return <main className="live-production">
-    <header><div><p>ELIAS · BODY SHOP ERP</p><h1>Il mio lavoro</h1></div>
+    <header><div><p>ELIAS · BODY SHOP ERP</p><h1>{feed && ['owner', 'office'].includes(feed.role) ? 'Produzione e monte ore' : 'Il mio lavoro'}</h1></div>
       <div>{feed?.operatorName && <strong>{feed.operatorName}</strong>} {session && <button disabled={busy} onClick={() => void logout()}>Esci dal profilo</button>}
         <a href={import.meta.env.BASE_URL}>Gestionale</a></div></header>
     {!config && <p role="alert">Collegamento Supabase non configurato.</p>}
@@ -146,6 +146,14 @@ export function LiveProductionPage() {
       <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 2 secondi'}</p>
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
+      {feed.operatorName && <section className="live-day-hours"><h2>I miei lavori assegnati</h2>
+        {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.plate} · {task.phaseName}</strong>
+          <p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
+          {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
+          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}>Apri vettura e fase</a>
+            : <p>Il titolare deve confermare il budget prima di avviare il lavoro.</p>}</li>)}</ol>
+          : <p>Nessun lavoro assegnato nel Programma operatori. Puoi consultare le vetture disponibili qui sotto.</p>}
+      </section>}
       <p>Il tempo è condiviso fra tutti gli operatori attivi sulla vettura. Pausa e Fine riguardano soltanto il tuo lavoro. Fine non chiude la commessa.</p>
       <section className="live-job-grid" aria-label="Vetture disponibili">
         {feed.jobs.map(job => {
@@ -153,11 +161,12 @@ export function LiveProductionPage() {
           const availablePhases = (job.phases ?? []).filter(p => !p.notRequired && !['Completata', 'Bloccata'].includes(p.status))
           const selected = [phaseChoices[job.jobId], job.ownPhaseId, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
           const requiresPhase = (job.phases ?? []).some(p => !p.notRequired)
-          return <article key={job.jobId} className={`live-job ${!stale && clock.warning ? 'live-warning' : ''}`}>
+          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && clock.warning ? 'live-warning' : ''}`}>
             <h2>{job.plate}</h2><p>Commessa {job.number}</p>
-            <p>Ore disponibili per te · costo totale del tuo operatore</p>
-            <strong className="live-clock" aria-label="Ore disponibili per te">{stale ? 'Da aggiornare' : clockText(clock.individualSeconds)}</strong>
-            {job.activeCount > 0 && <p>{`Tempo residuo con ${job.activeCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
+            <p>{feed.operatorName ? 'Ore disponibili per te se lavori da solo · costo totale' : 'Tempo residuo della squadra attiva'}</p>
+            <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? clock.individualSeconds : clock.seconds)}</strong>
+            {job.activeCount > 1 && <p>Anche il lavoro dei colleghi riduce le tue ore disponibili sul budget comune.</p>}
+            {job.activeCount > 0 && feed.operatorName && <p>{`Tempo residuo con ${job.activeCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy || job.ownStatus === 'running'}

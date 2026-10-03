@@ -4,8 +4,11 @@ set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||
   '[{"id":"j3","number":"3","plate":"TEST3","status":"In lavorazione","lines":[{"id":"l1","description":"Porta da verniciare","quantity":1}],"phases":[{"id":"p1","name":"Preparazione","status":"Da fare","cycleOrder":1},{"id":"p2","name":"Verniciatura","status":"Da fare","cycleOrder":2}]}]');
 select production_prepare_job('10000000-0000-0000-0000-000000000001','j3',10,120,'[{"id":"a","name":"A","rate":50},{"id":"b","name":"B","rate":60}]');
+update erp_snapshots set payload=jsonb_set(payload,'{operatorPrograms}',
+  '[{"operatorId":"a","tasks":[{"id":"a1","jobId":"j3","plate":"TEST3","phaseId":"p1","phaseName":"Preparazione","startAt":"2026-10-03T08:00:00+02:00"},{"id":"a2","jobId":"j3","plate":"TEST3","phaseId":"p2","phaseName":"Verniciatura","startAt":"2026-10-03T09:00:00+02:00"}]},{"operatorId":"b","tasks":[{"id":"b1","jobId":"j3","plate":"TEST3","phaseId":"p1","phaseName":"Preparazione","startAt":"2026-10-03T08:00:00+02:00"}]}]');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
 do $$begin
+  if production_live_feed('10000000-0000-0000-0000-000000000001')->'program'->0->>'id'<>'a1' then raise exception 'Wrong personal work list'; end if;
   begin
     perform production_complete_phase('10000000-0000-0000-0000-000000000001','j3','p1');
     raise exception 'Unsigned unworked phase allowed';
@@ -32,6 +35,7 @@ do $$declare feed jsonb; job jsonb; begin
   select j into job from jsonb_array_elements(feed->'jobs') j where j->>'jobId'='j3';
   if job->'phases'->0->>'checkedBy'<>'A' or job->'phases'->0->>'status'<>'Completata' or job->'tasks'->0->>'description'<>'Porta da verniciare'
     then raise exception 'Phase/task not visible'; end if;
+  if jsonb_array_length(feed->'program')<>1 or feed->'program'->0->>'id'<>'a2' then raise exception 'Completed task not removed from personal list'; end if;
   begin
     perform production_timer_action('10000000-0000-0000-0000-000000000001','j3','start','p1');
     raise exception 'Completed phase restarted';

@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { CloudAuthConfig, CloudAuthSession } from '../../services/cloudAuth'
 import { interpolateHours, productionRpc, type HoursReport, type LiveFeed } from '../../services/liveProduction'
 
-const hoursText = (seconds: number | null) => seconds === null ? 'Da configurare' : `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m`
+const hoursText = (seconds: number | null, showSeconds = false) => seconds === null ? 'Da configurare' : `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m${showSeconds ? ` ${String(Math.floor(seconds) % 60).padStart(2, '0')}s` : ''}`
 const romeMonth = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit' }).format(new Date())
 
 export function HoursTotals({ report, elapsed, stale }: { report: HoursReport; elapsed: number; stale: boolean }) {
   const hours = interpolateHours(report, stale ? 0 : elapsed)
-  return <div className="live-hours-totals"><div><span>Lavoro registrato</span><strong>{hoursText(hours.workedSeconds)}</strong></div>
+  return <div className="live-hours-totals"><div><span>Lavoro registrato</span><strong>{hoursText(hours.workedSeconds, true)}</strong></div>
     <div><span>Ore ordinarie</span><strong>{hoursText(hours.ordinarySeconds)}</strong></div><div><span>Ore extra</span><strong>{hoursText(hours.extraSeconds)}</strong></div>
     {hours.unconfigured && <p>Completa gli orari dell’operatore per distinguere le ore ordinarie dagli extra.</p>}
     {stale && <p>Ultimi dati ricevuti · aggiornamento sospeso</p>}

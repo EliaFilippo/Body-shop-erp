@@ -178,7 +178,15 @@ begin
       'ownStatus',(select ss.status from production_live_sessions ss where ss.company_id=c.company_id and ss.job_id=c.job_id and ss.operator_id=profile),
       'operators',coalesce((select jsonb_agg(jsonb_build_object('name',ss.operator_name,'status',ss.status)) from production_live_sessions ss
         where ss.company_id=c.company_id and ss.job_id=c.job_id),'[]'::jsonb)) || production_job_details(p_company_id,c.job_id)) from clocks c),'[]'::jsonb)) into result;
-  result:=result || jsonb_build_object('today',case when profile is not null then production_hours_report(p_company_id,profile,(stamp at time zone 'Europe/Rome')::date,(stamp at time zone 'Europe/Rome')::date) else null end,
+  result:=result || jsonb_build_object('program',coalesce((select jsonb_agg(jsonb_build_object('id',task->>'id','jobId',task->>'jobId','plate',task->>'plate',
+      'phaseId',task->>'phaseId','phaseName',task->>'phaseName','startAt',task->>'startAt','endAt',task->>'endAt','panels',coalesce(task->'panelNames','[]'),
+      'ready',exists(select 1 from production_live_jobs lj where lj.company_id=p_company_id and lj.job_id=task->>'jobId')) order by task->>'startAt')
+      from erp_snapshots s,jsonb_array_elements(coalesce(s.payload->'operatorPrograms','[]')) program,jsonb_array_elements(coalesce(program->'tasks','[]')) task
+      where s.company_id=p_company_id and program->>'operatorId'=profile
+        and not exists(select 1 from production_phase_checks pc where pc.company_id=p_company_id and pc.job_id=task->>'jobId' and pc.phase_id=task->>'phaseId')
+        and exists(select 1 from jsonb_array_elements(coalesce(s.payload->'jobs','[]')) jj where jj->>'id'=task->>'jobId' and jj->>'status' not in ('Consegnata','Annullata')
+          and not exists(select 1 from jsonb_array_elements(coalesce(jj->'phases','[]')) ph where ph->>'id'=task->>'phaseId' and (ph->>'status'='Completata' or coalesce((ph->>'notRequired')::boolean,false))))),'[]'::jsonb),
+    'today',case when profile is not null then production_hours_report(p_company_id,profile,(stamp at time zone 'Europe/Rome')::date,(stamp at time zone 'Europe/Rome')::date) else null end,
     'staff',case when member_role in ('owner','office') then coalesce((select jsonb_agg(jsonb_build_object('operatorId',o->>'id','name',o->>'name',
       'today',production_hours_report(p_company_id,o->>'id',(stamp at time zone 'Europe/Rome')::date,(stamp at time zone 'Europe/Rome')::date)))
       from erp_snapshots s,jsonb_array_elements(coalesce(s.payload->'plannerSettings'->'operators','[]')) o where s.company_id=p_company_id),'[]'::jsonb) else '[]'::jsonb end);

@@ -22,6 +22,7 @@ export interface LiveFeed {
   members: { userId: string; name: string; operatorId: string | null }[];
   today?: HoursReport | null;
   staff?: { operatorId: string; name: string; today: HoursReport }[];
+  program?: { id: string; jobId: string; plate: string; phaseId: string; phaseName: string; startAt: string; endAt: string; ready: boolean; panels: string[] }[];
 }
 
 export async function refreshProductionSession(session: CloudAuthSession, config: CloudAuthConfig): Promise<CloudAuthSession> {
