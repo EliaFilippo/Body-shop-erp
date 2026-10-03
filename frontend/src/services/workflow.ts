@@ -303,11 +303,13 @@ export function calculateAssignedOperatorExtraCost(
 
 export function computeLineInternalEconomics(line: Partial<EstimateLine>, plannerSettings: PlannerSettings) {
 	const resolvedRate = resolveInternalHourlyRate(plannerSettings)
-	const internalHourlyRate = Math.max(0, Number(resolvedRate.effectiveHourlyRate ?? plannerSettings.internalCostSettings?.internalHourlyRate ?? 0))
+	const budgetSnapshot = Number(line.budgetStructureRate) > 0 && Number.isFinite(line.budgetOperatorRate)
+	const internalHourlyRate = budgetSnapshot ? Number(line.budgetStructureRate) + Number(line.budgetOperatorRate) : Math.max(0, Number(resolvedRate.effectiveHourlyRate ?? plannerSettings.internalCostSettings?.internalHourlyRate ?? 0))
 	const minimumMarginPercent = Math.max(0, Number(plannerSettings.internalCostSettings?.minimumMarginPercent ?? 0))
 	const lineMinutes = Math.max(0, Number(line.lineTotalMinutes ?? line.estimatedMinutes ?? line.standardMinutes ?? 0))
-	const appliedPrice = Math.max(0, Number(line.unitPrice ?? 0))
-	const internalCostAmount = round((lineMinutes / 60) * internalHourlyRate)
+	const appliedPrice = budgetSnapshot ? Math.max(0, Number(line.unitPrice ?? 0) * Number(line.quantity ?? 1) - Number(line.discount ?? 0)) : Math.max(0, Number(line.unitPrice ?? 0))
+	const budgetMaterialsCost = budgetSnapshot ? round(appliedPrice * Math.min(100, Math.max(0, Number(line.budgetMaterialsPercent ?? 20))) / 100) : 0
+	const internalCostAmount = round((lineMinutes / 60) * internalHourlyRate + budgetMaterialsCost)
 	const breakEvenPrice = internalCostAmount
 	const theoreticalMarginAmount = round(appliedPrice - internalCostAmount)
 	const theoreticalMarginPercent = appliedPrice > 0 ? round((theoreticalMarginAmount / appliedPrice) * 100) : 0
@@ -322,6 +324,7 @@ export function computeLineInternalEconomics(line: Partial<EstimateLine>, planne
 				: 'ok'
 	return {
 		internalHourlyRateUsed: internalHourlyRate,
+		...(budgetSnapshot ? { budgetMaterialsCost } : {}),
 		productiveEfficiencyUsed: resolvedRate.efficiencyPercent,
 		internalCostAmount,
 		breakEvenPrice,
@@ -607,6 +610,11 @@ function sanitizeLine(
 		damageSeverity: line.damageSeverity === 'grave' ? 'grave' : line.damageSeverity === 'lieve' ? 'lieve' : undefined,
 		materialsIncluded: line.materialsIncluded === true,
 		priceVariant: line.priceVariant,
+		budgetOperatorId: line.budgetOperatorId,
+		budgetStructureRate: line.budgetStructureRate,
+		budgetOperatorRate: line.budgetOperatorRate,
+		budgetMaterialsCost: line.budgetMaterialsCost,
+		budgetMaterialsPercent: line.budgetMaterialsPercent,
 		panelSide: line.panelSide === 'sx' || line.panelSide === 'dx' || line.panelSide === 'center' ? line.panelSide : '',
 		repairExtent: line.repairExtent === 'mezzo' ? 'mezzo' : 'intero',
 		panelWorkNote: String(line.panelWorkNote ?? '').trim(),
