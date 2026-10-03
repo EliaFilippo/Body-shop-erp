@@ -596,7 +596,7 @@ function EstimateEditor({
       budgetOperatorRate: line.budgetOperatorRate,
       budgetMaterialsCost: line.budgetMaterialsCost,
       budgetMaterialsPercent: line.budgetMaterialsPercent,
-      budgetDirectCost: line.budgetDirectCost,
+      budgetDirectUnitCost: line.budgetDirectUnitCost,
       panelSide: line.panelSide,
       repairExtent: line.repairExtent,
       panelWorkNote: line.panelWorkNote,
