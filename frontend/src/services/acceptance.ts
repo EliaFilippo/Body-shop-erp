@@ -12,6 +12,7 @@ import type {
   VehicleBookletOcrResponse,
   VehicleBookletDraft,
 } from '../types'
+import { calculateQuoteHourBudget } from './quoteHourBudget'
 
 const round = (value: number) => Math.round(value * 100) / 100
 const currency = (value: number) => Math.round(value * 100) / 100
@@ -82,7 +83,7 @@ export function createDefaultQuote(settings: PlannerSettings, monthKey: string, 
   }
 }
 
-export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummary {
+export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote, settings?: PlannerSettings): QuoteSummary {
   const damageLines = quote.damageLines ?? []
   const laborTotal = round(laborLines(quote).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
     + damageLines.reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0))
@@ -102,7 +103,8 @@ export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote): QuoteSummar
   const materialsCost = directCost('consumption')
   const externalCost = directCost('external')
   const otherCost = directCost('other')
-  const costLive = round(laborCost + partsCost + materialsCost + externalCost + otherCost)
+  const budget = settings ? calculateQuoteHourBudget(quote, settings) : null
+  const costLive = budget && !budget.error && budget.fullyTimed ? budget.costLive : round(laborCost + partsCost + materialsCost + externalCost + otherCost)
   const marginEuro = round(taxableAmount - costLive)
   const marginPercent = taxableAmount ? round((marginEuro / taxableAmount) * 100) : 0
   return {

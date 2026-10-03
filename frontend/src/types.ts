@@ -499,6 +499,7 @@ export interface InternalMonthlyCostItem {
   description: string
   monthlyAmount: number
   active: boolean
+  coveredByOperatorRates?: boolean
 }
 
 export interface InternalProductiveCapacitySettings {
@@ -516,6 +517,9 @@ export interface InternalCostSettings {
   useManualHourlyRate?: boolean
   manualHourlyRate?: number | null
   futureHourlyRateBySkill?: Record<string, number>
+  budgetMaterialsPercent?: number
+  budgetUseManualStructureRate?: boolean
+  budgetManualStructureRate?: number | null
 }
 
 export interface EstimateProductionForecast {
@@ -893,6 +897,7 @@ export interface AcceptanceQuote {
   materialPercent: number
   lines: AcceptanceLine[]
   damageLines?: EstimateLine[]
+  budgetOperatorId?: string
 }
 
 export interface AcceptanceChecklistItem {
@@ -968,6 +973,11 @@ export interface EstimateLine {
   damageSeverity?: 'lieve' | 'grave'
   materialsIncluded?: boolean
   priceVariant?: string
+  budgetOperatorId?: string
+  budgetStructureRate?: number
+  budgetOperatorRate?: number
+  budgetMaterialsCost?: number
+  budgetMaterialsPercent?: number
   panelSide?: 'sx' | 'dx' | 'center' | ''
   repairExtent?: 'intero' | 'mezzo'
   panelWorkNote?: string

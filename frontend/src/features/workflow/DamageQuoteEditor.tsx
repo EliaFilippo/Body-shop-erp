@@ -5,6 +5,7 @@ import { buildAcceptanceQuoteSummary, updateConsumptionLine } from '../../servic
 import { chooseEliasPrice, damageQuoteError, makeDamageLine, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from '../../services/damageQuote'
 import { ELIAS_PRICE_LIST, eliasEntryForWork, eliasPricesForPanel } from '../../services/eliasPriceList'
 import { PANEL_CATALOG, QUOTE_PANELS, type VehicleViewId } from './vehiclePanels'
+import { QuoteHourBudget } from './QuoteHourBudget'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const duration = (minutes: number) => `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`
@@ -64,6 +65,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
 
   return <section className="damage-quote" aria-label="Preventivo grafico">
     <div className="panel-head"><div><span className="eyebrow">PREVENTIVO RAPIDO · LISTINO ELIAS</span><h3>Tocca la parte danneggiata</h3><p>Scegli il pannello e la voce del tuo listino. Prezzi IVA esclusa, materiali già compresi. Per il danno lieve puoi memorizzare le ore; per il grave inseriscile manualmente.</p></div></div>
+    <QuoteHourBudget quote={quote} settings={settings} activePanelId={activeId} onChange={onChange} />
     <div className="damage-quote-layout">
       <div className="damage-car-column">
         <div className="damage-views" role="group" aria-label="Vista vettura">{views.map((item) => <button type="button" key={item.id} aria-pressed={view === item.id} className={view === item.id ? 'primary' : 'secondary'} onClick={() => setView(item.id)}>{item.label}</button>)}</div>

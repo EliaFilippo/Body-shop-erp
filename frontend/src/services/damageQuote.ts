@@ -1,6 +1,7 @@
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings, StandardWorkDefinition } from '../types'
 import { computeLineInternalEconomics, resolvePriceListItem, resolveStandardRuleForLine } from './workflow'
 import { eliasEntryForWork, eliasPricesForPanel, eliasWork, type EliasPriceEntry } from './eliasPriceList'
+import { budgetLineSnapshot } from './quoteHourBudget'
 
 const round = (value: number) => Math.round(value * 100) / 100
 const safe = (value: number) => Number.isFinite(value) ? Math.max(0, value) : 0
@@ -82,11 +83,11 @@ export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[
     { ...next, id: existing?.id ?? next.id }]
 }
 
-export function acceptanceEstimateLines(quote: AcceptanceQuote): Array<Partial<EstimateLine> & Pick<EstimateLine, 'description' | 'category' | 'quantity' | 'unitPrice' | 'discount' | 'vatRate'>> {
+export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: PlannerSettings): Array<Partial<EstimateLine> & Pick<EstimateLine, 'description' | 'category' | 'quantity' | 'unitPrice' | 'discount' | 'vatRate'>> {
   const error = damageQuoteError(quote.damageLines ?? [])
   if (error) throw new Error(error)
   const lines = [
-    ...(quote.damageLines ?? []).map((line) => ({ ...line, description: `${line.standardWorkName || line.description} · ${line.panelName} (${line.damageSeverity || 'lieve'})${line.priceVariant && line.damageSeverity !== 'grave' ? ` · ${line.priceVariant}` : ''}${line.materialsIncluded ? ' · materiali inclusi' : ''}`, vatRate: quote.appliedVatRate })),
+    ...(quote.damageLines ?? []).map((line) => ({ ...(settings ? budgetLineSnapshot(line, quote, settings) : line), description: `${line.standardWorkName || line.description} · ${line.panelName} (${line.damageSeverity || 'lieve'})${line.priceVariant && line.damageSeverity !== 'grave' ? ` · ${line.priceVariant}` : ''}${line.materialsIncluded ? ' · materiali inclusi' : ''}`, vatRate: quote.appliedVatRate })),
     ...quote.lines.filter((line) => line.kind !== 'discount' && line.quantity > 0 && line.unitPrice > 0).map((line) => ({
       description: line.description,
       category: line.kind === 'labor' ? 'carrozzeria' as const : line.kind === 'parts' ? 'ricambi' as const : line.kind === 'consumption' ? 'materiali' as const : line.kind === 'external' ? 'servizi esterni' as const : 'altre' as const,
