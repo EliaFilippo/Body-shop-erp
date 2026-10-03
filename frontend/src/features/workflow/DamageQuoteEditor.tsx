@@ -2,8 +2,9 @@ import { useId, useState } from 'react'
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings } from '../../types'
 import { MoneyInput } from '../../components/MoneyInput'
 import { buildAcceptanceQuoteSummary, updateConsumptionLine } from '../../services/acceptance'
-import { damageQuoteError, makeDamageLine, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from '../../services/damageQuote'
-import { PANEL_CATALOG, type VehicleViewId } from './vehiclePanels'
+import { chooseEliasPrice, damageQuoteError, makeDamageLine, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from '../../services/damageQuote'
+import { ELIAS_PRICE_LIST, eliasEntryForWork, eliasPricesForPanel } from '../../services/eliasPriceList'
+import { PANEL_CATALOG, QUOTE_PANELS, type VehicleViewId } from './vehiclePanels'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const duration = (minutes: number) => `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`
@@ -19,10 +20,12 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
   const [activeId, setActiveId] = useState('')
   const [severity, setSeverity] = useState<'lieve' | 'grave'>('lieve')
   const [notice, setNotice] = useState('')
+  const [rainSensor, setRainSensor] = useState(false)
   const gradientId = useId().replace(/:/g, '')
   const lines = quote.damageLines ?? []
-  const active = PANEL_CATALOG.find((panel) => panel.id === activeId)
+  const active = QUOTE_PANELS.find((panel) => panel.id === activeId)
   const selected = lines.filter((line) => line.panelId === activeId)
+  const catalogLines = selected.filter((line) => eliasEntryForWork(line.standardWorkId))
   const works = (settings.standardWorks ?? []).filter((work) => work.active).sort((a, b) => a.cycleOrder - b.cycleOrder)
   const summary = buildAcceptanceQuoteSummary(quote)
   const error = damageQuoteError(lines)
@@ -35,9 +38,10 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
     setActiveId(panelId)
     setNotice('')
     const existing = lines.filter((line) => line.panelId === panelId)
+    setRainSensor(existing.some((line) => line.priceVariant?.includes('sensore pioggia')))
     setSeverity(existing[0]?.damageSeverity ?? 'lieve')
     if (existing.length) return
-    const panel = PANEL_CATALOG.find((item) => item.id === panelId)!
+    const panel = QUOTE_PANELS.find((item) => item.id === panelId)!
     const automatic = minorDamageLines(settings, panel, quote.appliedVatRate)
     if (automatic.length) commit([...lines, ...automatic])
   }
@@ -59,7 +63,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
     : recalculateDamageLine({ ...line, unitPrice: (line.estimatedMinutes ?? 0) / 60 * rate }, settings)), rate)
 
   return <section className="damage-quote" aria-label="Preventivo grafico">
-    <div className="panel-head"><div><span className="eyebrow">PREVENTIVO RAPIDO</span><h3>Tocca la parte danneggiata</h3><p>Danno lieve: tempi e prezzi memorizzati. Danno grave: ore manuali e prezzo dalla tariffa di vendita.</p></div></div>
+    <div className="panel-head"><div><span className="eyebrow">PREVENTIVO RAPIDO · LISTINO ELIAS</span><h3>Tocca la parte danneggiata</h3><p>Scegli il pannello e la voce del tuo listino. Prezzi IVA esclusa, materiali già compresi. Per il danno lieve puoi memorizzare le ore; per il grave inseriscile manualmente.</p></div></div>
     <div className="damage-quote-layout">
       <div className="damage-car-column">
         <div className="damage-views" role="group" aria-label="Vista vettura">{views.map((item) => <button type="button" key={item.id} aria-pressed={view === item.id} className={view === item.id ? 'primary' : 'secondary'} onClick={() => setView(item.id)}>{item.label}</button>)}</div>
@@ -84,15 +88,38 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
           })}
         </svg>
         <p className="damage-legend">Verde: danno lieve · Rosso: danno grave · Bordo oro: pannello aperto</p>
-        <div className="damage-selected">{PANEL_CATALOG.filter((panel) => lines.some((line) => line.panelId === panel.id)).map((panel) => <button type="button" className={activeId === panel.id ? 'primary' : 'secondary'} key={panel.id} onClick={() => { setView(panel.view); selectPanel(panel.id) }}>{panel.name} · {duration(lines.filter((line) => line.panelId === panel.id).reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</button>)}</div>
+        <label className="damage-panel-picker">Scegli un pannello o un accessorio<select value={activeId} onChange={(event) => { const panel = QUOTE_PANELS.find((item) => item.id === event.target.value); if (panel) { setView(panel.view); selectPanel(panel.id) } }}><option value="">Tocca la vettura oppure scegli qui</option>{QUOTE_PANELS.map((panel) => <option key={panel.id} value={panel.id}>{panel.name}</option>)}</select></label>
+        <button type="button" className="secondary damage-whole" onClick={() => selectPanel('vettura-intera')}>Vettura intera / interni</button>
+        <div className="damage-selected">{QUOTE_PANELS.filter((panel) => lines.some((line) => line.panelId === panel.id)).map((panel) => <button type="button" className={activeId === panel.id ? 'primary' : 'secondary'} key={panel.id} onClick={() => { setView(panel.view); selectPanel(panel.id) }}>{panel.name} · {duration(lines.filter((line) => line.panelId === panel.id).reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</button>)}</div>
       </div>
       <div className="damage-controls">
         {!active ? <div className="empty"><p>Seleziona un pannello sulla vettura per iniziare.</p></div> : <>
           <h4>{active.name}</h4>
           <div className="damage-severity" role="group" aria-label="Gravità del danno"><button type="button" aria-pressed={severity === 'lieve'} className={severity === 'lieve' ? 'primary' : 'secondary'} onClick={() => changeSeverity('lieve')}>Danno lieve</button><button type="button" aria-pressed={severity === 'grave'} className={severity === 'grave' ? 'primary' : 'secondary'} onClick={() => changeSeverity('grave')}>Danno grave</button></div>
+          <div className="elias-price-choices" aria-label="Voci del listino Elias">
+            <strong>Il tuo listino · materiali inclusi</strong>
+            <small>{severity === 'lieve' ? 'Tocca il prezzo da applicare. Dove ci sono due importi, scegli quello corretto per questo lavoro.' : 'Seleziona la lavorazione. Gli importi sotto sono il riferimento per il danno lieve; per il grave il prezzo dipende dalle ore manuali.'}</small>
+            {activeId === 'parabrezza' && severity === 'lieve' && <label className="damage-work-toggle"><input type="checkbox" checked={rainSensor} onChange={(event) => {
+              const checked = event.target.checked
+              setRainSensor(checked)
+              const line = catalogLines.find((item) => eliasEntryForWork(item.standardWorkId)?.id === 'parabrezza')
+              if (line) { const wasIncluded = Boolean(line.priceVariant?.includes('sensore pioggia')); commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, unitPrice: item.unitPrice + (checked ? 15 : 0) - (wasIncluded ? 15 : 0), priceVariant: checked ? 'sensore pioggia (+15 €)' : undefined }, settings))) }
+            }} />Sensore pioggia: +15 € sul danno lieve</label>}
+            {eliasPricesForPanel(activeId).map((entry) => <div className="elias-price-choice" key={entry.id}><span>{entry.name}</span><div>{entry.prices.map((price) => <button type="button" key={price} className="secondary" aria-label={`${entry.name}: ${price} euro`} onClick={() => commit(chooseEliasPrice(settings, lines, active, entry, price, quote.appliedVatRate, severity, quote.hourlyRate, rainSensor))}>{money(price)}</button>)}</div></div>)}
+          </div>
           {severity === 'lieve' ? <p>Usa il listino del pannello oppure imposta le lavorazioni qui sotto e memorizzale per le prossime vetture. Prezzi IVA esclusa.</p>
             : <label>Tariffa vendita per danni gravi €/h<MoneyInput value={quote.hourlyRate} onValueChange={(value) => changeRate(value ?? 0)} /><small>Inserisci le ore di ogni lavorazione: il prezzo si aggiorna automaticamente.</small></label>}
           {!selected.length && <p className="damage-hint">Nessuna lavorazione inserita. Seleziona quelle necessarie e completa tempi e prezzi.</p>}
+          <div className="damage-work-list">{catalogLines.map((line) => <div className="damage-work" key={line.id}>
+            <strong>{line.standardWorkName}</strong><small className="elias-materials">Materiali inclusi{line.priceVariant?.includes('sensore pioggia') ? ' · sensore pioggia incluso' : ''}</small>
+            <div className="damage-work-values"><label>Ore {line.standardWorkName}<input type="number" inputMode="decimal" min="0" step="0.25" value={Number(((line.estimatedMinutes ?? 0) / 60).toFixed(4))} onChange={(event) => changeMinutes(line, Number(event.target.value))} /></label>
+              {severity === 'lieve' ? <label>Prezzo {line.standardWorkName} €<MoneyInput value={line.unitPrice} onValueChange={(value) => commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, unitPrice: value ?? 0 }, settings)))} /></label> : <div><span>Prezzo IVA esclusa</span><strong>{money(line.unitPrice)}</strong></div>}
+            </div>
+            {!line.estimatedMinutes && <p className="damage-incomplete">Il listino non indica le ore: inseriscile per questo lavoro, poi puoi memorizzarle.</p>}
+            <button type="button" className="secondary" onClick={() => commit(lines.filter((item) => item.id !== line.id))}>Rimuovi {line.standardWorkName}</button>
+          </div>)}</div>
+          {catalogLines.length > 0 && selected.some((line) => !eliasEntryForWork(line.standardWorkId)) && <p className="damage-incomplete">Questo pannello contiene anche altre lavorazioni oltre al prezzo del listino. Controlla le voci qui sotto per evitare doppi addebiti.</p>}
+          <details className="damage-extra-details" open={selected.some((line) => !eliasEntryForWork(line.standardWorkId)) || undefined}><summary>Altre lavorazioni e tempi separati</summary><p>Aggiungi queste voci solo per interventi extra rispetto al prezzo del listino, per evitare doppi addebiti.</p>
           <div className="damage-work-list">{works.map((work) => {
             const line = selected.find((item) => item.standardWorkId === work.id)
             return <div className="damage-work" key={work.id}>
@@ -107,7 +134,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
                 {(!line.unitPrice || !line.estimatedMinutes) && <small className="damage-incomplete">Tempo o prezzo da completare</small>}
               </div>}
             </div>
-          })}</div>
+          })}</div></details>
           {!works.length && <p role="alert">Configura almeno una lavorazione attiva in Impostazioni → Planner e tempi.</p>}
           <div className="damage-panel-total"><span>Totale pannello</span><strong>{duration(selected.reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))} · {money(selected.reduce((sum, line) => sum + line.unitPrice, 0))}</strong></div>
           <div className="damage-actions">
@@ -120,7 +147,8 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
       </div>
     </div>
     <div className="damage-total" aria-live="polite"><div><span>Tempo totale pannelli</span><strong>{duration(lines.reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</strong></div><div><span>Imponibile complessivo</span><strong>{money(summary.taxableAmount)}</strong></div><div><span>Totale IVA inclusa</span><strong>{money(summary.total)}</strong></div></div>
-    <p>Materiali aggiuntivi: {quote.materialPercent}% · {money(summary.materials.total)}. Imposta 0% in «Altri importi, materiali e IVA» se sono già inclusi nei prezzi dei pannelli.</p>
+    <p>Materiali già inclusi nelle voci del listino Elias. Materiali aggiuntivi sulle altre lavorazioni: {quote.materialPercent}% · {money(summary.materials.total)}.</p>
+    <details className="damage-extra-details"><summary>Vedi tutto il listino della foto</summary><p>IVA esclusa · materiali inclusi. I prezzi doppi restano a scelta, senza assegnarli a categorie non indicate nel foglio. Parabrezza: +15 € con sensore pioggia.</p><div className="elias-price-table"><table><thead><tr><th>Lavorazione</th><th>Prezzo</th></tr></thead><tbody>{ELIAS_PRICE_LIST.map((entry) => <tr key={entry.id}><td>{entry.name}</td><td>{entry.prices.map(money).join(' / ')}</td></tr>)}</tbody></table></div></details>
     {quote.lines.some((line) => line.kind === 'labor' && line.quantity > 0) && <p className="damage-incomplete">La pratica contiene anche ore di manodopera aggiuntive: controllale in «Altri importi, materiali e IVA» per evitare di conteggiarle due volte.</p>}
     {error && <p className="damage-incomplete" role="alert">{error}</p>}
   </section>
