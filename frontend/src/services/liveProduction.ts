@@ -39,10 +39,10 @@ export function prepareLiveJob(data: ErpData, job: RepairJob) {
     .reduce((sum, l) => sum + Math.max(0, l.quantity * l.unitPrice - l.discount) * percent / 100, 0)
   const direct = job.lines.filter(l => ['ricambi', 'servizi esterni', 'altre'].includes(l.category))
   // Never mistake a planned labour amount for a parts/external purchase cost.
-  if (direct.some(l => l.quantity > 0 && l.unitPrice > 0 && l.budgetDirectCost === undefined)) {
+  if (direct.some(l => l.quantity > 0 && l.unitPrice > 0 && l.budgetDirectUnitCost === undefined)) {
     throw new Error('La commessa contiene costi diretti non conservati nel preventivo. Rigenera le righe dal preventivo con i costi interni compilati prima di attivare il timer.')
   }
-  const directCosts = direct.reduce((sum, l) => sum + Math.max(0, l.budgetDirectCost ?? 0), 0)
+  const directCosts = direct.reduce((sum, l) => sum + Math.max(0, l.quantity) * Math.max(0, l.budgetDirectUnitCost ?? 0), 0)
   const budget = Math.round((job.taxableAmount - materials - directCosts) * 100) / 100
   if (!Number.isFinite(budget) || budget <= 0) throw new Error('Il preventivo non lascia un budget positivo per il lavoro.')
   return { budget, materials, directCosts, revenue: job.taxableAmount, operators }
