@@ -26,6 +26,7 @@ import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayCont
 import { WorkflowPage } from './features/workflow/WorkflowPage'
 import { DamageQuoteEditor } from './features/workflow/DamageQuoteEditor'
 import { acceptanceEstimateLines, damageQuoteError, recalculateDamageLine } from './services/damageQuote'
+import { calculateQuoteHourBudget, quoteStructureRate } from './services/quoteHourBudget'
 import { syncOperationalStateFromJobs } from './services/workflow'
 import { DOCUMENT_IDENTITY_OCR_GENERIC_ERROR, readIdentityDocument } from './services/documentIdentityOcr'
 import { VEHICLE_BOOKLET_OCR_GENERIC_ERROR, readVehicleBooklet } from './services/vehicleBookletOcr'
@@ -260,6 +261,9 @@ const normalizeInternalCostSettings = (input: ErpData['plannerSettings']['intern
   useManualHourlyRate: Boolean(input?.useManualHourlyRate),
   manualHourlyRate: input?.manualHourlyRate ?? null,
   futureHourlyRateBySkill: structuredClone(input?.futureHourlyRateBySkill ?? {}),
+  budgetMaterialsPercent: Number(input?.budgetMaterialsPercent ?? 20),
+  budgetUseManualStructureRate: Boolean(input?.budgetUseManualStructureRate),
+  budgetManualStructureRate: input?.budgetManualStructureRate ?? null,
 })
 
 function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['plannerSettings']; onSave: (settings: NonNullable<ErpData['plannerSettings']['internalCostSettings']>) => Promise<void> }) {
@@ -274,6 +278,7 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
   const monthly = calculateInternalCostMonthlyTotals(snapshot)
   const productiveCapacity = calculateInternalProductiveCapacity(snapshot)
   const hourlyRate = resolveInternalHourlyRate(snapshot)
+  const budgetRate = quoteStructureRate(snapshot)
 
   const updateCapacity = (field: keyof typeof draft.productiveCapacity, value: number) => {
     setDraft((current) => ({
@@ -294,7 +299,7 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
       ...current,
       monthlyCostItems: [
         ...(current.monthlyCostItems ?? []),
-        { id: crypto.randomUUID(), category: 'personale', description: 'Nuovo costo', monthlyAmount: 0, active: true },
+        { id: crypto.randomUUID(), category: 'altri-costi-fissi', description: 'Nuovo costo', monthlyAmount: 0, active: true },
       ],
     }))
   }
@@ -320,10 +325,26 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
       <div>
         <span className="eyebrow">COSTI E TARIFFE INTERNE</span>
         <h2>Tariffa oraria e marginalità interna</h2>
-        <p>Usato da Workflow, preventivi e calcolo marginalità senza duplicare i motori di calcolo esistenti.</p>
+        <p>Inserisci tutti i costi mensili. Il budget ore separa la struttura dal personale produttivo, già conteggiato nel costo orario di ogni operatore.</p>
       </div>
       <button className="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Salvataggio...' : 'Salva costi interni'}</button>
     </div>
+
+    <section className="panel table-panel quote-hour-budget">
+      <h3>Costi per le ore a disposizione</h3>
+      <p>Spese generali divise per le ore produttive effettive. I costi coperti dalle tariffe degli operatori sono esclusi da questa tariffa e aggiunti in base all’operatore scelto nel preventivo.</p>
+      <div className="settings-card-grid">
+        <div className="settings-card"><span>Costo struttura per budget ore</span><strong>{budgetRate.rate.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })}/h</strong></div>
+        <div className="settings-card"><span>Costi mensili di struttura</span><strong>{budgetRate.monthlyOverhead.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })}</strong></div>
+        <div className="settings-card"><span>Personale conteggiato nelle tariffe operatori</span><strong>{budgetRate.excludedPayroll.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })}</strong></div>
+      </div>
+      <div className="form-grid">
+        <label>Materiali di consumo interni (%)<input type="number" min="0" max="100" value={draft.budgetMaterialsPercent} onChange={(event) => setDraft((current) => ({ ...current, budgetMaterialsPercent: Number(event.target.value) }))} /></label>
+        <label>Tariffa manuale della sola struttura €/h<input type="number" min="0" step="0.01" value={draft.budgetManualStructureRate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, budgetManualStructureRate: event.target.value === '' ? null : Number(event.target.value) }))} /></label>
+        <label className="check"><input type="checkbox" checked={draft.budgetUseManualStructureRate} onChange={(event) => setDraft((current) => ({ ...current, budgetUseManualStructureRate: event.target.checked }))} /> Usa tariffa struttura manuale (senza personale produttivo)</label>
+      </div>
+      <p>Nel Planner inserisci il costo aziendale completo €/h di ciascun operatore (stipendio, contributi e oneri). Per il personale amministrativo lascia disattivata la casella «Già coperto dalle tariffe operatori».</p>
+    </section>
 
     <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">RIEPILOGO</span><h3>Calcoli correnti</h3></div></div>
@@ -367,6 +388,7 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
           </select>
           <input type="number" min="0" step="0.01" value={item.monthlyAmount} onChange={(event) => updateItem(item.id, { monthlyAmount: Number(event.target.value) })} />
           <label className="check"><input type="checkbox" checked={item.active} onChange={(event) => updateItem(item.id, { active: event.target.checked })} /> Attiva</label>
+          <label className="check"><input type="checkbox" checked={item.coveredByOperatorRates ?? item.category === 'personale'} onChange={(event) => updateItem(item.id, { coveredByOperatorRates: event.target.checked })} /> Già coperto dalle tariffe operatori</label>
           <button className="danger" onClick={() => removeItem(item.id)}>Rimuovi</button>
         </div>)}
         {!(draft.monthlyCostItems ?? []).length && <small>Nessun costo mensile configurato.</small>}
@@ -1103,7 +1125,7 @@ function App() {
           const customer = customerById(acceptance.customerId)
           if (!vehicle || !customer) { setError('Cliente o vettura non trovati.'); return }
           try {
-            const lines = acceptanceEstimateLines(acceptance.quote)
+            const lines = acceptanceEstimateLines(acceptance.quote, data.plannerSettings)
             const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', lines })
             const customerLines = next.estimates![0].lines.map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
               vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0 }))
@@ -2707,7 +2729,8 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
     reader.readAsDataURL(file)
   }
 
-  const quoteSummary = buildAcceptanceQuoteSummary(acceptance.quote)
+  const quoteSummary = buildAcceptanceQuoteSummary(acceptance.quote, data.plannerSettings)
+  const quoteBudget = calculateQuoteHourBudget(acceptance.quote, data.plannerSettings)
   const internalRateSnapshot = resolveInternalHourlyRate(data.plannerSettings)
   const fallbackSaleHourlyRate = Math.max(0, internalRateSnapshot.effectiveHourlyRate)
   const effectiveSaleHourlyRate = acceptance.quote.hourlyRate > 0 ? acceptance.quote.hourlyRate : fallbackSaleHourlyRate
@@ -2880,7 +2903,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
         <div className="form-grid">
           <label>Ore manodopera aggiuntive<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
           <label>Tariffa vendita €/h<input type="number" min="0" step="1" value={effectiveSaleHourlyRate} onChange={(event) => updateSaleHourlyRate(Number(event.target.value))} /></label>
-          <label>Costo interno €/h<input value={internalRateSnapshot.effectiveHourlyRate.toFixed(2)} readOnly /></label>
+          <label>Costo struttura €/h (operatore a parte)<input value={quoteBudget.structure.rate.toFixed(2)} readOnly /></label>
           <label>Materiali aggiuntivi % (0 se inclusi nei prezzi)<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
           <label>IVA %<input type="number" min="0" step="1" value={acceptance.quote.appliedVatRate} onChange={(event) => updateVatRate(Number(event.target.value))} /></label>
           <label>Ricambi €<input type="number" min="0" step="1" value={quoteExtraValue('parts')} onChange={(event) => upsertQuoteExtra('parts', 'Ricambi', Number(event.target.value))} /></label>
@@ -2900,7 +2923,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <div className="summary-card"><span>Imponibile</span><strong>{money(quoteSummary.taxableAmount)}</strong></div>
           <div className="summary-card"><span>IVA</span><strong>{money(quoteSummary.vatAmount)}</strong></div>
           <div className="summary-card"><span>Totale preventivo</span><strong>{money(quoteSummary.total)}</strong></div>
-          <div className="summary-card"><span>Margine previsto</span><strong>{money(quoteSummary.marginEuro)} · {quoteSummary.marginPercent}%</strong></div>
+          <div className="summary-card"><span>Margine previsto</span><strong>{quoteBudget.error || !quoteBudget.fullyTimed ? 'Da verificare: completa costi, operatore e tempi' : `${money(quoteSummary.marginEuro)} · ${quoteSummary.marginPercent}%`}</strong></div>
         </div>
         </details>
         <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate || Boolean(damageQuoteError(acceptance.quote.damageLines ?? [])) || quoteSummary.taxableAmount <= 0} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
