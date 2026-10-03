@@ -30,7 +30,7 @@ describe('profilo tablet', () => {
     await screen.findByText('AA123BB')
     expect(screen.getByText('Tempo residuo con 2 operatori attivi')).toBeInTheDocument()
     expect(screen.getByText(/rimane meno del 20%/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Pausa', exact: true }))
+    fireEvent.click(screen.getByRole('button', { name: /^Pausa$/ }))
     await waitFor(() => expect(mocked.rpc).toHaveBeenCalledWith('production_timer_action', { p_company_id: 'c1', p_job_id: 'j1', p_action: 'pause' }, expect.objectContaining({ userId: 'u1' }), expect.anything()))
     await screen.findByText('Tempo residuo con 1 operatori attivi')
     expect(screen.getByText(/Mario: in pausa · Luca: al lavoro/)).toBeInTheDocument()
