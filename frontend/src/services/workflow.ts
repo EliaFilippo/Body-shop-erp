@@ -615,6 +615,7 @@ function sanitizeLine(
 		budgetOperatorRate: line.budgetOperatorRate,
 		budgetMaterialsCost: line.budgetMaterialsCost,
 		budgetMaterialsPercent: line.budgetMaterialsPercent,
+		budgetDirectUnitCost: line.budgetDirectUnitCost,
 		panelSide: line.panelSide === 'sx' || line.panelSide === 'dx' || line.panelSide === 'center' ? line.panelSide : '',
 		repairExtent: line.repairExtent === 'mezzo' ? 'mezzo' : 'intero',
 		panelWorkNote: String(line.panelWorkNote ?? '').trim(),

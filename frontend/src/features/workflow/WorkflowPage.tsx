@@ -596,6 +596,7 @@ function EstimateEditor({
       budgetOperatorRate: line.budgetOperatorRate,
       budgetMaterialsCost: line.budgetMaterialsCost,
       budgetMaterialsPercent: line.budgetMaterialsPercent,
+      budgetDirectUnitCost: line.budgetDirectUnitCost,
       panelSide: line.panelSide,
       repairExtent: line.repairExtent,
       panelWorkNote: line.panelWorkNote,
@@ -1741,6 +1742,8 @@ function JobEditor({
                 <span className="tag">{phase.status}</span>
               </div>
               <div className="job-phase-meta">
+                {phase.completedByName && <small>✓ Visto di {phase.completedByName} · {dateTime(phase.completedAt)}</small>}
+                {phase.tabletWorkedSeconds !== undefined && <small>Ore produttive da tablet: {humanDuration(Math.floor(phase.tabletWorkedSeconds / 60))}</small>}
                 <small>Inizio: {dateTime(phase.startedAt)}</small>
                 <small>Fine: {dateTime(phase.endedAt)}</small>
                 <small>Operatori coinvolti: {allOperators.length}</small>

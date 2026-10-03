@@ -93,6 +93,7 @@ export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: Plann
       category: line.kind === 'labor' ? 'carrozzeria' as const : line.kind === 'parts' ? 'ricambi' as const : line.kind === 'consumption' ? 'materiali' as const : line.kind === 'external' ? 'servizi esterni' as const : 'altre' as const,
       quantity: line.quantity, unitPrice: line.unitPrice, discount: 0, vatRate: quote.appliedVatRate,
       estimatedMinutes: line.kind === 'labor' ? Math.round(line.quantity * 60) : 0,
+      budgetDirectUnitCost: ['parts', 'external', 'other'].includes(line.kind) && line.unitCost > 0 ? round(line.unitCost) : undefined,
     })),
   ]
   if (!lines.length) throw new Error('Seleziona un pannello e aggiungi almeno una lavorazione con tempo e prezzo.')

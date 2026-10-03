@@ -37,6 +37,8 @@ import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from '.
 import { backupFilename, parseBackup, serializeBackup } from './services/backup'
 import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, upsertAppUser } from './services/accessControl'
 import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
+import { LiveProductionPage } from './features/production/LiveProductionPage'
+import { applyLivePhaseChecks, productionRpc, type PhaseCheckUpdate } from './services/liveProduction'
 import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
@@ -689,7 +691,25 @@ function App() {
   }, [cloudSession, databaseReady, cloudReady])
 
   useEffect(() => {
-    if (!cloudConfig || !cloudSession || !cloudMembership || !databaseLoaded || !databaseReady) return
+    if (!cloudConfig || !cloudSession || !cloudMembership || cloudMembership.role === 'production' || !cloudReady) return
+    let cancelled = false
+    let inFlight = false
+    const readChecks = async () => {
+      if (inFlight || document.hidden) return
+      inFlight = true
+      try {
+        const checks = await productionRpc<PhaseCheckUpdate[]>('production_phase_updates', { p_company_id: cloudMembership.companyId }, cloudSession, cloudConfig)
+        if (!cancelled && checks.length) setData(current => applyLivePhaseChecks(current, checks))
+      } catch { /* Production can remain unconfigured while the office ERP stays usable. */ }
+      finally { inFlight = false }
+    }
+    void readChecks()
+    const timer = setInterval(() => void readChecks(), 5000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [cloudConfig, cloudSession, cloudMembership, cloudReady])
+
+  useEffect(() => {
+    if (!cloudConfig || !cloudSession || !cloudMembership || cloudMembership.role === 'production' || !databaseLoaded || !databaseReady) return
     let cancelled = false
     cloudReadyRef.current = false
     setCloudReady(false)
@@ -933,6 +953,7 @@ function App() {
   if (cloudConfig && !cloudSession) {
     return <CloudLoginScreen config={cloudConfig} onAuthenticated={(session, membership) => { setCloudSession(session); setCloudMembership(membership) }} />
   }
+  if (cloudConfig && cloudMembership?.role === 'production') return <LiveProductionPage />
   const logoutCloud = async () => {
     if (!cloudConfig || !cloudSession) return
     try { await signOutCloud(cloudSession, cloudConfig) } catch { /* La sessione locale viene comunque chiusa. */ }

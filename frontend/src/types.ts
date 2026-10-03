@@ -966,6 +966,8 @@ export type WorkCategory = 'carrozzeria' | 'verniciatura' | 'ricambi' | 'materia
 
 export interface EstimateLine {
   id: string
+  /** Purchase/direct cost per unit, excluding labour, frozen from acceptance. */
+  budgetDirectUnitCost?: number
   description: string
   category: WorkCategory
   panelId?: string
@@ -1054,6 +1056,9 @@ export interface EstimateDocument {
 export interface JobPhase {
   id: string
   name: string
+  completedByName?: string
+  completedAt?: string
+  tabletWorkedSeconds?: number
   status: JobPhaseStatus
   notRequired?: boolean
   cycleOrder?: number
