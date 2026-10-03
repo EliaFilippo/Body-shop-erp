@@ -544,7 +544,9 @@ describe('Acceptance flow', () => {
       expect(screen.getByRole('img', { name: 'Quadro 1' })).toBeInTheDocument()
     })
 
-    expect(persistedData.acceptances?.[0]?.photos?.some((photo) => photo.name === 'quadro-km.png' && photo.category === 'ingresso')).toBe(true)
+    await waitFor(() => {
+      expect(persistedData.acceptances?.[0]?.photos?.some((photo) => photo.name === 'quadro-km.png' && photo.category === 'ingresso')).toBe(true)
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Quadro 1' }))
 
