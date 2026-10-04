@@ -256,6 +256,7 @@ function buildAccessoriesList(draft: NonNullable<AcceptanceIntakeData['accessori
 }
 
 const normalizeInternalCostSettings = (input: ErpData['plannerSettings']['internalCostSettings'], efficiencyPercent: number) => ({
+  usePlannerCapacity: input?.usePlannerCapacity,
   internalHourlyRate: Number(input?.internalHourlyRate ?? 0),
   minimumMarginPercent: Number(input?.minimumMarginPercent ?? 20),
   monthlyCostItems: structuredClone(input?.monthlyCostItems ?? []),
@@ -369,9 +370,11 @@ function InternalCostsSettingsPage({ settings, onSave }: { settings: ErpData['pl
         <label>Tariffa oraria manuale<input type="number" min="0" step="0.01" value={draft.manualHourlyRate ?? ''} onChange={(event) => setDraft((current) => ({ ...current, manualHourlyRate: event.target.value === '' ? null : Number(event.target.value) }))} /></label>
         <label className="check"><input type="checkbox" checked={draft.useManualHourlyRate ?? false} onChange={(event) => setDraft((current) => ({ ...current, useManualHourlyRate: event.target.checked }))} /> Usa tariffa manuale</label>
         <label>Soglia margine minimo (%)<input type="number" min="0" max="100" step="0.1" value={draft.minimumMarginPercent ?? 20} onChange={(event) => setDraft((current) => ({ ...current, minimumMarginPercent: Number(event.target.value) }))} /></label>
-        <label>Operatori produttivi<input type="number" min="0" step="1" value={draft.productiveCapacity.productiveOperators} onChange={(event) => updateCapacity('productiveOperators', Number(event.target.value))} /></label>
-        <label>Ore per operatore/giorno<input type="number" min="0" step="0.1" value={draft.productiveCapacity.hoursPerOperatorPerDay} onChange={(event) => updateCapacity('hoursPerOperatorPerDay', Number(event.target.value))} /></label>
-        <label>Giorni produttivi/mese<input type="number" min="0" step="1" value={draft.productiveCapacity.workingDaysPerMonth} onChange={(event) => updateCapacity('workingDaysPerMonth', Number(event.target.value))} /></label>
+        <label className="check"><input type="checkbox" checked={productiveCapacity.source === 'planner'} onChange={event => setDraft(current => ({ ...current, usePlannerCapacity: event.target.checked }))} /> Calcola le ore dai calendari individuali del planner</label>
+        <p>Capacità {productiveCapacity.source === 'planner' ? 'automatica' : 'manuale'}: {productiveCapacity.productiveHours.toLocaleString('it-IT')} ore produttive. Il costo orario si aggiorna quando cambiano costi o disponibilità.</p>
+        <label>Operatori produttivi<input disabled={productiveCapacity.source === 'planner'} type="number" min="0" step="1" value={draft.productiveCapacity.productiveOperators} onChange={(event) => updateCapacity('productiveOperators', Number(event.target.value))} /></label>
+        <label>Ore per operatore/giorno<input disabled={productiveCapacity.source === 'planner'} type="number" min="0" step="0.1" value={draft.productiveCapacity.hoursPerOperatorPerDay} onChange={(event) => updateCapacity('hoursPerOperatorPerDay', Number(event.target.value))} /></label>
+        <label>Giorni produttivi/mese<input disabled={productiveCapacity.source === 'planner'} type="number" min="0" step="1" value={draft.productiveCapacity.workingDaysPerMonth} onChange={(event) => updateCapacity('workingDaysPerMonth', Number(event.target.value))} /></label>
         <label>Efficienza produttiva (%)<input type="number" min="0" max="100" step="0.1" value={draft.productiveCapacity.efficiencyPercent} onChange={(event) => updateCapacity('efficiencyPercent', Number(event.target.value))} /></label>
       </div>
     </section>

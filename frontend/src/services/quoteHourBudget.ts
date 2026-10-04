@@ -5,16 +5,16 @@ const safe = (value: unknown) => Number.isFinite(Number(value)) ? Math.max(0, Nu
 const round = (value: number) => Math.round(value * 100) / 100
 const percent = (value: unknown, fallback: number) => Math.min(100, safe(value ?? fallback))
 
-export function quoteStructureRate(settings: PlannerSettings) {
+export function quoteStructureRate(settings: PlannerSettings, monthKey?: string) {
   const items = settings.internalCostSettings?.monthlyCostItems ?? []
   const payrollCovered = (item: typeof items[number]) => item.coveredByOperatorRates ?? item.category === 'personale'
   const monthlyOverhead = round(items.reduce((sum, item) => sum + (item.active && !payrollCovered(item) ? safe(item.monthlyAmount) : 0), 0))
   const excludedPayroll = round(items.reduce((sum, item) => sum + (item.active && payrollCovered(item) ? safe(item.monthlyAmount) : 0), 0))
-  const capacity = calculateInternalProductiveCapacity(settings)
-  const hours = capacity.theoreticalHours * percent(capacity.efficiencyPercent, 0) / 100
+  const capacity = calculateInternalProductiveCapacity(settings, monthKey)
+  const hours = capacity.productiveHours
   const manual = settings.internalCostSettings?.budgetUseManualStructureRate === true
   const rate = manual ? safe(settings.internalCostSettings?.budgetManualStructureRate) : hours > 0 ? monthlyOverhead / hours : 0
-  return { monthlyOverhead, excludedPayroll, productiveHours: round(hours), rate, manual,
+  return { monthlyOverhead, excludedPayroll, totalMonthlyCosts: round(monthlyOverhead + excludedPayroll), allInRate: hours > 0 ? (monthlyOverhead + excludedPayroll) / hours : 0, capacitySource: capacity.source, monthKey: capacity.monthKey, productiveHours: round(hours), rate, manual,
     error: rate <= 0 ? 'Configura i costi di struttura e le ore produttive in Impostazioni → Costi e tariffe interne.' : '' }
 }
 
@@ -25,7 +25,7 @@ export function quoteOperatorRate(settings: PlannerSettings, operatorId?: string
 }
 
 export function calculateQuoteHourBudget(quote: AcceptanceQuote, settings: PlannerSettings) {
-  const structure = quoteStructureRate(settings)
+  const structure = quoteStructureRate(settings, quote.monthKey)
   const materialPercent = percent(settings.internalCostSettings?.budgetMaterialsPercent, 20)
   const marginPercent = percent(settings.internalCostSettings?.minimumMarginPercent, 0)
   const laborExtras = quote.lines.filter((line) => line.kind === 'labor')
@@ -75,7 +75,9 @@ export function calculateQuoteHourBudget(quote: AcceptanceQuote, settings: Plann
     const residual = residualBudget - (target ? (revenue - rows.reduce((sum, row) => sum + row.revenue, 0)) * marginPercent / 100 : 0)
     return Math.max(0, rows.reduce((sum, row) => sum + (target ? row.targetMinutes! : row.maxMinutes!), 0) + (singleRate > 0 ? Math.floor(residual / singleRate * 60 + 1e-8) : 0))
   }
-  return { structure, materialPercent, marginPercent, revenue, materialsCost, directCosts, available, plannedMinutes, costLive, margin,
+  const baseMaxMinutes = structure.allInRate > 0 && !missingDirectCost ? Math.max(0, Math.floor(available / structure.allInRate * 60 + 1e-8)) : null
+  const baseTargetMinutes = structure.allInRate > 0 && !missingDirectCost ? Math.max(0, Math.floor((available - revenue * marginPercent / 100) / structure.allInRate * 60 + 1e-8)) : null
+  return { baseMaxMinutes, baseTargetMinutes, structure, materialPercent, marginPercent, revenue, materialsCost, directCosts, available, plannedMinutes, costLive, margin,
     error: finalError, rows, maxMinutes: operators.size <= 1 ? cap(available) : multipleCap(false),
     targetMinutes: operators.size <= 1 ? cap(available - revenue * marginPercent / 100) : multipleCap(true),
     fullyTimed: rawRows.every((row) => row.minutes > 0),
