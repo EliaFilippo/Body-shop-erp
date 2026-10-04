@@ -49,7 +49,10 @@ export function prepareLiveJob(data: ErpData, job: RepairJob) {
   const percent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.budgetMaterialsPercent ?? 20))
   const materials = job.lines.filter(l => ['carrozzeria', 'verniciatura', 'meccanica'].includes(l.category))
     .reduce((sum, l) => sum + Math.max(0, l.quantity * l.unitPrice - l.discount) * percent / 100, 0)
-  const direct = job.lines.filter(l => ['ricambi', 'servizi esterni', 'altre'].includes(l.category))
+  // Materiali aggiunti manualmente hanno un costo conservato nella riga.
+  // Le vecchie righe di consumo automatiche non rappresentano un acquisto extra.
+  const direct = job.lines.filter(l => ['ricambi', 'servizi esterni', 'altre'].includes(l.category)
+    || (l.category === 'materiali' && l.budgetDirectUnitCost !== undefined))
   // Never mistake a planned labour amount for a parts/external purchase cost.
   if (direct.some(l => l.quantity > 0 && l.unitPrice > 0 && l.budgetDirectUnitCost === undefined)) {
     throw new Error('La commessa contiene costi diretti non conservati nel preventivo. Rigenera le righe dal preventivo con i costi interni compilati prima di attivare il timer.')
