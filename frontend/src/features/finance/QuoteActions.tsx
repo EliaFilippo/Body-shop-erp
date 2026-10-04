@@ -1,3 +1,4 @@
+import { DeliveryForecastPanel } from '../../components/DeliveryForecastPanel'
 import { useState } from 'react'
 import type { ErpData, QuoteDocument } from '../../types'
 import { Modal } from '../../components/Modal'
@@ -12,7 +13,9 @@ export function QuoteActions({ data, quote, onChange }: { data: ErpData; quote: 
   if(share && navigator.canShare?.({files:[file]})){await navigator.share({files:[file],title:`Preventivo ${quote.number}`})}
   else {download(file);if(share)setError('PDF scaricato con le foto: allegalo alla bozza WhatsApp o email aperta con Comunica.')}
  }catch(e){if(!(e instanceof Error&&e.name==='AbortError'))setError(e instanceof Error?e.message:'Condivisione non riuscita.')}finally{setBusy(false)}}
+ const estimate = data.estimates?.find(item => item.id === quote.estimateId)
  return <>
+  {estimate && quote.status !== 'accettato' && <DeliveryForecastPanel data={data} vehicleId={quote.vehicleId} estimate={estimate} />}
   <button disabled={busy} onClick={()=>void pdf(false)}>Scarica PDF con foto</button>
   <button disabled={busy} onClick={()=>void pdf(true)}>Condividi PDF</button>
   {quote.status!=='accettato'&&<label className="tag">Foto ({quote.photos?.length ?? 0}/6)<input aria-label={`Foto preventivo ${quote.number}`} type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy} onChange={async e=>{

@@ -1,3 +1,4 @@
+import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
 import { WorkCycleFields } from './components/WorkCycleFields'
 import { cyclePhaseForLine } from './services/workCycle'
 import { TreasuryPanel } from './features/finance/TreasuryPanel'
@@ -18,7 +19,7 @@ import { OperatorProgramPage } from './features/planner/OperatorProgramPage'
 import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { VehicleStatusesSettingsPage } from './features/planner/VehicleStatusesSettingsPage'
-import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours } from './services/planner'
+import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
@@ -44,7 +45,7 @@ import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, sign
 import { LiveProductionPage } from './features/production/LiveProductionPage'
 import { applyLivePhaseChecks, productionRpc, type PhaseCheckUpdate } from './services/liveProduction'
 import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
-import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
+import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, EstimateLine, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' }, { id: 'today-shop', label: 'Oggi in carrozzeria' }, { id: 'customers', label: 'Clienti' },
@@ -1157,7 +1158,8 @@ function App() {
           if (!vehicle || !customer) { setError('Cliente o vettura non trovati.'); return }
           try {
             const lines = acceptanceEstimateLines(acceptance.quote, data.plannerSettings)
-            const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', selectedPhases: acceptance.quote.selectedPhases, paymentTerms: acceptance.quote.paymentTerms, lines })
+            const productionForecast = simulateEstimateProductionForecast(data, { vehicleId: vehicle.id, plate: vehicle.plate, lines: lines as EstimateLine[], selectedPhases: acceptance.quote.selectedPhases })
+            const next = createEstimate(data, { productionForecast, customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', selectedPhases: acceptance.quote.selectedPhases, paymentTerms: acceptance.quote.paymentTerms, lines })
             const customerLines = next.estimates![0].lines.map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
               vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0 }))
             const quoteData = createQuoteDocument(next, {
@@ -2961,6 +2963,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
         </div>
         </details>
         <WorkCycleFields value={acceptance.quote.selectedPhases} included={(acceptance.quote.damageLines??[]).map(cyclePhaseForLine)} onChange={selectedPhases=>saveAcceptance({...latestAcceptanceRef.current,quote:{...latestAcceptanceRef.current.quote,selectedPhases}})} />
+        <DeliveryForecastPanel data={data} vehicleId={acceptance.vehicleId} quote={acceptance.quote} />
         <PaymentTermsFields value={acceptance.quote.paymentTerms ?? { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? 30, endOfMonth: customer?.endOfMonth ?? false, expectedInvoiceDate: '' }} onChange={paymentTerms => saveAcceptance({ ...latestAcceptanceRef.current, quote: { ...latestAcceptanceRef.current.quote, paymentTerms } })} />
         <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate || Boolean(damageQuoteError(acceptance.quote.damageLines ?? [])) || quoteSummary.taxableAmount <= 0} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
       </div>}

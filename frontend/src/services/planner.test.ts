@@ -537,6 +537,23 @@ describe('simulazione previsione produzione preventivo', () => {
     return data
   }
 
+  it('non propone una data quando una fase selezionata non ha tempario', () => {
+    const data = makeForecastData()
+    const result = simulateEstimateProductionForecast(data, { plate: 'AB123CD', referenceDate: '2026-07-27', selectedPhases: ['Incartatura'], lines: forecastLines([{ name: 'Verniciatura', minutes: 60 }]) })
+    expect(result.advisedDeliveryDate).toBe('')
+    expect(result.blockingReasons).toContain('Tempo da configurare: Incartatura.')
+    expect(result.requestedDeliveryCompatible).toBeUndefined()
+  })
+
+  it('usa il ciclo selezionato e attende un’ora dopo la verniciatura anche se è l’ultima lavorazione', () => {
+    const data = makeForecastData()
+    const result = simulateEstimateProductionForecast(data, { plate: 'AB123CD', referenceDate: '2026-07-27', selectedPhases: [], lines: forecastLines([{ name: 'Verniciatura', minutes: 60 }]) })
+    expect(result.blockingReasons).toEqual([])
+    expect(result.phasePlans.map(phase => phase.phaseName)).toEqual(['Verniciatura'])
+    expect(new Date(result.technicalCompletionAt).getTime() - new Date(result.phasePlans[0].endAt).getTime()).toBe(60 * 60_000)
+    expect(result.advisedDeliveryDate).toBeTruthy()
+  })
+
   it('calcola previsione in officina libera senza occupare capacita reale', () => {
     const data = makeForecastData()
     const simulation = simulateEstimateProductionForecast(data, {

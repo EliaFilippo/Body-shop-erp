@@ -1,3 +1,4 @@
+import { buildSelectedWorkCycle } from './workCycle'
 import { supportsOperatorDuty } from './operatorSkills'
 import type {
   ErpData,
@@ -1112,6 +1113,7 @@ export function simulateEstimateProductionForecast(
     requestedDeliveryDate?: string
     lines: EstimateLine[]
     referenceDate?: string
+    selectedPhases?: string[]
   },
 ): EstimateProductionSimulation {
   const referenceDate = input.referenceDate ?? todayKey()
@@ -1174,18 +1176,24 @@ export function simulateEstimateProductionForecast(
   }
 
   const phasePlans: SimulatedPhaseForecast[] = []
-  const phaseSequence = estimatedPhaseSequence(input.lines)
+  const phaseSequence = input.selectedPhases === undefined ? estimatedPhaseSequence(input.lines)
+    : buildSelectedWorkCycle(input.lines, input.selectedPhases).filter(phase => !phase.notRequired && phase.name !== 'Consegna')
+      .map(phase => ({phaseName: phase.name, plannedMinutes: phase.estimatedMinutes, requiredSkill: phase.name, technicalWaitMinutes: phase.technicalWaitMinutes ?? 0, technicalWaitBlocksPhaseNames: phase.technicalWaitBlocksPhaseNames ?? []}))
+  const blockingReasons = phaseSequence.filter(phase => phase.plannedMinutes <= 0).map(phase => `Tempo da configurare: ${phase.phaseName}.`)
+  if (!phaseSequence.length || productiveDurationMinutes <= 0) blockingReasons.push('Inserisci i tempi delle lavorazioni per calcolare la consegna.')
   const activeOperators = data.plannerSettings.operators.filter((operator) => operator.active)
   let dependencyCursor = nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
+  if (!input.referenceDate) dependencyCursor = nextWorkingInstant(dependencyCursor < new Date().toISOString() ? new Date().toISOString() : dependencyCursor, data.plannerSettings)
   let compatibleOperatorsFound = true
 
   for (const phase of phaseSequence) {
     const compatible = activeOperators.filter((operator) => operatorSupportsPhase(operator, phase.phaseName))
     if (!compatible.length) {
       compatibleOperatorsFound = false
+      blockingReasons.push(`Nessun operatore disponibile per ${phase.phaseName}.`)
       continue
     }
-    const neededOperators = Math.min(desiredOperatorCount(priority, requestedDeliveryDate, referenceDate), compatible.length)
+    const neededOperators = input.selectedPhases !== undefined ? 1 : Math.min(desiredOperatorCount(priority, requestedDeliveryDate, referenceDate), compatible.length)
     const candidates = compatible
       .map((operator) => {
         const busyUntil = occupiedUntil.get(operator.id)
@@ -1215,11 +1223,11 @@ export function simulateEstimateProductionForecast(
 
   const bufferMode = data.plannerSettings.deliveryBufferMode === 'hours' ? 'hours' : 'percent'
   const bufferValue = Math.max(0, Number(data.plannerSettings.deliveryBufferValue ?? 0))
-  const technicalCompletionAt = phasePlans.at(-1)?.endAt || nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
+  const technicalCompletionAt = phasePlans.at(-1)?.availableAfter || nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
   const bufferMinutes = bufferMode === 'hours' ? Math.round(bufferValue * 60) : Math.round(productiveDurationMinutes * (bufferValue / 100))
   const advisedDeliveryAt = addWorkingMinutes(technicalCompletionAt, bufferMinutes, data.plannerSettings)
-  const advisedDeliveryDate = advisedDeliveryAt.slice(0, 10)
-  const requestedDeliveryCompatible = requestedDeliveryDate ? requestedDeliveryDate >= advisedDeliveryDate : undefined
+  const advisedDeliveryDate = blockingReasons.length ? '' : advisedDeliveryAt.slice(0, 10)
+  const requestedDeliveryCompatible = requestedDeliveryDate && advisedDeliveryDate ? requestedDeliveryDate >= advisedDeliveryDate : undefined
   const workshopLoadPercent = plan?.assignments.length ? capacityWithAssignments(firstAvailabilityDate, data.plannerSettings, plannerResult.assignments).saturation : 0
   const reliability = reliabilityFromSimulation({
     phasePlans,
@@ -1248,6 +1256,7 @@ export function simulateEstimateProductionForecast(
     : `Ripianificate ${delayedJobs} commesse (${delayedUrgentOrPromisedJobs} urgenti/promesse).`
 
   return {
+    blockingReasons,
     firstAvailabilityDate,
     estimatedStartAt,
     technicalCompletionAt,
