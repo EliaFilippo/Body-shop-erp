@@ -894,6 +894,7 @@ export interface AcceptanceLine {
 }
 
 export interface AcceptanceQuote {
+  selectedPhases?: string[]
   paymentTerms?: EstimatePaymentTerms
   id: string
   monthKey: string
@@ -1041,6 +1042,7 @@ export interface EstimatePaymentTerms {
 }
 
 export interface EstimateDocument {
+  selectedPhases?: string[]
   id: string
   number: string
   date: string
@@ -1125,6 +1127,7 @@ export interface JobHistoryEntry {
 }
 
 export interface RepairJob {
+  workflowCycle?: 'elias-v1'
   agreedDeliveryDate?: string
   id: string
   number: string

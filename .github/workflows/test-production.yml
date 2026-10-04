@@ -31,6 +31,8 @@ jobs:
         run: psql -f supabase/tests/confirmed_estimates.sql
       - name: Owner password reauthentication, expired credentials and refresh bypass
         run: psql -f supabase/tests/owner_password_unlock.sql
+      - name: Ordered work cycle, one hour drying, duties and office profile
+        run: psql -f supabase/tests/work_cycle.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

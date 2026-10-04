@@ -1,3 +1,5 @@
+import { WorkCycleFields } from '../../components/WorkCycleFields'
+import { cyclePhaseForLine } from '../../services/workCycle'
 import { PaymentTermsFields } from '../../components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent, type WheelEvent } from 'react'
 import { Modal } from '../../components/Modal'
@@ -557,6 +559,7 @@ function EstimateEditor({
     priority?: RepairJob['priority']
     requestedDeliveryDate?: string
     notes: string
+    selectedPhases?: string[]
     paymentTerms?: EstimateDocument['paymentTerms']
     productionForecast?: EstimateDocument['productionForecast']
     lines: EditableLine[]
@@ -571,6 +574,7 @@ function EstimateEditor({
     priority?: RepairJob['priority']
     requestedDeliveryDate?: string
     notes: string
+    selectedPhases?: string[]
     paymentTerms?: EstimateDocument['paymentTerms']
     productionForecast?: EstimateDocument['productionForecast']
     lines: EditableLine[]
@@ -599,6 +603,7 @@ function EstimateEditor({
   const [priority, setPriority] = useState<RepairJob['priority']>(initial?.priority ?? 'Normale')
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState(initial?.requestedDeliveryDate ?? '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [selectedPhases,setSelectedPhases]=useState<string[]|undefined>(initial?.selectedPhases ?? (initial ? undefined : []))
   const [paymentTerms, setPaymentTerms] = useState<NonNullable<EstimateDocument['paymentTerms']>>(initial?.paymentTerms ?? { method: 'Bonifico', days: 30, endOfMonth: false, expectedInvoiceDate: '' })
   const [lines, setLines] = useState<EditableLine[]>(
     initial?.lines?.map((line) => ({
@@ -1077,6 +1082,7 @@ function EstimateEditor({
         priority,
         requestedDeliveryDate,
         notes,
+        selectedPhases,
         paymentTerms,
         productionForecast: productionForecast ?? undefined,
         lines,
@@ -1431,6 +1437,8 @@ function EstimateEditor({
         </div>
       </section>}
 
+      {(step === 3 || step === 4) && <WorkCycleFields value={selectedPhases} included={lines.map(cyclePhaseForLine)} disabled={!!initial?.convertedJobId} onChange={setSelectedPhases}/>}
+
       {step === 4 && <section className="full panel estimate-step-panel" data-testid="estimate-confirm-step">
         <div className="panel-head"><div><span className="eyebrow">STEP 4</span><h3>Controlla e conferma</h3></div></div>
         <div className="estimate-visual-status-row">
@@ -1517,7 +1525,8 @@ function EstimateEditor({
             priority,
             requestedDeliveryDate,
             notes,
-            paymentTerms,
+            selectedPhases,
+        paymentTerms,
         productionForecast: productionForecast ?? undefined,
             lines,
           })} disabled={!canAdvance[4] || !productionForecast}>Conferma preventivo</button>}

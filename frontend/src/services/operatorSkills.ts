@@ -1,6 +1,6 @@
 import type { PlannerOperator } from '../types'
 
-export const OPERATOR_DUTIES = ['Lavaggio esterno', 'Lavaggio interni', 'Incartatura', 'Scartatura', 'Verniciatura', 'Smontaggio', 'Rimontaggio', 'Lucidatura', 'Ritocchi', 'Meccanica / gommista', 'Lattoneria', 'Preparazione', 'Lavaggio', 'Controllo qualità']
+export const OPERATOR_DUTIES = ['Riparazione grandine', 'Stuccatura', 'Lavaggio esterno', 'Lavaggio interni', 'Incartatura', 'Scartatura', 'Verniciatura', 'Smontaggio', 'Rimontaggio', 'Lucidatura', 'Ritocchi', 'Meccanica / gommista', 'Lattoneria', 'Preparazione', 'Lavaggio', 'Controllo qualità']
 const normalize = (value: string) => value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 export function supportsOperatorDuty(operator: PlannerOperator, duty: string) {
   const skills = (operator.skills ?? []).map(normalize).filter(Boolean)

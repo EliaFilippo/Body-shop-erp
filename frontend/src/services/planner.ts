@@ -846,6 +846,7 @@ function movedJobCount(previous: OperatorDayProgram[], next: OperatorDayProgram[
 }
 
 function completedAtForPhase(phase: JobPhase) {
+  if (phase.completedAt) return phase.completedAt
   if (phase.endedAt) return phase.endedAt
   if (phase.status === 'Completata' && phase.operatorAssignments.length) {
     const ended = phase.operatorAssignments.map((assignment) => assignment.endedAt).filter((value): value is string => Boolean(value)).sort().at(-1)
@@ -860,9 +861,10 @@ function phaseReadyAt(job: RepairJob, phase: JobPhase) {
   let readyAt = job.entryDate ? `${job.entryDate}T00:00:00.000Z` : new Date().toISOString()
   for (const predecessor of job.phases.slice(0, index)) {
     if (predecessor.notRequired) continue
+    if (job.workflowCycle === 'elias-v1' && predecessor.status !== 'Completata') return ''
     const completedAt = completedAtForPhase(predecessor) || `${job.entryDate || todayKey()}T00:00:00.000Z`
     if (!completedAt) return ''
-    const isSequentialDependency = phaseTemplateIndex(predecessor.name) >= 0 && phaseTemplateIndex(predecessor.name) === index - 1
+    const isSequentialDependency = job.workflowCycle === 'elias-v1' || phaseTemplateIndex(predecessor.name) >= 0 && phaseTemplateIndex(predecessor.name) === index - 1
     const isTechnicalDependency = (predecessor.technicalWaitBlocksPhaseNames ?? []).includes(phase.name)
     const availableAt = (isSequentialDependency || isTechnicalDependency)
       ? new Date(new Date(completedAt).getTime() + Math.max(0, Number(predecessor.technicalWaitMinutes ?? 0)) * 60_000).toISOString()
@@ -876,7 +878,7 @@ function selectSchedulablePhase(job: RepairJob) {
   const active = job.phases.find((phase) => phase.status === 'In lavorazione')
   if (active) return { phase: active, readyAt: completedAtForPhase(active) || `${job.entryDate || todayKey()}T00:00:00.000Z` }
   const todo = job.phases
-    .filter((phase) => phase.status === 'Da fare' && !phase.notRequired)
+    .filter((phase) => phase.status === 'Da fare' && !phase.notRequired && (job.workflowCycle !== 'elias-v1' || (phase.name !== 'Consegna' && phase.estimatedMinutes > 0)))
     .map((phase) => ({ phase, readyAt: phaseReadyAt(job, phase) }))
     .filter((entry) => Boolean(entry.readyAt))
     .sort((a, b) => a.readyAt.localeCompare(b.readyAt) || phaseTemplateIndex(a.phase.name) - phaseTemplateIndex(b.phase.name))

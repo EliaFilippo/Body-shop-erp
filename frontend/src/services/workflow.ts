@@ -1,3 +1,4 @@
+import { buildSelectedWorkCycle } from './workCycle'
 import type {
 	ErpData,
 	EstimateDocument,
@@ -1038,6 +1039,7 @@ export function createEstimate(data: ErpData, input: {
 	priority?: RepairJob['priority']
 	requestedDeliveryDate?: string
 	notes: string
+	selectedPhases?: string[]
 	paymentTerms?: EstimateDocument['paymentTerms']
 	productionForecast?: EstimateDocument['productionForecast']
 	lines: Array<Omit<EstimateLine, 'id' | 'taxableAmount' | 'vatAmount' | 'total'> & { id?: string }>
@@ -1070,6 +1072,7 @@ export function createEstimate(data: ErpData, input: {
 		notes: input.notes.trim(),
 		paymentTerms: validatedPaymentTerms(input.paymentTerms ?? (() => { const customer = data.customers.find(item => item.id === input.customerId); return { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? data.financeSettings.defaultPaymentDays, endOfMonth: Boolean(customer?.endOfMonth), expectedInvoiceDate: '' } })()),
 		status: 'Bozza',
+		selectedPhases: input.selectedPhases,
 		lines,
 		...totals,
 		productionForecast: input.productionForecast,
@@ -1101,6 +1104,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 	priority?: RepairJob['priority']
 	requestedDeliveryDate?: string
 	notes: string
+	selectedPhases?: string[]
 	paymentTerms?: EstimateDocument['paymentTerms']
 	productionForecast?: EstimateDocument['productionForecast']
 	lines: Array<Omit<EstimateLine, 'taxableAmount' | 'vatAmount' | 'total'>>
@@ -1111,6 +1115,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 	if ((current.convertedJobId || current.status === 'Approvato') && !ownerRevision) throw new Error('Solo il titolare può modificare un preventivo confermato.')
 	if (ownerRevision && data.invoices.some(invoice => invoice.status !== 'Stornata' && (invoice.vehicleId === current.vehicleId || invoice.lines.some(line => line.vehicleId === current.vehicleId)))) throw new Error('Il preventivo è già fatturato: occorre una rettifica della fattura prima della revisione.')
 	if (ownerRevision && (input.customerId !== current.customerId || input.vehicleId !== current.vehicleId || input.plate.trim().toUpperCase() !== current.plate)) throw new Error('Una revisione conserva cliente e vettura: crea un nuovo preventivo per cambiarli.')
+	if (current.convertedJobId && JSON.stringify(input.selectedPhases ?? current.selectedPhases) !== JSON.stringify(current.selectedPhases)) throw new Error('Per una commessa già creata modifica le fasi nella commessa, conservando lo storico.')
 	const standardWorks = data.plannerSettings.standardWorks ?? []
 	const lines = input.lines.map((line) => sanitizeLine(line, standardWorks, data.plannerSettings)).filter((line) => line.description)
 	if (!lines.length) throw new Error('Inserisci almeno una lavorazione.')
@@ -1127,6 +1132,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 		priority: input.priority ?? current.priority ?? 'Normale',
 		requestedDeliveryDate: String(input.requestedDeliveryDate ?? current.requestedDeliveryDate ?? '').trim(),
 		notes: input.notes.trim(),
+		selectedPhases: input.selectedPhases ?? current.selectedPhases,
 		paymentTerms: validatedPaymentTerms(input.paymentTerms),
 		lines,
 		...totals,
@@ -1170,12 +1176,13 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 	const nextCounter = Number(data.workflowCounters?.job ?? 0) + 1
 	const timestamp = now()
 	const checklist = qualityChecklistFromTemplates(data.qualityChecklistTemplates ?? [])
-	const phases = buildPhases(estimate.lines)
+	const phases = estimate.selectedPhases === undefined ? buildPhases(estimate.lines) : buildSelectedWorkCycle(estimate.lines,estimate.selectedPhases)
 	const vehicle = data.vehicles.find(v => v.id === estimate.vehicleId)
 	return {
 		id: id(),
 		number: jobNumber(nextCounter),
 		estimateId: estimate.id,
+		workflowCycle: estimate.selectedPhases === undefined ? undefined : 'elias-v1',
 		customerId: estimate.customerId,
 		vehicleId: estimate.vehicleId,
 		plate: estimate.plate,
@@ -1213,6 +1220,7 @@ type EstimateWorkflowInput = {
 	priority?: RepairJob['priority']
 	requestedDeliveryDate?: string
 	notes: string
+	selectedPhases?: string[]
 	paymentTerms?: EstimateDocument['paymentTerms']
 	productionForecast?: EstimateDocument['productionForecast']
 	lines: Array<Omit<EstimateLine, 'id' | 'taxableAmount' | 'vatAmount' | 'total'> & { id?: string }>
@@ -1433,6 +1441,7 @@ export function updateJobStatus(data: ErpData, jobId: string, status: JobStatus)
 	if (current.status === status) return data
 	const allowed = allowedJobTransitions[current.status]
 	if (!allowed.includes(status)) throw new Error(`Transizione non consentita da ${current.status} a ${status}.`)
+	if (status === 'Pronta consegna' && current.workflowCycle === 'elias-v1' && current.phases.some(phase=>!phase.notRequired&&phase.name!=='Consegna'&&phase.status!=='Completata')) throw new Error('Completa le fasi richieste prima della consegna.')
 	if (status === 'Pronta consegna' && current.qualityChecklist.some((item) => !item.checked)) {
 		throw new Error('Completa il controllo qualità prima di impostare Pronta consegna.')
 	}
@@ -1443,6 +1452,7 @@ export function updateJobStatus(data: ErpData, jobId: string, status: JobStatus)
 			...job,
 			status,
 			deliveredAt: status === 'Consegnata' ? (job.deliveredAt || timestamp) : job.deliveredAt,
+			phases: status === 'Consegnata' && job.workflowCycle === 'elias-v1' ? job.phases.map(phase=>phase.name==='Consegna'?{...phase,status:'Completata' as const,completedAt:timestamp,endedAt:timestamp}:phase) : job.phases,
 			updatedAt: timestamp,
 			history: [{ id: id(), at: timestamp, actor: 'Operatore ERP', message: `Stato aggiornato a ${status}.` }, ...job.history],
 		} : job),

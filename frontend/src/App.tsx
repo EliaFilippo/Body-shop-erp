@@ -1,3 +1,5 @@
+import { WorkCycleFields } from './components/WorkCycleFields'
+import { cyclePhaseForLine } from './services/workCycle'
 import { TreasuryPanel } from './features/finance/TreasuryPanel'
 import { PaymentTermsFields } from './components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -1155,7 +1157,7 @@ function App() {
           if (!vehicle || !customer) { setError('Cliente o vettura non trovati.'); return }
           try {
             const lines = acceptanceEstimateLines(acceptance.quote, data.plannerSettings)
-            const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', paymentTerms: acceptance.quote.paymentTerms, lines })
+            const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', selectedPhases: acceptance.quote.selectedPhases, paymentTerms: acceptance.quote.paymentTerms, lines })
             const customerLines = next.estimates![0].lines.map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
               vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0 }))
             const quoteData = createQuoteDocument(next, {
@@ -2958,6 +2960,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <div className="summary-card"><span>Margine previsto</span><strong>{quoteBudget.error || !quoteBudget.fullyTimed ? 'Da verificare: completa costi, operatore e tempi' : `${money(quoteSummary.marginEuro)} · ${quoteSummary.marginPercent}%`}</strong></div>
         </div>
         </details>
+        <WorkCycleFields value={acceptance.quote.selectedPhases} included={(acceptance.quote.damageLines??[]).map(cyclePhaseForLine)} onChange={selectedPhases=>saveAcceptance({...latestAcceptanceRef.current,quote:{...latestAcceptanceRef.current.quote,selectedPhases}})} />
         <PaymentTermsFields value={acceptance.quote.paymentTerms ?? { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? 30, endOfMonth: customer?.endOfMonth ?? false, expectedInvoiceDate: '' }} onChange={paymentTerms => saveAcceptance({ ...latestAcceptanceRef.current, quote: { ...latestAcceptanceRef.current.quote, paymentTerms } })} />
         <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate || Boolean(damageQuoteError(acceptance.quote.damageLines ?? [])) || quoteSummary.taxableAmount <= 0} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
       </div>}
