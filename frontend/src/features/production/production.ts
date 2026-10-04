@@ -1,3 +1,4 @@
+import { supportsOperatorDuty } from '../../services/operatorSkills'
 import type {
   ErpData,
   JobPhase,
@@ -218,9 +219,7 @@ function buildPaceState(data: ErpData, productionJob: ProductionJobState, atIso:
 function operatorCompatibleWithPhase(data: ErpData, operatorName: string, phaseName: string) {
   const operator = data.plannerSettings.operators.find((item) => item.name.trim().toLowerCase() === operatorName.trim().toLowerCase())
   if (!operator) return false
-  const skills = (operator.skills ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
-  if (!skills.length) return true
-  return skills.some((item) => phaseName.toLowerCase().includes(item))
+  return supportsOperatorDuty(operator, phaseName)
 }
 
 function findSupportOperator(data: ErpData, state: ProductionPaceState, atIso: string) {

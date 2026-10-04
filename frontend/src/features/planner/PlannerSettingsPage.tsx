@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { MoneyInput } from '../../components/MoneyInput'
 import { Modal } from '../../components/Modal'
 import { OperatorSchedule } from './OperatorSchedule'
+import { OPERATOR_DUTIES } from '../../services/operatorSkills'
 import { invalidOperatorSchedule } from '../../services/operatorSchedule'
 import type { PlannerAbsence, PlannerOperator, PlannerSettings, StandardWorkDefinition, StandardWorkRule, StandardWorkTimePreset } from '../../types'
 
@@ -455,7 +456,14 @@ export function PlannerSettingsPage({
         {draft.operators.map((operator) => <div className="settings-row" key={operator.id}>
           <input aria-label="Nome operatore" placeholder="Nome operatore" value={operator.name} onChange={(event) => updateOperator(operator.id, { name: event.target.value })} />
           <input aria-label="Ore giornaliere" type="number" min="0.5" max="24" step="0.5" value={operator.dailyHours} onChange={(event) => updateOperator(operator.id, { dailyHours: Number(event.target.value) })} />
-          <input aria-label="Competenze" placeholder="Competenze (es. incartatura, scartatura, lavaggio)" value={(operator.skills ?? []).join(', ')} onChange={(event) => updateOperator(operator.id, { skills: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} />
+          <fieldset style={{ gridColumn: '1 / -1', width: '100%' }}>
+            <legend>Mansioni abilitate · {operator.name || 'Operatore'}</legend>
+            <label><input type="checkbox" checked={operator.skillsConfigured ?? Boolean(operator.skills?.length)} onChange={event => updateOperator(operator.id, { skillsConfigured: event.target.checked, skills: event.target.checked ? operator.skills ?? [] : [] })} /> Assegna solo le mansioni selezionate</label>
+            {(operator.skillsConfigured ?? Boolean(operator.skills?.length)) && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+              {OPERATOR_DUTIES.map(duty => <label key={duty}><input type="checkbox" checked={(operator.skills ?? []).some(skill => skill.toLowerCase() === duty.toLowerCase())} onChange={event => updateOperator(operator.id, { skillsConfigured: true, skills: event.target.checked ? [...operator.skills ?? [], duty.toLowerCase()] : (operator.skills ?? []).filter(skill => skill.toLowerCase() !== duty.toLowerCase()) })} /> {duty}</label>)}
+            </div>}
+            <p>Preparazione comprende incartatura e scartatura; Lavaggio comprende esterno e interni. Per una fase raggruppata servono entrambe le abilitazioni oppure quella generale. Nessuna casella selezionata significa nessuna mansione assegnabile.</p>
+          </fieldset>
           <label>Costo reale €/h<input aria-label="Costo reale orario operatore" type="number" min="0" step="1" value={operator.hourlyCost ?? 0} onChange={(event) => updateOperator(operator.id, { hourlyCost: Number(event.target.value) })} /></label>
           <select aria-label="Tipo costo operatore" value={operator.costMode ?? 'included-in-overhead'} onChange={(event) => updateOperator(operator.id, { costMode: event.target.value === 'external-extra' ? 'external-extra' : 'included-in-overhead' })}>
             <option value="included-in-overhead">Incluso nei costi mensili</option>
