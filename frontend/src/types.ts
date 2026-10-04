@@ -1125,6 +1125,7 @@ export interface JobHistoryEntry {
 }
 
 export interface RepairJob {
+  agreedDeliveryDate?: string
   id: string
   number: string
   estimateId?: string | null

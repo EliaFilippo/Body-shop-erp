@@ -906,6 +906,16 @@ describe('12 scenari priorita planner', () => {
     expect(generateOperatorPrograms(data,'2026-08-14').programs.find(p=>p.operatorId==='op-p1')?.tasks[0]?.jobNumber).toBe('COMM-OLD4')
   })
 
+  it('non scambia la consegna stimata per una promessa e non usa IVA come margine', () => {
+    const data=makePriorityData()
+    data.vehicles=[priorityVehicle('v-low','LOWVAT','Normale',''),priorityVehicle('v-high','HIGHNET','Normale','')]
+    const low=priorityJob({id:'j-low',number:'COMM-LOWVAT',vehicleId:'v-low',plate:'LOWVAT',priority:'Normale',expectedDeliveryDate:'2026-08-14',minutes:120,taxableAmount:800})
+    low.agreedDeliveryDate='';low.total=1600;low.vatAmount=800
+    const high=priorityJob({id:'j-high',number:'COMM-HIGHNET',vehicleId:'v-high',plate:'HIGHNET',priority:'Normale',minutes:120,taxableAmount:900});high.agreedDeliveryDate=''
+    data.jobs=[low,high]
+    expect(generateOperatorPrograms(data,'2026-08-14').programs.find(p=>p.operatorId==='op-p1')?.tasks[0]?.jobNumber).toBe('COMM-HIGHNET')
+  })
+
   it('9) anticipo lavorazione -> ricalcolo', () => {
     const data = makeProgramData()
     const before = recalculateOperatorPrograms(data, '2026-07-27', 'Prima')
