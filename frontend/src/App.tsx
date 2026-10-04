@@ -991,7 +991,7 @@ function App() {
     </main>
   }
   return <div className="app-shell">
-    <aside className={menu ? 'sidebar open' : 'sidebar'}>
+    <aside className={menu ? 'sidebar open' : 'sidebar'} tabIndex={0} aria-label="Menu principale scorrevole">
       <div className="brand"><div className="brand-mark">E</div><div><strong>ELIAS</strong><span>BODY SHOP ERP</span></div></div>
       <button className={view === 'settings' ? 'active' : ''} onClick={openSettings}>⚙ Impostazioni</button>
       {view === 'settings' && <div className="settings-nav">
