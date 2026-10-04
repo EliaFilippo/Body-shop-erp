@@ -190,8 +190,8 @@ describe('Acceptance flow', () => {
       expect(persistedData.estimates).toHaveLength(1)
       expect(persistedData.quotes).toHaveLength(1)
       expect(persistedData.estimates![0].lines[0]).toMatchObject({ panelId: 'porta-ant-sx', damageSeverity: 'lieve', estimatedMinutes: 120 })
-      expect(persistedData.estimates![0].total).toBe(175.68)
-      expect(persistedData.quotes![0].total).toBe(175.68)
+      expect(persistedData.estimates![0].total).toBe(146.4)
+      expect(persistedData.quotes![0].total).toBe(146.4)
     })
   })
 

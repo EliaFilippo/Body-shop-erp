@@ -1,3 +1,4 @@
+import { quoteCustomerLines } from './quotePricing'
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings, StandardWorkDefinition } from '../types'
 import { computeLineInternalEconomics, resolvePriceListItem, resolveStandardRuleForLine } from './workflow'
 import { eliasEntryForWork, eliasPricesForPanel, eliasWork, type EliasPriceEntry } from './eliasPriceList'
@@ -17,7 +18,7 @@ export function recalculateDamageLine(line: EstimateLine, settings: PlannerSetti
 }
 
 export function makeDamageLine(settings: PlannerSettings, panel: { id: string; name: string }, work: StandardWorkDefinition,
-  severity: 'lieve' | 'grave', vatRate: number, hourlyRate: number, preset?: MinorDamagePreset['lines'][number]): EstimateLine {
+  severity: 'lieve' | 'grave', vatRate: number, _hourlyRate: number, preset?: MinorDamagePreset['lines'][number]): EstimateLine {
   const context = { panelId: panel.id, panelName: panel.name, standardWorkId: work.id, standardWorkName: work.name, description: work.name }
   const resolved = resolveStandardRuleForLine(settings.standardWorks ?? [], context, settings.standardWorkTimePresets ?? [])
   const listItem = resolvePriceListItem(settings.standardWorkPriceList ?? [], context)
@@ -32,7 +33,7 @@ export function makeDamageLine(settings: PlannerSettings, panel: { id: string; n
     requiredSkill: work.requiredSkill, cycleOrder: work.cycleOrder,
     technicalWaitMinutes: work.technicalWaitMinutes, technicalWaitBlocksPhaseNames: work.technicalWaitBlocksPhaseNames,
     quantity: 1, discount: 0, vatRate, taxableAmount: 0, vatAmount: 0, total: 0,
-    unitPrice: severity === 'grave' ? minutes / 60 * hourlyRate : preset?.price ?? listItem?.unitPrice ?? 0,
+    unitPrice: preset?.price ?? listItem?.unitPrice ?? 0,
   }, settings)
 }
 
@@ -84,6 +85,7 @@ export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[
 }
 
 export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: PlannerSettings): Array<Partial<EstimateLine> & Pick<EstimateLine, 'description' | 'category' | 'quantity' | 'unitPrice' | 'discount' | 'vatRate'>> {
+  quote = { ...quote, lines: quoteCustomerLines(quote) }
   const error = damageQuoteError(quote.damageLines ?? [])
   if (error) throw new Error(error)
   const lines = [
@@ -93,7 +95,7 @@ export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: Plann
       category: line.kind === 'labor' ? 'carrozzeria' as const : line.kind === 'parts' ? 'ricambi' as const : line.kind === 'consumption' ? 'materiali' as const : line.kind === 'external' ? 'servizi esterni' as const : 'altre' as const,
       quantity: line.quantity, unitPrice: line.unitPrice, discount: 0, vatRate: quote.appliedVatRate,
       estimatedMinutes: line.kind === 'labor' ? Math.round(line.quantity * 60) : 0,
-      budgetDirectUnitCost: ['parts', 'external', 'other'].includes(line.kind) && line.unitCost > 0 ? round(line.unitCost) : undefined,
+      budgetDirectUnitCost: ['parts', 'external', 'other', 'consumption'].includes(line.kind) && line.unitCost > 0 ? round(line.unitCost) : undefined,
     })),
   ]
   if (!lines.length) throw new Error('Seleziona un pannello e aggiungi almeno una lavorazione con tempo e prezzo.')

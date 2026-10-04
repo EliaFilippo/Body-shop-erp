@@ -1,3 +1,4 @@
+import { quoteCustomerLines } from './services/quotePricing'
 import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
 import { WorkCycleFields } from './components/WorkCycleFields'
 import { cyclePhaseForLine } from './services/workCycle'
@@ -23,14 +24,14 @@ import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, re
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
-import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr, updateConsumptionLine } from './services/acceptance'
+import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr } from './services/acceptance'
 import { FinancePage } from './features/finance/FinancePage'
 import { createQuoteDocument } from './services/documents'
 import { TodayShopPage } from './features/production/TodayShopPage'
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
 import { WorkflowPage } from './features/workflow/WorkflowPage'
 import { DamageQuoteEditor } from './features/workflow/DamageQuoteEditor'
-import { acceptanceEstimateLines, damageQuoteError, recalculateDamageLine } from './services/damageQuote'
+import { acceptanceEstimateLines, damageQuoteError } from './services/damageQuote'
 import { calculateQuoteHourBudget, quoteStructureRate } from './services/quoteHourBudget'
 import { syncOperationalStateFromJobs } from './services/workflow'
 import { DOCUMENT_IDENTITY_OCR_GENERIC_ERROR, readIdentityDocument } from './services/documentIdentityOcr'
@@ -2773,13 +2774,13 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
   const internalRateSnapshot = resolveInternalHourlyRate(data.plannerSettings)
   const fallbackSaleHourlyRate = Math.max(0, internalRateSnapshot.effectiveHourlyRate)
   const effectiveSaleHourlyRate = acceptance.quote.hourlyRate > 0 ? acceptance.quote.hourlyRate : fallbackSaleHourlyRate
-  const laborLine = acceptance.quote.lines.find((line) => line.kind === 'labor')
+  const laborLine = quoteCustomerLines(acceptance.quote).find((line) => line.kind === 'labor')
   const updateLaborHours = (hours: number) => {
     const currentAcceptance = latestAcceptanceRef.current
     const saleRate = currentAcceptance.quote.hourlyRate > 0 ? currentAcceptance.quote.hourlyRate : fallbackSaleHourlyRate
-    const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, quantity: Math.max(0, hours), unitPrice: saleRate, unitCost: internalRateSnapshot.effectiveHourlyRate } : line)
+    const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, quantity: Math.max(0, hours), unitPrice: saleRate, unitCost: internalRateSnapshot.effectiveHourlyRate, source: 'manual' as const } : line)
     const withLabor = { ...currentAcceptance.quote, hourlyRate: saleRate, lines: nextLines }
-    const nextQuote = updateConsumptionLine(withLabor, Math.max(0, withLabor.materialPercent) / 100)
+    const nextQuote = { ...withLabor, manualOnlyPricing: true }
     saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
   }
   const updateSaleHourlyRate = (rate: number) => {
@@ -2787,21 +2788,15 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
     const nextRate = Math.max(0, rate)
     const nextLines = currentAcceptance.quote.lines.map((line) => line.kind === 'labor' ? { ...line, unitPrice: nextRate, unitCost: internalRateSnapshot.effectiveHourlyRate } : line)
     const withRate = { ...currentAcceptance.quote, hourlyRate: nextRate, lines: nextLines,
-      damageLines: currentAcceptance.quote.damageLines?.map((line) => line.damageSeverity !== 'grave' ? line
-        : recalculateDamageLine({ ...line, unitPrice: (line.estimatedMinutes ?? 0) / 60 * nextRate }, data.plannerSettings)) }
-    const nextQuote = updateConsumptionLine(withRate, Math.max(0, withRate.materialPercent) / 100)
-    saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
-  }
-  const updateMaterialPercent = (percent: number) => {
-    const currentAcceptance = latestAcceptanceRef.current
-    const nextQuote = updateConsumptionLine(currentAcceptance.quote, Math.max(0, percent) / 100)
+      damageLines: currentAcceptance.quote.damageLines }
+    const nextQuote = { ...withRate, manualOnlyPricing: true }
     saveAcceptance({ ...currentAcceptance, quote: nextQuote, updatedAt: new Date().toISOString() })
   }
   const updateVatRate = (vat: number) => {
     const currentAcceptance = latestAcceptanceRef.current
     saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, appliedVatRate: Math.max(0, vat) }, updatedAt: new Date().toISOString() })
   }
-  const upsertQuoteExtra = (kind: 'parts' | 'external' | 'other' | 'discount' | 'surcharge', description: string, amount: number) => {
+  const upsertQuoteExtra = (kind: 'parts' | 'external' | 'other' | 'consumption' | 'discount' | 'surcharge', description: string, amount: number) => {
     const currentAcceptance = latestAcceptanceRef.current
     const value = Math.max(0, amount)
     const existing = currentAcceptance.quote.lines.find((line) => line.kind === kind)
@@ -2810,11 +2805,13 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
       : [...currentAcceptance.quote.lines, { id: crypto.randomUUID(), kind, description, quantity: 1, unitPrice: value, unitCost: kind === 'discount' || kind === 'surcharge' ? 0 : value, source: 'manual' as const }]
     saveAcceptance({ ...currentAcceptance, quote: { ...currentAcceptance.quote, lines: nextLines }, updatedAt: new Date().toISOString() })
   }
-  const quoteExtraValue = (kind: 'parts' | 'external' | 'other' | 'discount' | 'surcharge') =>
-    acceptance.quote.lines.filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+  const quoteExtraValue = (kind: 'parts' | 'external' | 'other' | 'consumption' | 'discount' | 'surcharge') =>
+    quoteCustomerLines(acceptance.quote).filter((line) => line.kind === kind).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
   const persistQuote = () => {
     const currentAcceptance = latestAcceptanceRef.current
-    saveAcceptance({ ...currentAcceptance, updatedAt: new Date().toISOString() })
+    const freshDraft = currentAcceptance.status === 'draft' && !(data.quotes ?? []).some(quote => quote.acceptanceId === currentAcceptance.id)
+    const quote = freshDraft ? { ...currentAcceptance.quote, manualOnlyPricing: true, materialPercent: currentAcceptance.quote.lines.some(line => line.kind === 'consumption' && line.source === 'manual') ? currentAcceptance.quote.materialPercent : 0 } : currentAcceptance.quote
+    saveAcceptance({ ...currentAcceptance, quote, updatedAt: new Date().toISOString() })
     setQuoteOpen(true)
   }
 
@@ -2943,7 +2940,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <label>Ore manodopera aggiuntive<input type="number" min="0" step="0.25" value={laborLine?.quantity ?? 0} onChange={(event) => updateLaborHours(Number(event.target.value))} /></label>
           <label>Tariffa vendita €/h<input type="number" min="0" step="1" value={effectiveSaleHourlyRate} onChange={(event) => updateSaleHourlyRate(Number(event.target.value))} /></label>
           <label>Costo struttura €/h (operatore a parte)<input value={quoteBudget.structure.rate.toFixed(2)} readOnly /></label>
-          <label>Materiali aggiuntivi % (0 se inclusi nei prezzi)<input type="number" min="0" step="1" value={acceptance.quote.materialPercent} onChange={(event) => updateMaterialPercent(Number(event.target.value))} /></label>
+          <label>Materiali aggiuntivi € (solo manualmente)<input type="number" min="0" step="1" value={quoteExtraValue('consumption')} onChange={(event) => upsertQuoteExtra('consumption', 'Materiali aggiuntivi manuali', Number(event.target.value))} /></label>
           <label>IVA %<input type="number" min="0" step="1" value={acceptance.quote.appliedVatRate} onChange={(event) => updateVatRate(Number(event.target.value))} /></label>
           <label>Ricambi €<input type="number" min="0" step="1" value={quoteExtraValue('parts')} onChange={(event) => upsertQuoteExtra('parts', 'Ricambi', Number(event.target.value))} /></label>
           <label>Lavorazioni esterne €<input type="number" min="0" step="1" value={quoteExtraValue('external')} onChange={(event) => upsertQuoteExtra('external', 'Lavorazioni esterne', Number(event.target.value))} /></label>

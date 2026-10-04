@@ -1,3 +1,4 @@
+import { quoteCustomerLines } from './quotePricing'
 import type { AcceptanceQuote, EstimateLine, PlannerSettings } from '../types'
 import { calculateInternalProductiveCapacity } from './workflow'
 
@@ -25,6 +26,7 @@ export function quoteOperatorRate(settings: PlannerSettings, operatorId?: string
 }
 
 export function calculateQuoteHourBudget(quote: AcceptanceQuote, settings: PlannerSettings) {
+  quote = { ...quote, lines: quoteCustomerLines(quote) }
   const structure = quoteStructureRate(settings, quote.monthKey)
   const materialPercent = percent(settings.internalCostSettings?.budgetMaterialsPercent, 20)
   const marginPercent = percent(settings.internalCostSettings?.minimumMarginPercent, 0)
@@ -37,7 +39,7 @@ export function calculateQuoteHourBudget(quote: AcceptanceQuote, settings: Plann
   const revenue = round(grossSales - discount)
   const materialsBase = (rawRows.reduce((sum, row) => sum + row.revenue, 0) + extraRevenue) * salesFactor
   const materialsCost = round(materialsBase * materialPercent / 100)
-  const directLines = quote.lines.filter((line) => ['parts', 'external', 'other'].includes(line.kind))
+  const directLines = quote.lines.filter((line) => (['parts', 'external', 'other'].includes(line.kind) || (line.kind === 'consumption' && line.source === 'manual')))
   const directCosts = round(directLines.reduce((sum, line) => sum + safe(line.quantity) * safe(line.unitCost), 0))
   const missingDirectCost = directLines.find((line) => line.quantity > 0 && line.unitPrice > 0 && !safe(line.unitCost))
   // La riga materiali fatturata è un ricavo, il consumo stimato è calcolato una sola volta.

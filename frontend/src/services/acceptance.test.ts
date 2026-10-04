@@ -26,11 +26,11 @@ describe('accettazione preventiva', () => {
     expect(result.productiveHours).toBe(5 * 2 * 8 * 0.8)
   })
 
-  it('crea un preventivo con materiale consumo inizialmente al 20% della manodopera', () => {
+  it('crea un preventivo senza aggiungere materiali al prezzo del cliente', () => {
     const quote = createDefaultQuote(settings, '2026-08', 100)
     const summary = buildAcceptanceQuoteSummary(quote)
-    expect(summary.materials.total).toBe(7500)
-    expect(summary.total).toBeCloseTo(54900)
+    expect(summary.materials.total).toBe(0)
+    expect(summary.total).toBeCloseTo(45750)
     expect(summary.marginPercent).toBe(0)
   })
 

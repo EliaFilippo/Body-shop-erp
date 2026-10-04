@@ -1,3 +1,4 @@
+import { quoteCustomerLines } from './quotePricing'
 import type {
   AcceptanceCase,
   AcceptanceChecklistItem,
@@ -65,26 +66,27 @@ export function calculateMonthlyHourlyRate(
 
 export function createDefaultQuote(settings: PlannerSettings, monthKey: string, laborHours = 0): AcceptanceQuote {
   const rateInfo = calculateMonthlyHourlyRate(settings, monthKey)
-  const laborCost = laborHours * rateInfo.rate
-  const materialValue = round(laborCost * 0.2)
+  const materialValue = 0
   const lines: AcceptanceLine[] = [
-    { id: crypto.randomUUID(), kind: 'labor', description: 'Manodopera', quantity: laborHours, unitCost: rateInfo.rate, unitPrice: rateInfo.rate, source: 'auto' },
+    { id: crypto.randomUUID(), kind: 'labor', description: 'Manodopera', quantity: laborHours, unitCost: rateInfo.rate, unitPrice: rateInfo.rate, source: laborHours > 0 ? 'manual' : 'auto' },
     { id: crypto.randomUUID(), kind: 'consumption', description: 'Materiale di consumo', quantity: 1, unitCost: materialValue, unitPrice: materialValue, source: 'auto' },
   ]
   return {
     id: crypto.randomUUID(),
+    manualOnlyPricing: true,
     selectedPhases: [],
     monthKey,
     hourlyRate: rateInfo.rate,
     productiveHours: rateInfo.productiveHours,
     monthlyEconomicGoal: settings.monthlyRevenueGoal,
     appliedVatRate: 22,
-    materialPercent: 20,
+    materialPercent: 0,
     lines,
   }
 }
 
 export function buildAcceptanceQuoteSummary(quote: AcceptanceQuote, settings?: PlannerSettings): QuoteSummary {
+  quote = { ...quote, lines: quoteCustomerLines(quote) }
   const damageLines = quote.damageLines ?? []
   const laborTotal = round(laborLines(quote).reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
     + damageLines.reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0))
@@ -132,7 +134,7 @@ export function updateConsumptionLine(quote: AcceptanceQuote, factor: number) {
     + (quote.damageLines ?? []).filter((line) => !line.materialsIncluded).reduce((sum, line) => sum + line.quantity * line.unitPrice - line.discount, 0)
   const nextValue = round(laborAmount * factor)
   if (!current) return quote
-  const nextLines = quote.lines.map((line) => line.kind === 'consumption' ? { ...line, unitPrice: nextValue, unitCost: nextValue, quantity: 1 } : line)
+  const nextLines = quote.lines.map((line) => line.kind === 'consumption' ? { ...line, unitPrice: nextValue, unitCost: nextValue, quantity: 1, source: 'manual' as const } : line)
   return { ...quote, lines: nextLines, materialPercent: Math.round(factor * 100) }
 }
 

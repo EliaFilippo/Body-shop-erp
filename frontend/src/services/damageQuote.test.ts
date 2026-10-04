@@ -28,9 +28,9 @@ describe('preventivo grafico per danno', () => {
     expect(minorDamageLines(configured, { id: 'porta-ant-dx', name: 'Porta anteriore DX' }, 22)).toEqual([])
   })
 
-  it('calcola il danno grave dalla tariffa di vendita e mantiene le ore manuali nel preventivo', () => {
+  it('conserva il prezzo scelto del danno grave indipendentemente dalle ore', () => {
     const line = makeDamageLine(settings, panel, work, 'grave', 22, 60, { workId: work.id, minutes: 180, price: 999 })
-    expect(line).toMatchObject({ estimatedMinutes: 180, unitPrice: 180, total: 219.6 })
+    expect(line).toMatchObject({ estimatedMinutes: 180, unitPrice: 999, total: 1218.78 })
     const data = createEstimate(structuredClone(emptyData), { customerId: 'c', vehicleId: 'v', plate: 'TEST001', companyName: '', contactName: '', date: '2026-10-01', notes: '', lines: [line] })
     expect(data.estimates![0].lines[0]).toMatchObject({ panelId: panel.id, damageSeverity: 'grave', estimatedMinutes: 180, categoryOrPhase: 'Lattoneria' })
     expect(estimateVehicleTotalMinutes(data.estimates![0].lines)).toBe(180)

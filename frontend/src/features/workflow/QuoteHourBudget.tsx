@@ -1,3 +1,4 @@
+import { quoteCustomerLines } from '../../services/quotePricing'
 import type { AcceptanceQuote, PlannerSettings } from '../../types'
 import { calculateQuoteHourBudget, quoteOperatorRate } from '../../services/quoteHourBudget'
 import { recalculateDamageLine } from '../../services/damageQuote'
@@ -42,7 +43,7 @@ export function QuoteHourBudget({ quote, settings, activePanelId, onChange }: {
     {!budget.error && budget.maxMinutes !== null && budget.plannedMinutes > budget.maxMinutes && <p role="alert" className="damage-incomplete">Le ore previste superano il budget a pareggio. Riduci il tempo o rivedi il prezzo.</p>}
     {!budget.error && budget.targetMinutes !== null && budget.maxMinutes !== null && budget.plannedMinutes > budget.targetMinutes && budget.plannedMinutes <= budget.maxMinutes && <p className="damage-incomplete">Le ore previste lasciano un margine inferiore all’obiettivo impostato.</p>}
     {!budget.error && budget.fullyTimed && <p>Margine previsto dopo tutti i costi: <strong>{money(budget.margin)}</strong>.</p>}
-    {quote.lines.some((line) => line.kind === 'labor' && line.quantity > 0) && <p className="damage-incomplete">Sono presenti ore aggiuntive oltre ai pannelli. Se erano un valore iniziale e non rappresentano altri lavori, azzerale negli importi aggiuntivi.</p>}
+    {quoteCustomerLines(quote).some((line) => line.kind === 'labor' && line.quantity > 0) && <p className="damage-incomplete">Sono presenti ore aggiuntive oltre ai pannelli. Se erano un valore iniziale e non rappresentano altri lavori, azzerale negli importi aggiuntivi.</p>}
     <small>Il limite economico non è una stima tecnica del danno né la disponibilità del calendario. Le ore con margine mantengono la percentuale impostata in Costi e tariffe interne.</small>
     {lines.length > 0 && <div className="quote-budget-panel"><h4>{rows[0]?.panelName}</h4>
       <label>Operatore per questo pannello<select value={lines[0]?.budgetOperatorId ?? ''} onChange={(event) => onChange({ ...quote, damageLines: (quote.damageLines ?? []).map((line) => line.panelId === activePanelId ? { ...line, budgetOperatorId: event.target.value } : line) })}><option value="">Usa operatore di riferimento</option>{choices.map((operator) => <option key={operator.id} value={operator.id}>{operator.name}</option>)}</select></label>

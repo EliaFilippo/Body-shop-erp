@@ -896,6 +896,7 @@ export interface AcceptanceLine {
 }
 
 export interface AcceptanceQuote {
+  manualOnlyPricing?: boolean
   selectedPhases?: string[]
   paymentTerms?: EstimatePaymentTerms
   id: string
