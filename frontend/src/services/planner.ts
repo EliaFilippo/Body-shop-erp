@@ -1182,7 +1182,7 @@ export function simulateEstimateProductionForecast(
   const blockingReasons = phaseSequence.filter(phase => phase.plannedMinutes <= 0).map(phase => `Tempo da configurare: ${phase.phaseName}.`)
   if (!phaseSequence.length || productiveDurationMinutes <= 0) blockingReasons.push('Inserisci i tempi delle lavorazioni per calcolare la consegna.')
   const activeOperators = data.plannerSettings.operators.filter((operator) => operator.active)
-  let dependencyCursor = nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
+  let dependencyCursor = nextWorkingInstant(`${firstAvailabilityDate}T00:00:00.000Z`, data.plannerSettings)
   if (!input.referenceDate) dependencyCursor = nextWorkingInstant(dependencyCursor < new Date().toISOString() ? new Date().toISOString() : dependencyCursor, data.plannerSettings)
   let compatibleOperatorsFound = true
 
@@ -1227,7 +1227,7 @@ export function simulateEstimateProductionForecast(
 
   const bufferMode = data.plannerSettings.deliveryBufferMode === 'hours' ? 'hours' : 'percent'
   const bufferValue = Math.max(0, Number(data.plannerSettings.deliveryBufferValue ?? 0))
-  const technicalCompletionAt = phasePlans.at(-1)?.availableAfter || nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
+  const technicalCompletionAt = phasePlans.at(-1)?.availableAfter || nextWorkingInstant(`${firstAvailabilityDate}T00:00:00.000Z`, data.plannerSettings)
   const bufferMinutes = bufferMode === 'hours' ? Math.round(bufferValue * 60) : Math.round(productiveDurationMinutes * (bufferValue / 100))
   const advisedDeliveryAt = blockingReasons.length ? technicalCompletionAt : addWorkingMinutes(technicalCompletionAt, bufferMinutes, data.plannerSettings)
   const advisedDeliveryDate = blockingReasons.length ? '' : advisedDeliveryAt.slice(0, 10)
@@ -1240,7 +1240,7 @@ export function simulateEstimateProductionForecast(
     compatibleOperatorsFound,
     productiveDurationMinutes,
   })
-  const estimatedStartAt = phasePlans[0]?.startAt || nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
+  const estimatedStartAt = phasePlans[0]?.startAt || nextWorkingInstant(`${firstAvailabilityDate}T00:00:00.000Z`, data.plannerSettings)
   const withSimulationByVehicle = new Map(plannerResult.vehicles.map((item) => [item.vehicleId, item.calculatedDeliveryDate]))
   let movedJobs = 0
   let delayedJobs = 0
