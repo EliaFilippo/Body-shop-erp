@@ -44,7 +44,7 @@ describe('pannelli cliccabili in accettazione', () => {
     fireEvent.change(screen.getByLabelText(/Tariffa vendita per danni gravi/), { target: { value: '60' } })
     fireEvent.blur(screen.getByLabelText(/Tariffa vendita per danni gravi/))
     fireEvent.change(screen.getByLabelText('Ore Lattoneria'), { target: { value: '3' } })
-    expect(latest.damageLines![0]).toMatchObject({ damageSeverity: 'grave', estimatedMinutes: 180, unitPrice: 180 })
+    expect(latest.damageLines![0]).toMatchObject({ damageSeverity: 'grave', estimatedMinutes: 180, unitPrice: 150 })
     expect(savedSettings.minorDamagePresets![0].lines[0].minutes).toBe(90)
   })
 
@@ -80,7 +80,7 @@ describe('pannelli cliccabili in accettazione', () => {
     fireEvent.change(screen.getByLabelText(/Tariffa vendita per danni gravi/), { target: { value: '60' } })
     fireEvent.blur(screen.getByLabelText(/Tariffa vendita per danni gravi/))
     fireEvent.change(screen.getByLabelText('Ore Porta'), { target: { value: '3' } })
-    expect(latest.damageLines![0]).toMatchObject({ estimatedMinutes: 180, unitPrice: 180, damageSeverity: 'grave' })
+    expect(latest.damageLines![0]).toMatchObject({ estimatedMinutes: 180, unitPrice: 150, damageSeverity: 'grave' })
   })
 
   it('sceglie importi alternativi e applica il sensore pioggia una sola volta', () => {

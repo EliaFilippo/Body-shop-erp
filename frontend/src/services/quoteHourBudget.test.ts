@@ -32,6 +32,36 @@ describe('ore economiche a disposizione', () => {
     expect(quoteStructureRate(settings).rate).toBe(25)
   })
 
+  it('non fattura extra automatici, conserva il prezzo al variare dei costi e ammette solo extra manuali', () => {
+    const { settings, quote } = fixture()
+    quote.damageLines![0].estimatedMinutes = 60
+    const labor = quote.lines.find(line => line.kind === 'labor')!
+    labor.quantity = 8
+    labor.unitPrice = 75
+    const consumption = quote.lines.find(line => line.kind === 'consumption')!
+    consumption.unitPrice = 30
+    consumption.unitCost = 30
+    expect(buildAcceptanceQuoteSummary(quote).total).toBe(183)
+    expect(calculateQuoteHourBudget(quote, settings)).toMatchObject({ revenue: 150, materialsCost: 30 })
+    expect(acceptanceEstimateLines(quote, settings)).toHaveLength(1)
+    settings.operators[0].hourlyCost = 40
+    settings.internalCostSettings!.monthlyCostItems![0].monthlyAmount = 12000
+    calculateQuoteHourBudget(quote, settings)
+    expect(quote.damageLines![0].unitPrice).toBe(150)
+    expect(buildAcceptanceQuoteSummary(quote).total).toBe(183)
+    quote.lines.push({id:'extra',kind:'external',description:'Extra autorizzato',quantity:1,unitPrice:50,unitCost:40,source:'manual'})
+    expect(buildAcceptanceQuoteSummary(quote).total).toBe(244)
+    expect(acceptanceEstimateLines(quote, settings)).toHaveLength(2)
+  })
+
+  it('aggiunge materiali soltanto su richiesta manuale e ne sottrae il costo dal budget interno', () => {
+    const { settings, quote } = fixture()
+    const material = quote.lines.find(line => line.kind === 'consumption')!
+    Object.assign(material, {unitPrice:30,unitCost:30,source:'manual'})
+    expect(buildAcceptanceQuoteSummary(quote).total).toBe(219.6)
+    expect(calculateQuoteHourBudget(quote, settings)).toMatchObject({revenue:180,materialsCost:30,directCosts:30,available:120,maxMinutes:144})
+  })
+
   it('mostra il limite da tutte le spese anche prima di scegliere l’operatore o inserire i tempi tecnici', () => {
     const { settings, quote } = fixture()
     quote.budgetOperatorId = ''
