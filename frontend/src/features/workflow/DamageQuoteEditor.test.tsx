@@ -17,6 +17,16 @@ function Harness() {
 }
 
 describe('pannelli cliccabili in accettazione', () => {
+  it('mostra le ore disponibili dal prezzo anche senza operatore e senza tempario', () => {
+    const settings = structuredClone(defaultPlannerSettings)
+    settings.internalCostSettings = { internalHourlyRate: 0, minimumMarginPercent: 0, usePlannerCapacity: false, budgetMaterialsPercent: 20, monthlyCostItems: [{id:'cost',category:'affitto',description:'Spese',monthlyAmount:1000,active:true}], productiveCapacity: {productiveOperators:1,hoursPerOperatorPerDay:1,workingDaysPerMonth:20,efficiencyPercent:100} }
+    const quote = createDefaultQuote(settings, '2026-10')
+    quote.damageLines = [{id:'line',description:'Porta',panelId:'porta-ant-sx',panelName:'Porta anteriore SX',category:'verniciatura',quantity:1,unitPrice:150,discount:0,vatRate:22,estimatedMinutes:0,taxableAmount:150,vatAmount:33,total:183}]
+    render(<DamageQuoteEditor settings={settings} quote={quote} onChange={() => {}} />)
+    expect(screen.getByText('Ore a disposizione').parentElement).toHaveTextContent('2 h 24 min')
+    expect(screen.getByText('Tempo tecnico previsto').parentElement).toHaveTextContent('0 h 0 min')
+  })
+
   it('configura lieve, lo memorizza, riapre senza duplicare e passa alle ore manuali per grave', () => {
     render(<Harness />)
     fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX' }))

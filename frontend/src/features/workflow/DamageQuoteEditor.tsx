@@ -5,6 +5,7 @@ import { buildAcceptanceQuoteSummary, updateConsumptionLine } from '../../servic
 import { chooseEliasPrice, damageQuoteError, makeDamageLine, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from '../../services/damageQuote'
 import { ELIAS_PRICE_LIST, eliasEntryForWork, eliasPricesForPanel } from '../../services/eliasPriceList'
 import { PANEL_CATALOG, QUOTE_PANELS, type VehicleViewId } from './vehiclePanels'
+import { calculateQuoteHourBudget } from '../../services/quoteHourBudget'
 import { QuoteHourBudget } from './QuoteHourBudget'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
@@ -28,6 +29,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
   const selected = lines.filter((line) => line.panelId === activeId)
   const catalogLines = selected.filter((line) => eliasEntryForWork(line.standardWorkId))
   const works = (settings.standardWorks ?? []).filter((work) => work.active).sort((a, b) => a.cycleOrder - b.cycleOrder)
+  const hourBudget = calculateQuoteHourBudget(quote, settings)
   const summary = buildAcceptanceQuoteSummary(quote)
   const error = damageQuoteError(lines)
 
@@ -117,7 +119,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
             <div className="damage-work-values"><label>Ore {line.standardWorkName}<input type="number" inputMode="decimal" min="0" step="0.25" value={Number(((line.estimatedMinutes ?? 0) / 60).toFixed(4))} onChange={(event) => changeMinutes(line, Number(event.target.value))} /></label>
               {severity === 'lieve' ? <label>Prezzo {line.standardWorkName} €<MoneyInput value={line.unitPrice} onValueChange={(value) => commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, unitPrice: value ?? 0 }, settings)))} /></label> : <div><span>Prezzo IVA esclusa</span><strong>{money(line.unitPrice)}</strong></div>}
             </div>
-            {!line.estimatedMinutes && <p className="damage-incomplete">Il listino non indica le ore: inseriscile per questo lavoro, poi puoi memorizzarle.</p>}
+            {!line.estimatedMinutes && <p className="damage-incomplete">Le ore economiche disponibili sono calcolate sotto dal prezzo. Inserisci qui il tempo tecnico necessario per pianificare le fasi e la consegna.</p>}
             <button type="button" className="secondary" onClick={() => commit(lines.filter((item) => item.id !== line.id))}>Rimuovi {line.standardWorkName}</button>
           </div>)}</div>
           {catalogLines.length > 0 && selected.some((line) => !eliasEntryForWork(line.standardWorkId)) && <p className="damage-incomplete">Questo pannello contiene anche altre lavorazioni oltre al prezzo del listino. Controlla le voci qui sotto per evitare doppi addebiti.</p>}
@@ -148,7 +150,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
         </>}
       </div>
     </div>
-    <div className="damage-total" aria-live="polite"><div><span>Tempo totale pannelli</span><strong>{duration(lines.reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</strong></div><div><span>Imponibile complessivo</span><strong>{money(summary.taxableAmount)}</strong></div><div><span>Totale IVA inclusa</span><strong>{money(summary.total)}</strong></div></div>
+    <div className="damage-total" aria-live="polite"><div><span>Ore a disposizione</span><strong>{hourBudget.baseMaxMinutes === null ? 'Da configurare' : duration(hourBudget.baseMaxMinutes)}</strong></div><div><span>Tempo tecnico previsto</span><strong>{duration(lines.reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</strong></div><div><span>Imponibile complessivo</span><strong>{money(summary.taxableAmount)}</strong></div><div><span>Totale IVA inclusa</span><strong>{money(summary.total)}</strong></div></div>
     <p>Materiali già inclusi nelle voci del listino Elias. Materiali aggiuntivi sulle altre lavorazioni: {quote.materialPercent}% · {money(summary.materials.total)}.</p>
     <details className="damage-extra-details"><summary>Vedi tutto il listino della foto</summary><p>IVA esclusa · materiali inclusi. I prezzi doppi restano a scelta, senza assegnarli a categorie non indicate nel foglio. Parabrezza: +15 € con sensore pioggia.</p><div className="elias-price-table"><table><thead><tr><th>Lavorazione</th><th>Prezzo</th></tr></thead><tbody>{ELIAS_PRICE_LIST.map((entry) => <tr key={entry.id}><td>{entry.name}</td><td>{entry.prices.map(money).join(' / ')}</td></tr>)}</tbody></table></div></details>
     {quote.lines.some((line) => line.kind === 'labor' && line.quantity > 0) && <p className="damage-incomplete">La pratica contiene anche ore di manodopera aggiuntive: controllale in «Altri importi, materiali e IVA» per evitare di conteggiarle due volte.</p>}

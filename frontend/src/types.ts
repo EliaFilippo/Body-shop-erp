@@ -515,6 +515,7 @@ export interface InternalProductiveCapacitySettings {
 }
 
 export interface InternalCostSettings {
+  usePlannerCapacity?: boolean
   internalHourlyRate: number
   minimumMarginPercent: number
   monthlyCostItems?: InternalMonthlyCostItem[]

@@ -11,7 +11,7 @@ import { loadDatabase, saveDatabase } from './database'
 function fixture() {
   const settings = structuredClone(defaultPlannerSettings)
   settings.operators = [{ id: 'a', name: 'Operatore A', dailyHours: 8, active: true, hourlyCost: 20 }, { id: 'b', name: 'Operatore B', dailyHours: 8, active: true, hourlyCost: 30 }]
-  settings.internalCostSettings = { internalHourlyRate: 0, minimumMarginPercent: 20, budgetMaterialsPercent: 20,
+  settings.internalCostSettings = { usePlannerCapacity: false, internalHourlyRate: 0, minimumMarginPercent: 20, budgetMaterialsPercent: 20,
     monthlyCostItems: [{ id: 'overhead', category: 'affitto', description: 'Spese generali', monthlyAmount: 6000, active: true },
       { id: 'payroll', category: 'personale', description: 'Personale produttivo', monthlyAmount: 4000, active: true }],
     productiveCapacity: { productiveOperators: 2, hoursPerOperatorPerDay: 8, workingDaysPerMonth: 20, efficiencyPercent: 62.5 } }
@@ -30,6 +30,33 @@ describe('ore economiche a disposizione', () => {
     settings.internalCostSettings!.budgetUseManualStructureRate = true
     settings.internalCostSettings!.budgetManualStructureRate = 25
     expect(quoteStructureRate(settings).rate).toBe(25)
+  })
+
+  it('mostra il limite da tutte le spese anche prima di scegliere l’operatore o inserire i tempi tecnici', () => {
+    const { settings, quote } = fixture()
+    quote.budgetOperatorId = ''
+    quote.damageLines![0].estimatedMinutes = 0
+    const budget = calculateQuoteHourBudget(quote, settings)
+    expect(budget.structure).toMatchObject({ totalMonthlyCosts: 10000, allInRate: 50, productiveHours: 200 })
+    expect(budget).toMatchObject({ available: 120, baseMaxMinutes: 144, baseTargetMinutes: 108, maxMinutes: null })
+  })
+
+  it('ricalcola la tariffa dai turni di Martin nel mese del preventivo, escludendo ferie e domeniche', () => {
+    const { settings, quote } = fixture()
+    settings.internalCostSettings!.usePlannerCapacity = true
+    settings.internalCostSettings!.productiveCapacity!.efficiencyPercent = 100
+    settings.operators = [{ id: 'a', name: 'Martin', active: true, dailyHours: 10, hourlyCost: 20, weeklySchedule: Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, active: dayOfWeek !== 0, intervals: [1,2,6].includes(dayOfWeek) ? [{startTime: '07:00', endTime: '12:00'}, {startTime: '14:00', endTime: '19:00'}] : [{startTime: '19:00', endTime: '23:00'}] })) }]
+    quote.monthKey = '2026-10'
+    const budget = calculateQuoteHourBudget(quote, settings)
+    expect(budget.structure.productiveHours).toBe(186)
+    expect(budget.structure.allInRate).toBeCloseTo(10000 / 186)
+    expect(budget.baseMaxMinutes).toBe(133)
+    settings.holidays = ['2026-10-10']
+    const holiday = calculateQuoteHourBudget(quote, settings)
+    expect(holiday.structure.productiveHours).toBe(176)
+    expect(holiday.baseMaxMinutes).toBe(126)
+    settings.internalCostSettings!.monthlyCostItems![0].monthlyAmount = 12000
+    expect(calculateQuoteHourBudget(quote, settings).baseMaxMinutes).toBeLessThan(126)
   })
 
   it('150 euro meno 20% materiali a 30+20 euro/h dà 144 minuti a pareggio e 108 con margine 20%', () => {

@@ -1,3 +1,4 @@
+import { workingMinutesForDate } from './workCalendar'
 import { buildSelectedWorkCycle } from './workCycle'
 import type {
 	ErpData,
@@ -160,7 +161,25 @@ export function calculateInternalCostMonthlyTotals(plannerSettings: PlannerSetti
 	return { consideredMonthlyCosts, items }
 }
 
-export function calculateInternalProductiveCapacity(plannerSettings: PlannerSettings) {
+export function calculateInternalProductiveCapacity(plannerSettings: PlannerSettings, monthKey?: string) {
+  const usePlanner = plannerSettings.internalCostSettings?.usePlannerCapacity ?? plannerSettings.operators.some(operator => operator.active && operator.weeklySchedule?.length)
+  if (usePlanner) {
+    const currentMonth = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit' }).format(new Date())
+    const key = monthKey && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey) ? monthKey : currentMonth
+    const [year, month] = key.split('-').map(Number)
+    const operators = plannerSettings.operators.filter(operator => operator.active)
+    const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    let theoreticalHours = 0
+    let workingDaysPerMonth = 0
+    for (let day = 1; day <= days; day++) {
+      const date = `${key}-${String(day).padStart(2, '0')}`
+      const hours = operators.reduce((total, operator) => total + workingMinutesForDate(date, plannerSettings, operator) / 60, 0)
+      theoreticalHours += hours
+      if (hours > 0) workingDaysPerMonth++
+    }
+    const efficiencyPercent = Math.min(100, Math.max(0, Number(plannerSettings.internalCostSettings?.productiveCapacity?.efficiencyPercent ?? plannerSettings.efficiencyPercent ?? 0)))
+    return { source: 'planner' as const, monthKey: key, productiveOperators: operators.length, hoursPerOperatorPerDay: operators.length && workingDaysPerMonth ? round(theoreticalHours / operators.length / workingDaysPerMonth) : 0, workingDaysPerMonth, efficiencyPercent, theoreticalHours: round(theoreticalHours), productiveHours: round(theoreticalHours * efficiencyPercent / 100) }
+  }
 	const capacity = plannerSettings.internalCostSettings?.productiveCapacity
 	const productiveOperators = Math.max(0, Number(capacity?.productiveOperators ?? 0))
 	const hoursPerOperatorPerDay = Math.max(0, Number(capacity?.hoursPerOperatorPerDay ?? 0))
@@ -169,6 +188,8 @@ export function calculateInternalProductiveCapacity(plannerSettings: PlannerSett
 	const theoreticalHours = productiveOperators * hoursPerOperatorPerDay * workingDaysPerMonth
 	const productiveHours = theoreticalHours * (efficiencyPercent / 100)
 	return {
+		source: 'manual' as const,
+		monthKey: monthKey ?? '',
 		productiveOperators,
 		hoursPerOperatorPerDay,
 		workingDaysPerMonth,
