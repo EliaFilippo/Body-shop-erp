@@ -161,7 +161,8 @@ export function getOperatorWorkingIntervals(date: string, settings: PlannerSetti
   const companyIntervals = getCompanyWorkingIntervals(date, baseSettings)
   const targetOperator = operator
   if (!targetOperator) return companyIntervals
-  const nominalMinutes = Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)))
+  const nominalMinutes = targetOperator.weeklySchedule?.length ? intervalsMinutes(companyIntervals)
+    : Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)))
   const absence = (settings.absences ?? []).find((entry: PlannerAbsence) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate)
   const availableMinutes = Math.max(0, nominalMinutes - Math.round((absence?.hoursPerDay ?? 0) * 60))
   return trimIntervalsToMinutes(companyIntervals, availableMinutes)
