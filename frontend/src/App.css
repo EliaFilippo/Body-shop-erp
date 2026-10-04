@@ -522,3 +522,12 @@ main{min-width:0}header{height:92px;padding:0 32px;display:flex;align-items:cent
 .damage-extra-details{margin-top:16px;border:1px solid #56525a;border-radius:10px;padding:14px}.damage-extra-details summary{cursor:pointer;padding:6px;font-weight:600}.damage-extra-details[open] summary{margin-bottom:14px}
 @media(max-width:1000px){.damage-quote-layout{grid-template-columns:1fr}.damage-car-column{position:static}.damage-car{min-height:220px;max-height:340px}.damage-car.view-top{height:330px}.damage-controls{padding:12px}}
 @media(max-width:600px){.damage-quote{padding:10px}.damage-total{gap:8px;padding:10px;bottom:0}.damage-total strong{font-size:16px}.damage-total span{font-size:10px}.damage-car{min-height:185px}.damage-views button,.damage-severity button{font-size:13px;padding:10px}.damage-work-values{gap:8px}}
+
+/* Keep every navigation entry reachable on short desktop and tablet screens. */
+.sidebar{height:100dvh;overflow-y:scroll;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:var(--gold) #171719}
+.sidebar>*{flex-shrink:0}
+.sidebar::-webkit-scrollbar{width:12px}
+.sidebar::-webkit-scrollbar-track{background:#171719;border-radius:8px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--gold);border:3px solid #171719;border-radius:8px;min-height:42px}
+.sidebar::-webkit-scrollbar-thumb:hover{background:var(--gold2)}
+.sidebar:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
