@@ -9,6 +9,9 @@ describe('parseMoneyDraft', () => {
   })
 
   it('gestisce formati con separatori migliaia', () => {
+    expect(parseMoneyDraft('8.000')).toBe(8000)
+    expect(parseMoneyDraft('40.000')).toBe(40000)
+    expect(parseMoneyDraft('1.000.000')).toBe(1000000)
     expect(parseMoneyDraft('6.000,50')).toBe(6000.5)
     expect(parseMoneyDraft('6,000.50')).toBe(6000.5)
   })
