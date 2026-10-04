@@ -1187,7 +1187,11 @@ export function simulateEstimateProductionForecast(
   let compatibleOperatorsFound = true
 
   for (const phase of phaseSequence) {
-    const compatible = activeOperators.filter((operator) => operatorSupportsPhase(operator, phase.phaseName))
+    const compatible = activeOperators.filter((operator) => {
+      if (!operatorSupportsPhase(operator, phase.phaseName)) return false
+      const availableAt = nextWorkingInstant(dependencyCursor, data.plannerSettings, operator)
+      return workingMinutesForDate(availableAt.slice(0, 10), data.plannerSettings, operator) > 0
+    })
     if (!compatible.length) {
       compatibleOperatorsFound = false
       blockingReasons.push(`Nessun operatore disponibile per ${phase.phaseName}.`)
@@ -1225,7 +1229,7 @@ export function simulateEstimateProductionForecast(
   const bufferValue = Math.max(0, Number(data.plannerSettings.deliveryBufferValue ?? 0))
   const technicalCompletionAt = phasePlans.at(-1)?.availableAfter || nextWorkingInstant(`${firstAvailabilityDate}T08:00:00.000Z`, data.plannerSettings)
   const bufferMinutes = bufferMode === 'hours' ? Math.round(bufferValue * 60) : Math.round(productiveDurationMinutes * (bufferValue / 100))
-  const advisedDeliveryAt = addWorkingMinutes(technicalCompletionAt, bufferMinutes, data.plannerSettings)
+  const advisedDeliveryAt = blockingReasons.length ? technicalCompletionAt : addWorkingMinutes(technicalCompletionAt, bufferMinutes, data.plannerSettings)
   const advisedDeliveryDate = blockingReasons.length ? '' : advisedDeliveryAt.slice(0, 10)
   const requestedDeliveryCompatible = requestedDeliveryDate && advisedDeliveryDate ? requestedDeliveryDate >= advisedDeliveryDate : undefined
   const workshopLoadPercent = plan?.assignments.length ? capacityWithAssignments(firstAvailabilityDate, data.plannerSettings, plannerResult.assignments).saturation : 0
