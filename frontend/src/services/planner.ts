@@ -76,8 +76,11 @@ function marginMetrics(job: RepairJob, vehicle: Vehicle, settings: PlannerSettin
   const productiveHours = Math.max(0.25, productiveMinutes / 60)
   const rate = Math.max(0, resolveInternalHourlyRate(settings).effectiveHourlyRate || 0)
   const revenueFromLines = (job.lines ?? []).reduce((sum, line) => sum + Math.max(0, Number(line.taxableAmount ?? line.total ?? 0)), 0)
-  const plannedRevenue = Math.max(0, Number(job.taxableAmount ?? 0), Number(job.total ?? 0), revenueFromLines, Number(vehicle.expectedRevenue ?? 0))
-  const totalMargin = plannedRevenue - (productiveHours * rate)
+  const plannedRevenue = Math.max(0, Number(job.taxableAmount ?? revenueFromLines ?? vehicle.expectedRevenue ?? 0))
+  const materialsPercent = Math.min(100,Math.max(0,settings.internalCostSettings?.budgetMaterialsPercent ?? 20))
+  const materials = (job.lines ?? []).filter(line => ['carrozzeria','verniciatura','meccanica'].includes(line.category)).reduce((sum,line)=>sum+Math.max(0,line.taxableAmount)*materialsPercent/100,0)
+  const directCosts = (job.lines ?? []).filter(line=>['ricambi','servizi esterni','altre'].includes(line.category)).reduce((sum,line)=>sum+Math.max(0,line.quantity)*Math.max(0,line.budgetDirectUnitCost ?? 0),0)
+  const totalMargin = plannedRevenue - materials - directCosts - (productiveHours * rate)
   const marginPerHour = totalMargin / productiveHours
   return {
     productiveHours,
@@ -462,7 +465,7 @@ function computePriorityScore(input: {
 }) {
   const { job, vehicle, referenceDate, blocked, compatibleCount, totalActiveOperators, readyAt, settings } = input
   const weights = resolvePriorityWeights(settings)
-  const promisedDate = String(job.expectedDeliveryDate ?? '').trim()
+  const promisedDate = String(job.agreedDeliveryDate ?? job.expectedDeliveryDate ?? '').trim()
   const tier = priorityTier(job.priority, promisedDate)
   const started = jobStarted(job)
   const daysToDueRaw = promisedDate ? betweenDays(referenceDate, promisedDate) : MAX_SCORE_DAYS

@@ -1171,6 +1171,7 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 	const timestamp = now()
 	const checklist = qualityChecklistFromTemplates(data.qualityChecklistTemplates ?? [])
 	const phases = buildPhases(estimate.lines)
+	const vehicle = data.vehicles.find(v => v.id === estimate.vehicleId)
 	return {
 		id: id(),
 		number: jobNumber(nextCounter),
@@ -1181,6 +1182,7 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 		coneNumber: null,
 		entryDate: estimate.productionForecast?.firstAvailabilityDate || today(),
 		expectedDeliveryDate: estimate.requestedDeliveryDate || estimate.productionForecast?.advisedDeliveryDate || estimate.date,
+		agreedDeliveryDate: estimate.requestedDeliveryDate || vehicle?.requestedDeliveryDate || '',
 		priority: estimate.priority ?? 'Normale',
 		responsible: '',
 		status: 'Da pianificare',
@@ -1472,6 +1474,7 @@ export function updateJobMeta(data: ErpData, jobId: string, input: {
 		jobs: jobs.map((job) => job.id === jobId ? {
 			...job,
 			expectedDeliveryDate: input.expectedDeliveryDate || job.expectedDeliveryDate,
+			agreedDeliveryDate: input.expectedDeliveryDate !== job.expectedDeliveryDate ? input.expectedDeliveryDate : job.agreedDeliveryDate,
 			priority: input.priority,
 			responsible: input.responsible.trim(),
 			notes: input.notes,
