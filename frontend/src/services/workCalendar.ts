@@ -155,12 +155,15 @@ export function getCompanyWorkingIntervals(date: string, settings: PlannerSettin
   return mergeIntervals(subtractIntervals(base, blockers))
 }
 
-export function getOperatorWorkingIntervals(date: string, settings: PlannerSettings, operator?: PlannerOperator) {
+export function getOperatorWorkingIntervals(date: string, settings: PlannerSettings, operator?: PlannerOperator): TimeInterval[] {
   const schedule = operator?.weeklySchedule?.length ? operator.weeklySchedule : settings.weeklyWorkSchedule
   const baseSettings = { ...settings, weeklyWorkSchedule: schedule }
   const companyIntervals = getCompanyWorkingIntervals(date, baseSettings)
   const targetOperator = operator
-  if (!targetOperator) return companyIntervals
+  if (!targetOperator) return mergeIntervals([
+    ...companyIntervals,
+    ...settings.operators.filter(item => item.active).flatMap(item => getOperatorWorkingIntervals(date, settings, item)),
+  ])
   const nominalMinutes = targetOperator.weeklySchedule?.length ? intervalsMinutes(companyIntervals)
     : Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)))
   const absence = (settings.absences ?? []).find((entry: PlannerAbsence) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate)
@@ -169,7 +172,7 @@ export function getOperatorWorkingIntervals(date: string, settings: PlannerSetti
 }
 
 export function isWorkingDate(date: string, settings: PlannerSettings) {
-  return getCompanyWorkingIntervals(date, settings).length > 0
+  return getOperatorWorkingIntervals(date, settings).length > 0
 }
 
 export function workingMinutesForDate(date: string, settings: PlannerSettings, operator?: PlannerOperator) {
@@ -222,7 +225,7 @@ export function addWorkingMinutes(startIso: string, minutes: number, settings: P
       minute = interval.endMinute
       progressed = true
     }
-    const overnightResumeMinute = intervals.length > 1 ? 9 * 60 : 8 * 60
+    const overnightResumeMinute = operator?.weeklySchedule?.length ? 0 : intervals.length > 1 ? 9 * 60 : 8 * 60
     date = nextWorkingDate(addDays(date, 1), settings)
     minute = overnightResumeMinute
     cursor = nextWorkingInstant(isoAt(date, overnightResumeMinute), settings, operator)
