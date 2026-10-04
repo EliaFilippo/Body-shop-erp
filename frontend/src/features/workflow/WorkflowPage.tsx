@@ -972,9 +972,10 @@ function EstimateEditor({
       plate,
       priority,
       requestedDeliveryDate,
+      selectedPhases,
       lines: lines as EstimateLine[],
     })
-  }, [data, lines, plate, priority, requestedDeliveryDate, vehicleId])
+  }, [data, lines, plate, priority, requestedDeliveryDate, vehicleId, selectedPhases])
 
   const catalogPanelNames = new Set(PANEL_CATALOG.map((panel) => normalizePanelName(panel.name)))
   const customPanels = panels.filter((panel) => !catalogPanelNames.has(normalizePanelName(panel.name)))
@@ -1465,7 +1466,9 @@ function EstimateEditor({
           </article>)}
         </div>
 
-        {productionForecast?.requestedDeliveryDate && <div className="estimate-price-alert" style={{ marginTop: 10 }}>
+        {!!productionForecast?.blockingReasons?.length && <p role="status">Previsione da completare: {productionForecast.blockingReasons.join(' ')}</p>}
+        <p>La consegna stimata è indicativa e viene ricalcolata in base al carico attuale. La data concordata con il cliente resta distinta.</p>
+        {productionForecast?.advisedDeliveryDate && productionForecast?.requestedDeliveryDate && <div className="estimate-price-alert" style={{ marginTop: 10 }}>
           <small>{productionForecast.requestedDeliveryCompatible ? 'Consegna richiesta compatibile con il carico produttivo attuale.' : `ATTENZIONE: la data richiesta dal cliente non e compatibile. Prima data realistica: ${productionForecast.advisedDeliveryDate}.`}</small>
         </div>}
 

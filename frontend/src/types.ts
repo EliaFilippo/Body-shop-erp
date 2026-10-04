@@ -528,6 +528,7 @@ export interface InternalCostSettings {
 }
 
 export interface EstimateProductionForecast {
+  blockingReasons?: string[]
   firstAvailabilityDate: string
   estimatedStartAt: string
   technicalCompletionAt: string
