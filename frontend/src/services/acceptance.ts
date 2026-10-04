@@ -73,6 +73,7 @@ export function createDefaultQuote(settings: PlannerSettings, monthKey: string, 
   ]
   return {
     id: crypto.randomUUID(),
+    selectedPhases: [],
     monthKey,
     hourlyRate: rateInfo.rate,
     productiveHours: rateInfo.productiveHours,

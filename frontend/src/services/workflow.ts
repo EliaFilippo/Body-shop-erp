@@ -1115,6 +1115,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 	if ((current.convertedJobId || current.status === 'Approvato') && !ownerRevision) throw new Error('Solo il titolare può modificare un preventivo confermato.')
 	if (ownerRevision && data.invoices.some(invoice => invoice.status !== 'Stornata' && (invoice.vehicleId === current.vehicleId || invoice.lines.some(line => line.vehicleId === current.vehicleId)))) throw new Error('Il preventivo è già fatturato: occorre una rettifica della fattura prima della revisione.')
 	if (ownerRevision && (input.customerId !== current.customerId || input.vehicleId !== current.vehicleId || input.plate.trim().toUpperCase() !== current.plate)) throw new Error('Una revisione conserva cliente e vettura: crea un nuovo preventivo per cambiarli.')
+	if (current.convertedJobId && JSON.stringify(input.selectedPhases ?? current.selectedPhases) !== JSON.stringify(current.selectedPhases)) throw new Error('Per una commessa già creata modifica le fasi nella commessa, conservando lo storico.')
 	const standardWorks = data.plannerSettings.standardWorks ?? []
 	const lines = input.lines.map((line) => sanitizeLine(line, standardWorks, data.plannerSettings)).filter((line) => line.description)
 	if (!lines.length) throw new Error('Inserisci almeno una lavorazione.')

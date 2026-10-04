@@ -894,6 +894,7 @@ export interface AcceptanceLine {
 }
 
 export interface AcceptanceQuote {
+  selectedPhases?: string[]
   paymentTerms?: EstimatePaymentTerms
   id: string
   monthKey: string

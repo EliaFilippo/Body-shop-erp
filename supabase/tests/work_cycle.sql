@@ -4,7 +4,7 @@
 begin;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||
- '[{"id":"j-cycle","status":"In lavorazione","workflowCycle":"elias-v1","phases":[{"id":"paint","name":"Verniciatura","requiredSkill":"Verniciatura","status":"Da fare"},{"id":"unmask","name":"Scartatura","requiredSkill":"Scartatura","status":"Da fare"},{"id":"delivery","name":"Consegna","status":"Da fare"}]}]');
+ '[{"id":"j-cycle","number":"CYCLE1","plate":"TESTCYCLE","status":"In lavorazione","workflowCycle":"elias-v1","phases":[{"id":"paint","name":"Verniciatura","requiredSkill":"Verniciatura","status":"Da fare"},{"id":"unmask","name":"Scartatura","requiredSkill":"Scartatura","status":"Da fare"},{"id":"delivery","name":"Consegna","status":"Da fare"}]}]');
 update erp_snapshots set payload=jsonb_set(jsonb_set(payload,'{plannerSettings,operators,0,skillsConfigured}','true'),'{plannerSettings,operators,0,skills}','["Verniciatura"]');
 update company_members set role='office' where user_id='00000000-0000-0000-0000-000000000002';
 select production_prepare_job('10000000-0000-0000-0000-000000000001','j-cycle',10,120,'[{"id":"a","name":"A","rate":50},{"id":"b","name":"B","rate":60}]');
