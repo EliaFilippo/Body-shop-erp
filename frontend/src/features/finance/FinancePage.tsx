@@ -1,3 +1,6 @@
+import { QuoteActions } from './QuoteActions'
+import { SupplierInvoiceCapture } from './SupplierInvoiceCapture'
+import { TreasuryPanel } from './TreasuryPanel'
 import { confirmedQuoteForecasts } from '../../services/cashflow'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
@@ -469,6 +472,8 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
   ].filter(Boolean)
 
   return <>
+    <TreasuryPanel data={data} />
+    <SupplierInvoiceCapture data={data} onSave={input => { onChange(createPayableEntry(data, input)); setNotice('Fattura registrata nello scadenziario.') }} />
     <section className="stat-grid cashflow-kpi-grid">
       <div className="stat-card"><span>Liquidità attuale</span><strong>{money(currentLiquidity)}</strong><small>Saldo previsto di partenza</small></div>
       <div className="stat-card"><span>Incassi previsti 30 giorni</span><strong>{money(liquidityProjection30.totalInflow)}</strong><small>Fatture aperte con scadenza nel periodo</small></div>
@@ -504,7 +509,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
         {quotes.map((quote) => {
           const customer = customerById(quote.customerId)
           const vehicle = data.vehicles.find((item) => item.id === quote.vehicleId)
-          return <tr key={quote.id}><td><strong>{quote.number}</strong><small>{quote.lines.length} righe</small></td><td><strong>{customer?.name ?? '—'}</strong><small>{vehicle?.plate ?? '—'} · {vehicle ? `${vehicle.make} ${vehicle.model}` : ''}</small></td><td>{quote.issueDate}</td><td>{quote.dueDate}</td><td>{money(quote.taxableAmount)}</td><td>{money(quote.vatAmount)}</td><td>{money(quote.total)}</td><td><span className="tag">{quote.status}</span></td><td><div className="row-actions"><button onClick={() => run(() => updateQuoteStatus(data, quote.id, quote.status === 'inviato' ? 'bozza' : 'inviato'), quote.status === 'inviato' ? 'Preventivo riportato in bozza.' : 'Preventivo marcato come inviato.')}>{quote.status === 'inviato' ? 'Bozza' : 'Inviato'}</button><button onClick={() => run(() => updateQuoteStatus(data, quote.id, 'accettato'), 'Preventivo accettato registrato.')}>Accetta</button><button className="danger" onClick={() => run(() => updateQuoteStatus(data, quote.id, 'rifiutato'), 'Preventivo rifiutato registrato.')}>Rifiuta</button><button onClick={() => setModal({ type: 'quote-convert', quoteId: quote.id })} disabled={quote.status !== 'accettato' || !!quote.invoiceId}>In fattura</button><button onClick={() => printDocument('preventivo', quote.id)}>PDF</button><button onClick={() => setModal({ type: 'communication', draft: { documentType: 'preventivo', documentId: quote.id, customerId: quote.customerId, vehicleId: quote.vehicleId, number: quote.number, total: quote.total, dueDate: quote.dueDate } })}>Comunica</button></div></td></tr>
+          return <tr key={quote.id}><td><strong>{quote.number}</strong><small>{quote.lines.length} righe</small></td><td><strong>{customer?.name ?? '—'}</strong><small>{vehicle?.plate ?? '—'} · {vehicle ? `${vehicle.make} ${vehicle.model}` : ''}</small></td><td>{quote.issueDate}</td><td>{quote.dueDate}</td><td>{money(quote.taxableAmount)}</td><td>{money(quote.vatAmount)}</td><td>{money(quote.total)}</td><td><span className="tag">{quote.status}</span></td><td><div className="row-actions"><button disabled={quote.status === 'accettato'} onClick={() => run(() => updateQuoteStatus(data, quote.id, quote.status === 'inviato' ? 'bozza' : 'inviato'), quote.status === 'inviato' ? 'Preventivo riportato in bozza.' : 'Preventivo marcato come inviato.')}>{quote.status === 'inviato' ? 'Bozza' : 'Inviato'}</button><button disabled={!!quote.estimateId || quote.status === 'accettato'} onClick={() => run(() => updateQuoteStatus(data, quote.id, 'accettato'), 'Preventivo accettato registrato.')}>Accetta documento</button><button className="danger" disabled={quote.status === 'accettato'} onClick={() => run(() => updateQuoteStatus(data, quote.id, 'rifiutato'), 'Preventivo rifiutato registrato.')}>Rifiuta</button><button onClick={() => setModal({ type: 'quote-convert', quoteId: quote.id })} disabled={quote.status !== 'accettato' || !!quote.invoiceId}>In fattura</button><QuoteActions data={data} quote={quote} onChange={onChange}/><button onClick={() => setModal({ type: 'communication', draft: { documentType: 'preventivo', documentId: quote.id, customerId: quote.customerId, vehicleId: quote.vehicleId, number: quote.number, total: quote.total, dueDate: quote.dueDate } })}>Comunica</button></div></td></tr>
         })}
       </tbody></table></div>
       {!quotes.length && <div className="empty"><div>◇</div><p>Nessun preventivo registrato.</p></div>}
@@ -1210,6 +1215,7 @@ function PayableModal({ title, kind, initial, onClose, onSave }: {
 
   return <Modal title={title} onClose={onClose}>
     <form className="form-grid finance-form-grid" onSubmit={submit}>
+      {initial?.costLines?.length ? <div className="full"><h4>Classificazione righe fattura</h4>{initial.costLines.map((line,index)=><p key={index}>{line.description} · {line.category} · {money(line.amount)} IVA esclusa</p>)}</div> : null}
       <label>Descrizione<input value={description} onChange={(event) => setDescription(event.target.value)} required /></label>
       {kind === 'supplier-invoice' && <label>Fornitore<input value={supplierName} onChange={(event) => setSupplierName(event.target.value)} required /></label>}
       {kind === 'supplier-invoice' && <label>Numero fattura<input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} required /></label>}

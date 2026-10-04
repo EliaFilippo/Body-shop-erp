@@ -149,6 +149,8 @@ export interface DocumentLine {
 }
 
 export interface QuoteDocument {
+  photos?: string[]
+  customerConfirmation?: { channel: 'whatsapp' | 'email'; message: string; receivedAt: string; recordedAt: string }
   estimateId?: string
   paymentTerms?: EstimatePaymentTerms
   id: string
@@ -737,6 +739,7 @@ export interface PayableInstallment {
 }
 
 export interface PayableEntry {
+  costLines?: {description: string; amount: number; category: 'Ricambi'|'Materiali di consumo'|'Lavorazioni esterne'|'Altri costi'}[]
   id: string
   kind: PayableKind
   category: PayableCategory

@@ -899,6 +899,13 @@ describe('12 scenari priorita planner', () => {
     expect(firstTask?.jobNumber).toBe('COMM-MH2')
   })
 
+  it('a parità di consegna e margine privilegia la vettura ferma almeno quattro giorni', () => {
+    const data=makePriorityData()
+    data.vehicles=[{...priorityVehicle('v-new','NEW004','Normale',''),createdAt:'2026-08-13T08:00:00Z'}, {...priorityVehicle('v-old','OLD004','Normale',''),createdAt:'2026-08-09T08:00:00Z'}]
+    data.jobs=[priorityJob({id:'j-new',number:'COMM-NEW4',vehicleId:'v-new',plate:'NEW004',priority:'Urgente',minutes:120,taxableAmount:500}),priorityJob({id:'j-old',number:'COMM-OLD4',vehicleId:'v-old',plate:'OLD004',priority:'Normale',minutes:120,taxableAmount:500})]
+    expect(generateOperatorPrograms(data,'2026-08-14').programs.find(p=>p.operatorId==='op-p1')?.tasks[0]?.jobNumber).toBe('COMM-OLD4')
+  })
+
   it('9) anticipo lavorazione -> ricalcolo', () => {
     const data = makeProgramData()
     const before = recalculateOperatorPrograms(data, '2026-07-27', 'Prima')

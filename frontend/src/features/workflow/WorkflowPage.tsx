@@ -197,6 +197,7 @@ export function WorkflowPage({
   statusLabel,
   initialVehicleId,
   isOwner = false,
+  onOwnerUnlock,
 }: {
   data: ErpData
   customerById: (id: string) => Customer | undefined
@@ -209,8 +210,17 @@ export function WorkflowPage({
   statusLabel: (status: string) => string
   initialVehicleId?: string
   isOwner?: boolean
+  onOwnerUnlock?: (password: string) => Promise<void>
 }) {
   const [modal, setModal] = useState<WorkflowModal | null>(null)
+  const [unlockUntil, setUnlockUntil] = useState(0)
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [unlockBusy, setUnlockBusy] = useState(false)
+  const [unlockPrompt, setUnlockPrompt] = useState(false)
+  const [unlockNow, setUnlockNow] = useState(Date.now())
+  useEffect(() => { const timer = window.setInterval(() => setUnlockNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
+  const ownerUnlocked = isOwner && unlockUntil > unlockNow
+
   const [estimateStatusFilter, setEstimateStatusFilter] = useState<'Tutti' | EstimateStatus>('Tutti')
   const [jobStatusFilter, setJobStatusFilter] = useState<'Tutti' | JobStatus>('Tutti')
   const [priorityFilter, setPriorityFilter] = useState<'Tutte' | 'Normale' | 'Alta' | 'Urgente'>('Tutte')
@@ -236,7 +246,7 @@ export function WorkflowPage({
     const byStatus = estimateStatusFilter === 'Tutti' || estimate.status === estimateStatusFilter
     const byCustomer = !customerFilter || estimate.customerId === customerFilter
     const byQuery = !q || `${estimate.number} ${estimate.plate} ${customer?.name || ''}`.toLowerCase().includes(q)
-    return byStatus && byCustomer && byQuery
+    return byStatus && byCustomer && byQuery && (ownerUnlocked || (estimate.status !== 'Approvato' && !estimate.convertedJobId))
   })
 
   const filteredJobs = jobs.filter((job) => {
@@ -280,6 +290,8 @@ export function WorkflowPage({
       <article className="owner-kpi-card"><span>Completamento puntuale</span><strong>{kpis.onTimeCompletionRate}%</strong><small>Solo su commesse consegnate.</small></article>
     </section>
 
+    <section className="panel"><h3>Preventivi confermati · accesso protetto</h3><p>{ownerUnlocked ? 'Accesso del titolare sbloccato per 5 minuti. Le modifiche restano nello storico.' : 'Inserisci la password personale del tuo account titolare per accedere ai preventivi confermati.'}</p>{isOwner && <button type="button" onClick={() => ownerUnlocked ? setUnlockUntil(0) : setUnlockPrompt(true)}>{ownerUnlocked ? 'Blocca preventivi' : 'Sblocca con password'}</button>}{!isOwner && <small>Accesso riservato al titolare.</small>}</section>
+    {unlockPrompt && <Modal title="Sblocca preventivi confermati" onClose={() => { setUnlockPassword(''); setUnlockPrompt(false) }}><form onSubmit={event => { event.preventDefault(); if (!onOwnerUnlock) return; setUnlockBusy(true); void onOwnerUnlock(unlockPassword).then(() => { setUnlockUntil(Date.now()+300000); setUnlockNow(Date.now()); setUnlockPrompt(false); setError('') }).catch(() => setError('Sblocco non riuscito. Controlla la password del tuo account titolare.')).finally(() => { setUnlockPassword(''); setUnlockBusy(false) }) }}><label>Password del titolare<input type="password" autoComplete="current-password" required value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} /></label><button type="submit" disabled={unlockBusy}>{unlockBusy ? 'Verifica…' : 'Sblocca'}</button></form></Modal>}
     <section className="panel table-panel">
       <div className="panel-head">
         <div><span className="eyebrow">PREVENTIVI</span><h3>{filteredEstimates.length} documenti</h3></div>
@@ -297,12 +309,12 @@ export function WorkflowPage({
       <div className="table-wrap"><table><thead><tr><th>Numero</th><th>Cliente / targa</th><th>Stato</th><th>Data</th><th>Totale</th><th>Stadio economico</th><th>Azioni</th></tr></thead><tbody>
         {filteredEstimates.map((estimate) => {
           const customer = customerById(estimate.customerId)
-          const editable = isOwner || (!estimate.convertedJobId && estimate.status !== 'Approvato')
+          const editable = ownerUnlocked || (!estimate.convertedJobId && estimate.status !== 'Approvato')
           return <tr key={estimate.id}>
             <td><strong>{estimate.number}</strong><small>{estimate.companyName || 'Nessuna azienda'}</small></td>
             <td><strong className="plate">{estimate.plate}</strong><small>{customer?.name || 'Cliente'}</small></td>
             <td>
-              <select disabled={!isOwner && (estimate.status === 'Approvato' || Boolean(estimate.convertedJobId))} value={estimate.status} onChange={(event) => {
+              <select disabled={!ownerUnlocked && (estimate.status === 'Approvato' || Boolean(estimate.convertedJobId))} value={estimate.status} onChange={(event) => {
                 try {
                   apply(updateEstimateStatus(data, estimate.id, event.target.value as EstimateStatus), `Preventivo ${estimate.number} aggiornato.`)
                 } catch (error) {
@@ -422,7 +434,7 @@ export function WorkflowPage({
       onSubmit={(payload) => {
         if (!modal || modal.type !== 'estimate-edit') return
         try {
-          apply(updateEstimate(data, modal.estimateId, payload, isOwner), 'Preventivo aggiornato.')
+          apply(updateEstimate(data, modal.estimateId, payload, ownerUnlocked && unlockUntil > Date.now()), 'Preventivo aggiornato.')
           setModal(null)
         } catch (error) {
           setError(error instanceof Error ? error.message : 'Modifica preventivo non riuscita.')

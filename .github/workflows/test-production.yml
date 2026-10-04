@@ -29,6 +29,8 @@ jobs:
         run: psql -f supabase/tests/production_phases_hours.sql
       - name: Confirmed quote protection and owner audit
         run: psql -f supabase/tests/confirmed_estimates.sql
+      - name: Owner password reauthentication, expired credentials and refresh bypass
+        run: psql -f supabase/tests/owner_password_unlock.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

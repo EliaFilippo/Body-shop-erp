@@ -320,14 +320,10 @@ export function sortPlanningVehicles(vehicles: Vehicle[]) {
   return [...vehicles].sort((a, b) => {
     const aBlocked = Boolean(a.blockReason) || a.partsStatus === 'Mancanti'
     const bBlocked = Boolean(b.blockReason) || b.partsStatus === 'Mancanti'
-    const aTier = priorityTier(a.priority ?? 'Normale', a.requestedDeliveryDate || '')
-    const bTier = priorityTier(b.priority ?? 'Normale', b.requestedDeliveryDate || '')
-    const aDaysToDue = betweenDays(a.plannedEntryDate || a.createdAt.slice(0, 10), a.requestedDeliveryDate || '')
-    const bDaysToDue = betweenDays(b.plannedEntryDate || b.createdAt.slice(0, 10), b.requestedDeliveryDate || '')
     return Number(aBlocked) - Number(bBlocked)
-      || aTier - bTier
-      || aDaysToDue - bDaysToDue
       || (a.requestedDeliveryDate || '9999-12-31').localeCompare(b.requestedDeliveryDate || '9999-12-31')
+      || b.expectedMargin - a.expectedMargin
+      || a.createdAt.localeCompare(b.createdAt)
       || (a.plannedEntryDate || a.createdAt).localeCompare(b.plannedEntryDate || b.createdAt)
       || (a.manualPlanningDate || '9999-12-31').localeCompare(b.manualPlanningDate || '9999-12-31')
       || a.createdAt.localeCompare(b.createdAt)
@@ -946,12 +942,15 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .sort((a, b) => {
       if (Number(a.blocked) !== Number(b.blocked)) return Number(a.blocked) - Number(b.blocked)
-      if (a.score.tier !== b.score.tier) return a.score.tier - b.score.tier
+      // Prima la consegna concordata, poi il margine totale, poi l'attesa di almeno quattro giorni.
       if (a.score.dueDate !== b.score.dueDate) return a.score.dueDate.localeCompare(b.score.dueDate)
+      if (a.score.totalMargin !== b.score.totalMargin) return b.score.totalMargin - a.score.totalMargin
+      const aAge = Math.max(0, betweenDays(a.vehicle.createdAt.slice(0, 10), effectiveDate))
+      const bAge = Math.max(0, betweenDays(b.vehicle.createdAt.slice(0, 10), effectiveDate))
+      if ((aAge >= 4) !== (bAge >= 4)) return Number(bAge >= 4) - Number(aAge >= 4)
+      if (aAge >= 4 && aAge !== bAge) return bAge - aAge
       if (Number(a.score.started) !== Number(b.score.started)) return Number(b.score.started) - Number(a.score.started)
       if (a.score.score !== b.score.score) return b.score.score - a.score.score
-      if (a.score.marginPerHour !== b.score.marginPerHour) return b.score.marginPerHour - a.score.marginPerHour
-      if (a.score.totalMargin !== b.score.totalMargin) return b.score.totalMargin - a.score.totalMargin
       return a.readyAt.localeCompare(b.readyAt)
         || a.job.number.localeCompare(b.job.number)
         || a.job.id.localeCompare(b.job.id)
