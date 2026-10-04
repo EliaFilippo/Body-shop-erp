@@ -2,6 +2,7 @@
 -- Run only in the disposable CI database after the existing production fixtures.
 \ir ../migrations/20261004_confirmed_estimates.sql
 begin;
+grant usage on schema auth to authenticated;
 insert into company_members(company_id,user_id,display_name,role) values ('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000004','Office','office');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 update erp_snapshots set payload='{"estimates":[{"id":"e1","status":"Approvato","total":183,"vehicleId":"v1"}],"jobs":[{"id":"job1","estimateId":"e1","total":183,"status":"Da pianificare"}],"vehicles":[{"id":"v1","expectedRevenue":150}]}' where company_id='10000000-0000-0000-0000-000000000001';
@@ -11,19 +12,19 @@ do $$begin
  begin
   update erp_snapshots set payload=jsonb_set(payload,'{estimates,0,total}','244'),updated_by=auth.uid();
   raise exception 'Office changed locked price';
- exception when insufficient_privilege then null; end;
+ exception when insufficient_privilege then if sqlerrm not like 'Solo il titolare%' then raise; end if; end;
  begin
   update erp_snapshots set payload=jsonb_set(payload,'{estimates}','[]'),updated_by=auth.uid();
   raise exception 'Office deleted confirmed quote';
- exception when insufficient_privilege then null; end;
+ exception when insufficient_privilege then if sqlerrm not like 'Solo il titolare%' then raise; end if; end;
  begin
   update erp_snapshots set payload=jsonb_set(payload,'{jobs,0,total}','244'),updated_by=auth.uid();
   raise exception 'Office bypassed lock through job';
- exception when insufficient_privilege then null; end;
+ exception when insufficient_privilege then if sqlerrm not like 'Solo il titolare%' then raise; end if; end;
  begin
   update erp_snapshots set payload=jsonb_set(payload,'{vehicles,0,expectedRevenue}','200'),updated_by=auth.uid();
   raise exception 'Office bypassed lock through vehicle';
- exception when insufficient_privilege then null; end;
+ exception when insufficient_privilege then if sqlerrm not like 'Solo il titolare%' then raise; end if; end;
  update erp_snapshots set payload=jsonb_set(payload,'{jobs,0,status}','"In lavorazione"'),updated_by=auth.uid();
 end $$;
 reset role;
