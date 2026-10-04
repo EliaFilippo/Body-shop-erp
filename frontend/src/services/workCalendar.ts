@@ -155,7 +155,7 @@ export function getCompanyWorkingIntervals(date: string, settings: PlannerSettin
   return mergeIntervals(subtractIntervals(base, blockers))
 }
 
-export function getOperatorWorkingIntervals(date: string, settings: PlannerSettings, operator?: PlannerOperator) {
+export function getOperatorWorkingIntervals(date: string, settings: PlannerSettings, operator?: PlannerOperator): TimeInterval[] {
   const schedule = operator?.weeklySchedule?.length ? operator.weeklySchedule : settings.weeklyWorkSchedule
   const baseSettings = { ...settings, weeklyWorkSchedule: schedule }
   const companyIntervals = getCompanyWorkingIntervals(date, baseSettings)
