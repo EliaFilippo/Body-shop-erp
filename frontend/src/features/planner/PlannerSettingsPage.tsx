@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MoneyInput } from '../../components/MoneyInput'
 import { Modal } from '../../components/Modal'
+import { OperatorSchedule } from './OperatorSchedule'
+import { invalidOperatorSchedule } from '../../services/operatorSchedule'
 import type { PlannerAbsence, PlannerOperator, PlannerSettings, StandardWorkDefinition, StandardWorkRule, StandardWorkTimePreset } from '../../types'
 
 const dayLabels = [
@@ -375,8 +377,8 @@ export function PlannerSettingsPage({
   const persistDraft = async (closeEditorOnSuccess = false) => {
     const problem = !draft.workingDays.length
       ? 'Seleziona almeno un giorno lavorativo.'
-      : draft.operators.some((operator) => !operator.name.trim() || operator.dailyHours <= 0 || operator.dailyHours > 24)
-        ? 'Completa correttamente nomi e ore degli operatori.'
+      : draft.operators.some((operator) => !operator.name.trim() || operator.dailyHours <= 0 || operator.dailyHours > 24 || invalidOperatorSchedule(operator))
+        ? 'Completa nomi e ore degli operatori. Nei giorni attivi inserisci fasce valide, senza sovrapposizioni.'
         : draft.efficiencyPercent <= 0 || draft.efficiencyPercent > 100 || draft.safetyMarginPercent < 0 || draft.safetyMarginPercent >= 100
           ? 'Efficienza e margine di sicurezza non sono validi.'
           : (draft.deliveryBufferMode !== 'hours' && draft.deliveryBufferMode !== 'percent') || Number(draft.deliveryBufferValue ?? 0) < 0
@@ -464,6 +466,7 @@ export function PlannerSettingsPage({
             <label>IVA costo %<input aria-label="IVA costo esterno" type="number" min="0" step="1" value={operator.externalVatRate ?? 0} onChange={(event) => updateOperator(operator.id, { externalVatRate: Number(event.target.value) })} /></label>
           </>}
           <label className="check"><input type="checkbox" checked={operator.active} onChange={(event) => updateOperator(operator.id, { active: event.target.checked })} /> Attivo</label>
+          <OperatorSchedule operator={operator} companySchedule={draft.weeklyWorkSchedule} onChange={weeklySchedule => updateOperator(operator.id, { weeklySchedule })} />
           <button
             className="danger"
             onClick={() => {
