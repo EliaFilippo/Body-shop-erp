@@ -304,6 +304,7 @@ export interface PlannerOperator {
   dailyHours: number
   active: boolean
   skills?: string[]
+  skillsConfigured?: boolean
   weeklySchedule?: WeeklyWorkDaySchedule[]
   costMode?: 'included-in-overhead' | 'external-extra'
   /** Configurable real hourly cost for individual productivity analysis. */

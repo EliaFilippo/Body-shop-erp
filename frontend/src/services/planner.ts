@@ -1,3 +1,4 @@
+import { supportsOperatorDuty } from './operatorSkills'
 import type {
   ErpData,
   EstimateLine,
@@ -204,17 +205,6 @@ function planningInstantFloor(referenceDate: string, nowIso?: string) {
 export const remainingHours = (vehicle: Vehicle) =>
   Math.max(0, round((vehicle.estimatedHours || 0) - (vehicle.workedHours || 0)))
 
-const PHASE_SKILL_FALLBACK: Record<string, string> = {
-  Smontaggio: 'smontaggio',
-  Lattoneria: 'lattoneria',
-  Preparazione: 'preparazione',
-  Verniciatura: 'verniciatura',
-  Rimontaggio: 'rimontaggio',
-  Lucidatura: 'lucidatura',
-  Lavaggio: 'lavaggio',
-  'Controllo qualità': 'controllo',
-}
-
 function minutesFromIso(value: string) {
   const date = new Date(value)
   return date.getUTCHours() * 60 + date.getUTCMinutes()
@@ -224,15 +214,12 @@ function phaseTemplateIndex(phaseName: string) {
   return JOB_PHASE_TEMPLATE.indexOf(phaseName as (typeof JOB_PHASE_TEMPLATE)[number])
 }
 
-function phaseSkillName(phaseName: string) {
-  return PHASE_SKILL_FALLBACK[phaseName] ?? phaseName.trim().toLowerCase()
+function operatorSupportsPhase(operator: PlannerOperator, phaseName: string) {
+  return supportsOperatorDuty(operator, phaseName)
 }
 
-function operatorSupportsPhase(operator: PlannerOperator, phaseName: string) {
-  const skills = (operator.skills ?? []).map((item) => item.trim().toLowerCase()).filter(Boolean)
-  if (!skills.length) return true
-  const phaseSkill = phaseSkillName(phaseName)
-  return skills.some((skill) => phaseSkill.includes(skill) || skill.includes(phaseSkill))
+function phaseSkillName(phaseName: string) {
+  return phaseName === 'Controllo qualità' ? 'controllo' : phaseName.trim().toLowerCase()
 }
 
 function remainingWorkingMinutesToday(fromIso: string, settings: PlannerSettings, operator?: PlannerOperator) {
@@ -537,7 +524,7 @@ function phaseResidualMinutes(phase: JobPhase, atIso: string) {
 }
 
 function operatorCompatible(operator: PlannerOperator, phase: JobPhase) {
-  return operatorSupportsPhase(operator, phase.name)
+  return operatorSupportsPhase(operator, phase.requiredSkill || phase.name)
 }
 
 function reasonForAssignment(job: RepairJob, hasDelay: boolean, isContinuation: boolean, isSupport: boolean, isAdvancedFromFuture: boolean) {
