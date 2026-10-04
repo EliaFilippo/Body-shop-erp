@@ -1,4 +1,5 @@
 import { calculateDueDate } from './finance'
+import { approveEstimateAndCreateJob } from './workflow'
 import type {
   CommunicationChannel,
   CommunicationEntry,
@@ -449,4 +450,26 @@ export function buildDocumentPrintHtml(data: ErpData, documentType: 'preventivo'
   <div class="foot">Documento generato da Elias Body Shop ERP. Layout pronto per stampa multipagina.</div>
 </body>
 </html>`
+}
+
+/** La risposta è verificata dall'ufficio: non interpreta automaticamente messaggi esterni. */
+export function confirmQuoteFromCustomerMessage(data: ErpData, quoteId: string, confirmation: NonNullable<QuoteDocument['customerConfirmation']>): ErpData {
+  const quote = data.quotes?.find(q => q.id === quoteId)
+  if (!quote) throw new Error('Preventivo non trovato.')
+  if (quote.status === 'accettato' && quote.customerConfirmation) return data
+  if (!confirmation.message.trim() || !Number.isFinite(Date.parse(confirmation.receivedAt))) throw new Error('Inserisci il messaggio e la data di conferma del cliente.')
+  if (!quote.estimateId) throw new Error('Questo documento non è collegato a un preventivo operativo. Collega prima il preventivo in Accettazione.')
+  const estimate = data.estimates?.find(e => e.id === quote.estimateId)
+  if (!estimate) throw new Error('Preventivo operativo non trovato.')
+  if (estimate.status === 'Rifiutato') throw new Error('Il preventivo è rifiutato: verifica prima la nuova richiesta del cliente.')
+  const prepared = estimate.convertedJobId ? data : approveEstimateAndCreateJob(data, estimate.id)
+  return { ...prepared, quotes: (prepared.quotes ?? []).map(q => q.id === quoteId ? { ...q, status: 'accettato', customerConfirmation: { ...confirmation, message: confirmation.message.trim() }, updatedAt: now() } : q) }
+}
+
+export function attachQuotePhotos(data: ErpData, quoteId: string, photos: string[]): ErpData {
+  const quote = data.quotes?.find(q => q.id === quoteId)
+  if (!quote) throw new Error('Preventivo non trovato.')
+  if (quote.status === 'accettato') throw new Error('Le foto del preventivo confermato sono protette: modifica il preventivo con la password del titolare.')
+  if (photos.length > 6 || photos.some(p => !/^data:image\/(jpeg|png|webp);base64,/.test(p) || p.length > 750000)) throw new Error('Massimo 6 foto ridimensionate per preventivo.')
+  return { ...data, quotes: (data.quotes ?? []).map(q => q.id === quoteId ? { ...q, photos, updatedAt: now() } : q) }
 }

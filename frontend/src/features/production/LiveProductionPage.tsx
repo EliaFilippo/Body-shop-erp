@@ -195,7 +195,7 @@ export function LiveProductionPage() {
       </section>
       {['owner', 'office'].includes(feed.role) && <EmployeeHours feed={feed} session={session} config={config!} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />}
       {feed.role === 'owner' && snapshot && <details className="live-admin"><summary>Configurazione tablet e budget · Titolare</summary>
-        <h2>Collega gli account agli operatori</h2><p>Gli account devono già appartenere all’azienda. Un profilo per operatore.</p>
+        <h2>Collega gli account agli operatori</h2><p>Gli account devono già appartenere all’azienda. Un profilo per operatore. Anche un account Ufficio può essere collegato: conserva l’accesso all’ufficio e usa sul tablet le mansioni e gli orari del proprio operatore.</p>
         {feed.members.map(member => <label key={member.userId}>{member.name}<select aria-label={`Operatore per ${member.name}`} value={member.operatorId ?? ''} disabled={busy}
           onChange={e => { if (e.target.value) void act('production_bind_profile', { p_user_id: member.userId, p_operator_id: e.target.value }) }}>
           <option value="">Da collegare</option>{snapshot.payload.plannerSettings.operators.filter(o => o.active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>)}

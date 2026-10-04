@@ -1,3 +1,4 @@
+import { ribaExposure, RIBA_CREDIT_LIMIT } from './treasury'
 import type {
   ErpData,
   FinancialEvent,
@@ -114,6 +115,7 @@ export function splitAmountAcrossInstallments(totalAmount: number, installmentsC
 }
 
 export interface PayableInput {
+  costLines?: PayableEntry['costLines']
   kind: PayableKind
   category: PayableCategory
   description: string
@@ -264,6 +266,7 @@ export function createPayableEntry(data: ErpData, input: PayableInput): ErpData 
   const entry = normalizePayableEntry({
     id: id(),
     kind: input.kind,
+    costLines: input.costLines,
     category: input.category,
     description: input.description.trim(),
     supplierName: input.supplierName?.trim() || '',
@@ -296,6 +299,7 @@ export function updatePayableEntry(data: ErpData, payableId: string, input: Paya
   const deductibility = normalizeDeductibility(input.vatDeductibilityMode, input.vatDeductibilityPercent)
   const updated = normalizePayableEntry({
     id: current.id,
+    costLines: input.costLines ?? current.costLines,
     kind: input.kind,
     category: input.category,
     description: input.description.trim(),
@@ -444,6 +448,11 @@ export function createRibaBatch(
 export function registerRibaAdvance(data: ErpData, batchId: string, amount: number, date: string, fees = 0, interest = 0): ErpData {
   const batch = data.ribaBatches.find((item) => item.id === batchId)
   if (!batch) throw new Error('Distinta non trovata.')
+  if (batch.status !== 'Presentata') throw new Error('Puoi anticipare una distinta presentata una sola volta.')
+  const bank = data.bankAccounts.find(item => item.id === batch.bankAccountId)
+  if (!bank) throw new Error('Banca non trovata.')
+  if (![amount, fees, interest].every(Number.isFinite) || fees < 0 || interest < 0 || fees + interest >= amount) throw new Error('Controlla importo, commissioni e interessi.')
+  if (ribaExposure(data) + amount > RIBA_CREDIT_LIMIT || (bank.creditLimit > 0 && ribaExposure(data, bank.id) + amount > bank.creditLimit)) throw new Error('Anticipo oltre il castelletto disponibile (massimo totale 40.000 €).')
   const advancedAmount = roundMoney(amount)
   if (advancedAmount <= 0 || advancedAmount > batch.total) throw new Error('Importo anticipato non valido.')
   const timestamp = now()
