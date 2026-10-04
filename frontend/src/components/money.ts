@@ -25,6 +25,12 @@ export function parseMoneyDraft(rawValue: string): number | null {
   const unsigned = cleaned.replace(/-/g, '')
   if (!unsigned) return null
 
+  // Italian thousands without cents (8.000, 40.000, 1.000.000).
+  if (/^\d{1,3}(?:\.\d{3})+$/.test(unsigned)) {
+    const parsed = Number(unsigned.replace(/\./g, ''))
+    return Number.isFinite(parsed) ? (hasNegative ? -parsed : parsed) : null
+  }
+
   const lastComma = unsigned.lastIndexOf(',')
   const lastDot = unsigned.lastIndexOf('.')
   const decimalIndex = Math.max(lastComma, lastDot)

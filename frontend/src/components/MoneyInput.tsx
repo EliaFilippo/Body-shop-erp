@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { InputHTMLAttributes } from 'react'
-import { formatCurrencyIt, formatEditableMoney, parseMoneyDraft, sanitizeMoneyDraft } from './money'
+import { formatCurrencyIt, formatEditableMoney, parseMoneyDraft } from './money'
 
 const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
 
@@ -77,7 +77,8 @@ export function MoneyInput({
       props.onBlur?.(event)
     }}
     onChange={(event) => {
-      const nextDraft = sanitizeMoneyDraft(event.target.value)
+      // Keep separators while typing: 8.000 must not be truncated to 8,00.
+      const nextDraft = event.target.value.replace(/[^\d,.]/g, '')
       setDraft(nextDraft)
 
       if (!nextDraft) {
