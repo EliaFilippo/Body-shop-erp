@@ -1020,6 +1020,14 @@ function mapJobStatusToVehicleStatus(status: JobStatus) {
 	return 'Confermata' as const
 }
 
+function validatedPaymentTerms(terms: EstimateDocument['paymentTerms']) {
+ if (!terms) return undefined
+ if (!['Bonifico', 'R.I.B.A.', 'Contanti', 'POS', 'Personalizzato'].includes(terms.method)
+ || !Number.isInteger(terms.days) || terms.days < 0 || terms.days > 365
+ || (terms.expectedInvoiceDate && (!/^\d{4}-\d{2}-\d{2}$/.test(terms.expectedInvoiceDate) || !Number.isFinite(Date.parse(terms.expectedInvoiceDate))))) throw new Error('Controlla le condizioni di pagamento: giorni da 0 a 365 e data valida.')
+ return { ...terms, endOfMonth: Boolean(terms.endOfMonth) }
+}
+
 export function createEstimate(data: ErpData, input: {
 	customerId: string
 	vehicleId?: string
@@ -1030,6 +1038,7 @@ export function createEstimate(data: ErpData, input: {
 	priority?: RepairJob['priority']
 	requestedDeliveryDate?: string
 	notes: string
+	paymentTerms?: EstimateDocument['paymentTerms']
 	productionForecast?: EstimateDocument['productionForecast']
 	lines: Array<Omit<EstimateLine, 'id' | 'taxableAmount' | 'vatAmount' | 'total'> & { id?: string }>
 }): ErpData {
@@ -1059,6 +1068,7 @@ export function createEstimate(data: ErpData, input: {
 		priority: input.priority ?? 'Normale',
 		requestedDeliveryDate: String(input.requestedDeliveryDate ?? '').trim(),
 		notes: input.notes.trim(),
+		paymentTerms: validatedPaymentTerms(input.paymentTerms ?? (() => { const customer = data.customers.find(item => item.id === input.customerId); return { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? data.financeSettings.defaultPaymentDays, endOfMonth: Boolean(customer?.endOfMonth), expectedInvoiceDate: '' } })()),
 		status: 'Bozza',
 		lines,
 		...totals,
@@ -1091,13 +1101,16 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 	priority?: RepairJob['priority']
 	requestedDeliveryDate?: string
 	notes: string
+	paymentTerms?: EstimateDocument['paymentTerms']
 	productionForecast?: EstimateDocument['productionForecast']
 	lines: Array<Omit<EstimateLine, 'taxableAmount' | 'vatAmount' | 'total'>>
-}): ErpData {
+}, ownerRevision = false): ErpData {
 	const estimates = data.estimates ?? []
 	const current = estimates.find((estimate) => estimate.id === estimateId)
 	if (!current) throw new Error('Preventivo non trovato.')
-	if (current.convertedJobId) throw new Error('Il preventivo è già stato trasformato in commessa e non può essere modificato.')
+	if ((current.convertedJobId || current.status === 'Approvato') && !ownerRevision) throw new Error('Solo il titolare può modificare un preventivo confermato.')
+	if (ownerRevision && data.invoices.some(invoice => invoice.status !== 'Stornata' && (invoice.vehicleId === current.vehicleId || invoice.lines.some(line => line.vehicleId === current.vehicleId)))) throw new Error('Il preventivo è già fatturato: occorre una rettifica della fattura prima della revisione.')
+	if (ownerRevision && (input.customerId !== current.customerId || input.vehicleId !== current.vehicleId || input.plate.trim().toUpperCase() !== current.plate)) throw new Error('Una revisione conserva cliente e vettura: crea un nuovo preventivo per cambiarli.')
 	const standardWorks = data.plannerSettings.standardWorks ?? []
 	const lines = input.lines.map((line) => sanitizeLine(line, standardWorks, data.plannerSettings)).filter((line) => line.description)
 	if (!lines.length) throw new Error('Inserisci almeno una lavorazione.')
@@ -1114,6 +1127,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 		priority: input.priority ?? current.priority ?? 'Normale',
 		requestedDeliveryDate: String(input.requestedDeliveryDate ?? current.requestedDeliveryDate ?? '').trim(),
 		notes: input.notes.trim(),
+		paymentTerms: validatedPaymentTerms(input.paymentTerms),
 		lines,
 		...totals,
 		productionForecast: input.productionForecast,
@@ -1121,11 +1135,14 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 		dataStimataConsegna: input.productionForecast?.advisedDeliveryDate ?? current.dataStimataConsegna ?? '',
 		dataCalcoloStima: input.productionForecast?.calculatedAt ?? current.dataCalcoloStima ?? '',
 		updatedAt: timestamp,
-		history: [{ id: id(), at: timestamp, actor: 'Operatore ERP', message: 'Dati economici o anagrafici aggiornati.' }, ...current.history],
+		history: [{ id: id(), at: timestamp, actor: ownerRevision ? 'Titolare' : 'Operatore ERP', message: ownerRevision ? 'Revisione titolare: budget e commessa già avviati restano invariati.' : 'Dati economici o anagrafici aggiornati.' }, ...current.history],
 	}
 	return {
 		...data,
 		estimates: estimates.map((estimate) => estimate.id === estimateId ? updated : estimate),
+        quotes: (data.quotes ?? []).map(quote => quote.estimateId === estimateId ? { ...quote, paymentTerms: updated.paymentTerms, lines: lines.map(line => ({ id: line.id, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0, taxableAmount: line.taxableAmount, vatAmount: line.vatAmount, total: line.total })), ...totals, updatedAt: timestamp } : quote),
+        jobs: ownerRevision ? (data.jobs ?? []).map(job => job.estimateId === estimateId ? { ...job, lines, ...totals, updatedAt: timestamp } : job) : data.jobs,
+        vehicles: ownerRevision ? data.vehicles.map(vehicle => vehicle.id === current.vehicleId ? { ...vehicle, expectedRevenue: totals.taxableAmount } : vehicle) : data.vehicles,
 	}
 }
 
@@ -1194,6 +1211,7 @@ type EstimateWorkflowInput = {
 	priority?: RepairJob['priority']
 	requestedDeliveryDate?: string
 	notes: string
+	paymentTerms?: EstimateDocument['paymentTerms']
 	productionForecast?: EstimateDocument['productionForecast']
 	lines: Array<Omit<EstimateLine, 'id' | 'taxableAmount' | 'vatAmount' | 'total'> & { id?: string }>
 }
@@ -1313,6 +1331,7 @@ export function approveEstimateAndCreateJob(data: ErpData, estimateId: string): 
 	const nextData = {
 		...prepared,
 		jobs: [job, ...(prepared.jobs ?? [])],
+        quotes: (prepared.quotes ?? []).map(quote => quote.estimateId === estimateId ? { ...quote, status: 'accettato' as const, updatedAt: timestamp } : quote),
 		estimates: (prepared.estimates ?? []).map((estimate) => estimate.id === estimateId
 			? {
 					...estimate,

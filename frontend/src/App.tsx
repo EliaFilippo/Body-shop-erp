@@ -1,3 +1,4 @@
+import { PaymentTermsFields } from './components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { Icon } from './components/Icon'
@@ -1130,7 +1131,7 @@ function App() {
         }} setNotice={setNotice} setError={setError} />}
         {view === 'price-list' && <PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} />}
         {view === 'finance' && <FinancePage data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
-        {view === 'estimates-jobs' && <WorkflowPage data={data} customerById={customerById} query={query} onChange={setData} setError={setError} setNotice={setNotice} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
+        {view === 'estimates-jobs' && <WorkflowPage isOwner={cloudMembership?.role === 'owner'} data={data} customerById={customerById} query={query} onChange={setData} setError={setError} setNotice={setNotice} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'acceptance' && <AcceptancePage data={data} autosaveState={acceptanceAutosaveState} customerById={customerById} onCreate={(customerId, vehicleId) => {
           const draft = createAcceptanceDraft(customerId, vehicleId, data.plannerSettings, new Date().toISOString().slice(0, 7))
           const existing = data.acceptances ?? []
@@ -1147,13 +1148,15 @@ function App() {
           if (!vehicle || !customer) { setError('Cliente o vettura non trovati.'); return }
           try {
             const lines = acceptanceEstimateLines(acceptance.quote, data.plannerSettings)
-            const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', lines })
+            const next = createEstimate(data, { customerId: customer.id, vehicleId: vehicle.id, plate: vehicle.plate, companyName: customer.name, contactName: customer.name, date: new Date().toISOString().slice(0, 10), notes: acceptance.intake?.damageDescription ?? '', paymentTerms: acceptance.quote.paymentTerms, lines })
             const customerLines = next.estimates![0].lines.map((line) => ({ description: line.description, quantity: line.quantity, unitPrice: line.unitPrice,
               vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0 }))
             const quoteData = createQuoteDocument(next, {
               customerId: customer.id,
               vehicleId: vehicle.id,
               acceptanceId: acceptance.id,
+              estimateId: next.estimates![0].id,
+              paymentTerms: next.estimates![0].paymentTerms,
               status: 'bozza',
               notes: acceptance.intake?.damageDescription ?? '',
               lines: customerLines,
@@ -2947,6 +2950,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <div className="summary-card"><span>Margine previsto</span><strong>{quoteBudget.error || !quoteBudget.fullyTimed ? 'Da verificare: completa costi, operatore e tempi' : `${money(quoteSummary.marginEuro)} · ${quoteSummary.marginPercent}%`}</strong></div>
         </div>
         </details>
+        <PaymentTermsFields value={acceptance.quote.paymentTerms ?? { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? 30, endOfMonth: customer?.endOfMonth ?? false, expectedInvoiceDate: '' }} onChange={paymentTerms => saveAcceptance({ ...latestAcceptanceRef.current, quote: { ...latestAcceptanceRef.current.quote, paymentTerms } })} />
         <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate || Boolean(damageQuoteError(acceptance.quote.damageLines ?? [])) || quoteSummary.taxableAmount <= 0} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>
       </div>}
     </div>

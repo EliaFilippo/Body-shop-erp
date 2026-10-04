@@ -1,6 +1,6 @@
 import type { ErpData } from '../types'
 import { invoiceDocumentStatus } from './documents'
-import { calculateOwnerWithdrawalSnapshot } from './finance'
+import { calculateOwnerWithdrawalSnapshot, calculateDueDate } from './finance'
 import { calculateVatQuarterOutflows } from './vatQuarterly'
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
@@ -39,6 +39,7 @@ export interface CashFlowSnapshot {
   windows: CashFlowWindow[]
   collected: number
   expected: number
+  confirmedQuotesForecast: number
   overdue: number
   atRisk: number
   points: CashFlowPoint[]
@@ -70,11 +71,28 @@ export interface CalendarEvent {
   customerId?: string
 }
 
+export function confirmedQuoteForecasts(data: ErpData) {
+  const invoices = data.invoices.filter(invoice => invoice.status !== 'Stornata')
+  const estimates = (data.estimates ?? []).filter(estimate => estimate.status === 'Approvato' && estimate.paymentTerms?.expectedInvoiceDate && Number.isFinite(Date.parse(estimate.paymentTerms.expectedInvoiceDate)))
+    .filter(estimate => {
+      const job = (data.jobs ?? []).find(item => item.estimateId === estimate.id)
+      if (job?.status === 'Annullata') return false
+      const vehicleId = job?.vehicleId ?? estimate.vehicleId
+      const linkedQuoteIds = (data.quotes ?? []).filter(quote => quote.estimateId === estimate.id).map(quote => quote.id)
+      return !invoices.some(invoice => invoice.quoteId === estimate.id || linkedQuoteIds.includes(invoice.quoteId ?? '') || (vehicleId && (invoice.vehicleId === vehicleId || invoice.lines.some(line => line.vehicleId === vehicleId))))
+        && !data.vehicles.some(vehicle => vehicle.id === vehicleId && Boolean(vehicle.invoiceId))
+    })
+  const quotes = (data.quotes ?? []).filter(quote => quote.status === 'accettato' && !quote.invoiceId && quote.paymentTerms?.expectedInvoiceDate && Number.isFinite(Date.parse(quote.paymentTerms.expectedInvoiceDate)))
+    .filter(quote => !estimates.some(estimate => estimate.id === quote.estimateId) && !invoices.some(invoice => invoice.quoteId === quote.id || invoice.vehicleId === quote.vehicleId || invoice.lines.some(line => line.vehicleId === quote.vehicleId)))
+  return [...estimates, ...quotes].map(document => ({ amount: document.total, dueDate: calculateDueDate(document.paymentTerms!.expectedInvoiceDate, document.paymentTerms!.days, document.paymentTerms!.endOfMonth) }))
+}
+
 export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKey()): CashFlowSnapshot {
   const baseLiquidity = data.bankAccounts.length ? round(data.bankAccounts.reduce((sum, item) => sum + item.currentBalance, 0)) : null
   const openInvoices = data.invoices.filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status))
   const ownerWithdrawal = calculateOwnerWithdrawalSnapshot(data, referenceDate)
   const vatQuarterOutflows = calculateVatQuarterOutflows(data)
+  const quoteForecasts = confirmedQuoteForecasts(data)
 
   const invoicesWithResidual = openInvoices.map((invoice) => ({
     invoice,
@@ -85,6 +103,7 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
   const inflowInWindow = (days: number) => round(invoicesWithResidual
     .filter((item) => item.daysToDue >= 0 && item.daysToDue <= days)
     .reduce((sum, item) => sum + item.residual, 0)
+    + quoteForecasts.filter(item => diffDays(referenceDate, item.dueDate) >= 0 && diffDays(referenceDate, item.dueDate) <= days).reduce((sum, item) => sum + item.amount, 0)
     + data.ribaBatches
       .filter((batch) => !['Chiusa', 'Stornata', 'Insoluta'].includes(batch.status) && diffDays(referenceDate, batch.dueDate) >= 0 && diffDays(referenceDate, batch.dueDate) <= days)
       .reduce((sum, batch) => sum + batch.total, 0))
@@ -158,6 +177,7 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
     windows,
     collected,
     expected,
+    confirmedQuotesForecast: round(quoteForecasts.reduce((sum, item) => sum + item.amount, 0)),
     overdue,
     atRisk,
     points,

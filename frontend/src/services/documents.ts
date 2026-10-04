@@ -1,3 +1,4 @@
+import { calculateDueDate } from './finance'
 import type {
   CommunicationChannel,
   CommunicationEntry,
@@ -32,6 +33,8 @@ export interface DocumentTotals {
 }
 
 export interface QuoteCreateInput {
+  estimateId?: string
+  paymentTerms?: QuoteDocument['paymentTerms']
   customerId: string
   vehicleId: string
   acceptanceId?: string
@@ -134,6 +137,8 @@ export function createQuoteDocument(data: ErpData, input: QuoteCreateInput): Erp
     customerId: customer.id,
     vehicleId: vehicle.id,
     acceptanceId: input.acceptanceId,
+    estimateId: input.estimateId,
+    paymentTerms: input.paymentTerms,
     issueDate,
     dueDate,
     status: input.status ?? 'bozza',
@@ -227,7 +232,7 @@ export function convertAcceptedQuoteToInvoice(data: ErpData, input: InvoiceFromQ
   if (data.invoices.some((item) => item.number === number)) throw new Error('Numero fattura già presente.')
 
   const issueDate = input.issueDate ?? todayKey()
-  const dueDate = input.dueDate ?? computeDueDate(issueDate, customer.paymentDays ?? data.financeSettings.defaultPaymentDays)
+  const dueDate = input.dueDate ?? calculateDueDate(issueDate, quote.paymentTerms?.days ?? customer.paymentDays ?? data.financeSettings.defaultPaymentDays, quote.paymentTerms?.endOfMonth ?? Boolean(customer.endOfMonth))
   const lines = mapQuoteLinesToInvoiceLines(quote)
   const totals = calculateDocumentTotals(quote.lines)
   const timestamp = now()
@@ -240,7 +245,7 @@ export function convertAcceptedQuoteToInvoice(data: ErpData, input: InvoiceFromQ
     number,
     issueDate,
     dueDate,
-    paymentMethod: input.paymentMethod ?? customer.usualPaymentMethod ?? 'Bonifico',
+    paymentMethod: quote.paymentTerms?.method ?? input.paymentMethod ?? customer.usualPaymentMethod ?? 'Bonifico',
     documentStatus: 'emessa',
     lines,
     taxableAmount: totals.taxableAmount,
@@ -404,7 +409,8 @@ export function buildDocumentPrintHtml(data: ErpData, documentType: 'preventivo'
     <div>
       <h1>${documentType === 'preventivo' ? 'Preventivo' : 'Fattura'} ${number}</h1>
       <div class="sub">Data: ${issueDate}</div>
-      <div class="sub">Scadenza: ${dueDate}</div>
+      <div class="sub">${quote ? 'Validità preventivo' : 'Scadenza pagamento'}: ${dueDate}</div>
+      ${quote?.paymentTerms ? `<div class="sub">Pagamento: ${quote.paymentTerms.method} · ${quote.paymentTerms.days} giorni dalla fatturazione${quote.paymentTerms.endOfMonth ? ' · fine mese' : ''}</div>` : ''}
     </div>
   </div>
 

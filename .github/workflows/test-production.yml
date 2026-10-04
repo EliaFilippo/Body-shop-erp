@@ -27,6 +27,8 @@ jobs:
         run: psql -f supabase/tests/live_production.sql
       - name: Phase signatures, employee hours, overtime and Rome midnight
         run: psql -f supabase/tests/production_phases_hours.sql
+      - name: Confirmed quote protection and owner audit
+        run: psql -f supabase/tests/confirmed_estimates.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

@@ -1,3 +1,4 @@
+import { confirmedQuoteForecasts } from '../../services/cashflow'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Modal } from '../../components/Modal'
@@ -137,6 +138,8 @@ const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typ
       if (invoice.dueDate < referenceDate || invoice.dueDate > endDate) return
       addInflow(invoice.dueDate, residual)
     })
+
+  confirmedQuoteForecasts(data).filter(item => item.dueDate >= referenceDate && item.dueDate <= endDate).forEach(item => addInflow(item.dueDate, item.amount))
 
   data.financialEvents
     .filter((event) => event.type === 'Uscita prevista' && event.date >= referenceDate && event.date <= endDate)
@@ -412,7 +415,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
   }).sort((a, b) => b.outstanding - a.outstanding), [data.customers, data.vehicles, data.invoices])
 
   const selected = customerRows.find((row) => row.customer.id === selectedCustomerId) ?? customerRows[0]
-  const projected = (days: number) => openInvoices.filter((invoice) => dayDiff(today(), invoice.dueDate) >= 0 && dayDiff(today(), invoice.dueDate) <= days).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
+  const projected = (days: number) => confirmedQuoteForecasts(data).filter(item => dayDiff(today(), item.dueDate) >= 0 && dayDiff(today(), item.dueDate) <= days).reduce((sum, item) => sum + item.amount, 0) + openInvoices.filter((invoice) => dayDiff(today(), invoice.dueDate) >= 0 && dayDiff(today(), invoice.dueDate) <= days).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
   const bankExposure = data.ribaBatches.filter((batch) => batch.status === 'Anticipata').reduce((sum, batch) => sum + batch.advancedAmount, 0)
   const bankLimit = data.bankAccounts.reduce((sum, bank) => sum + bank.creditLimit, 0)
   const availableLimit = Math.max(0, bankLimit - bankExposure)
