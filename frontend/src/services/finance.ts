@@ -382,11 +382,14 @@ export function createInvoice(
   const vatAmount = roundMoney(lines.reduce((sum, line) => sum + line.vatAmount, 0))
   const total = roundMoney(taxableAmount + vatAmount)
   const issueDate = input.issueDate
-  const dueDate = calculateDueDate(issueDate, customer.paymentDays ?? data.financeSettings.defaultPaymentDays, customer.endOfMonth)
+  const agreedTerms = vehicles.map(vehicle => (data.estimates ?? []).find(estimate => estimate.status === 'Approvato' && (estimate.vehicleId === vehicle.id || (data.jobs ?? []).some(job => job.estimateId === estimate.id && job.vehicleId === vehicle.id)))?.paymentTerms)
+  const firstTerms = agreedTerms[0]
+  if (agreedTerms.some(terms => JSON.stringify(terms && { method: terms.method, days: terms.days, endOfMonth: terms.endOfMonth }) !== JSON.stringify(firstTerms && { method: firstTerms.method, days: firstTerms.days, endOfMonth: firstTerms.endOfMonth }))) throw new Error('Le vetture hanno condizioni di pagamento diverse: emetti fatture separate.')
+  const dueDate = calculateDueDate(issueDate, firstTerms?.days ?? customer.paymentDays ?? data.financeSettings.defaultPaymentDays, firstTerms?.endOfMonth ?? customer.endOfMonth)
   const timestamp = now()
   const invoice: Invoice = {
     id: id(), customerId: customer.id, number: input.number.trim(), issueDate, dueDate,
-    paymentMethod: input.paymentMethod ?? customer.usualPaymentMethod ?? 'Bonifico', lines,
+    paymentMethod: firstTerms?.method ?? input.paymentMethod ?? customer.usualPaymentMethod ?? 'Bonifico', lines,
     taxableAmount, vatAmount, total, collectedAmount: 0, ribaAllocatedAmount: 0,
     status: 'Da incassare', notes: input.notes?.trim() ?? '', createdAt: timestamp, updatedAt: timestamp,
   }

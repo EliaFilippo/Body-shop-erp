@@ -149,6 +149,8 @@ export interface DocumentLine {
 }
 
 export interface QuoteDocument {
+  estimateId?: string
+  paymentTerms?: EstimatePaymentTerms
   id: string
   number: string
   customerId: string
@@ -889,6 +891,7 @@ export interface AcceptanceLine {
 }
 
 export interface AcceptanceQuote {
+  paymentTerms?: EstimatePaymentTerms
   id: string
   monthKey: string
   hourlyRate: number
@@ -1027,6 +1030,13 @@ export interface EstimateHistoryEntry {
   message: string
 }
 
+export interface EstimatePaymentTerms {
+  method: PaymentMethod
+  days: number
+  endOfMonth: boolean
+  expectedInvoiceDate: string
+}
+
 export interface EstimateDocument {
   id: string
   number: string
@@ -1039,6 +1049,7 @@ export interface EstimateDocument {
   priority?: JobPriority
   requestedDeliveryDate?: string
   notes: string
+  paymentTerms?: EstimatePaymentTerms
   status: EstimateStatus
   lines: EstimateLine[]
   taxableAmount: number

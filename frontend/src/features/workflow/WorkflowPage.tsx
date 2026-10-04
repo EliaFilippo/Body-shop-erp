@@ -1,3 +1,4 @@
+import { PaymentTermsFields } from '../../components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent, type WheelEvent } from 'react'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
@@ -195,6 +196,7 @@ export function WorkflowPage({
   statusOptions,
   statusLabel,
   initialVehicleId,
+  isOwner = false,
 }: {
   data: ErpData
   customerById: (id: string) => Customer | undefined
@@ -206,6 +208,7 @@ export function WorkflowPage({
   statusOptions: Array<{ id: string; label: string }>
   statusLabel: (status: string) => string
   initialVehicleId?: string
+  isOwner?: boolean
 }) {
   const [modal, setModal] = useState<WorkflowModal | null>(null)
   const [estimateStatusFilter, setEstimateStatusFilter] = useState<'Tutti' | EstimateStatus>('Tutti')
@@ -294,12 +297,12 @@ export function WorkflowPage({
       <div className="table-wrap"><table><thead><tr><th>Numero</th><th>Cliente / targa</th><th>Stato</th><th>Data</th><th>Totale</th><th>Stadio economico</th><th>Azioni</th></tr></thead><tbody>
         {filteredEstimates.map((estimate) => {
           const customer = customerById(estimate.customerId)
-          const editable = !estimate.convertedJobId
+          const editable = isOwner || (!estimate.convertedJobId && estimate.status !== 'Approvato')
           return <tr key={estimate.id}>
             <td><strong>{estimate.number}</strong><small>{estimate.companyName || 'Nessuna azienda'}</small></td>
             <td><strong className="plate">{estimate.plate}</strong><small>{customer?.name || 'Cliente'}</small></td>
             <td>
-              <select value={estimate.status} onChange={(event) => {
+              <select disabled={!isOwner && (estimate.status === 'Approvato' || Boolean(estimate.convertedJobId))} value={estimate.status} onChange={(event) => {
                 try {
                   apply(updateEstimateStatus(data, estimate.id, event.target.value as EstimateStatus), `Preventivo ${estimate.number} aggiornato.`)
                 } catch (error) {
@@ -419,7 +422,7 @@ export function WorkflowPage({
       onSubmit={(payload) => {
         if (!modal || modal.type !== 'estimate-edit') return
         try {
-          apply(updateEstimate(data, modal.estimateId, payload), 'Preventivo aggiornato.')
+          apply(updateEstimate(data, modal.estimateId, payload, isOwner), 'Preventivo aggiornato.')
           setModal(null)
         } catch (error) {
           setError(error instanceof Error ? error.message : 'Modifica preventivo non riuscita.')
@@ -542,6 +545,7 @@ function EstimateEditor({
     priority?: RepairJob['priority']
     requestedDeliveryDate?: string
     notes: string
+    paymentTerms?: EstimateDocument['paymentTerms']
     productionForecast?: EstimateDocument['productionForecast']
     lines: EditableLine[]
   }) => void
@@ -555,6 +559,7 @@ function EstimateEditor({
     priority?: RepairJob['priority']
     requestedDeliveryDate?: string
     notes: string
+    paymentTerms?: EstimateDocument['paymentTerms']
     productionForecast?: EstimateDocument['productionForecast']
     lines: EditableLine[]
   }) => void
@@ -582,6 +587,7 @@ function EstimateEditor({
   const [priority, setPriority] = useState<RepairJob['priority']>(initial?.priority ?? 'Normale')
   const [requestedDeliveryDate, setRequestedDeliveryDate] = useState(initial?.requestedDeliveryDate ?? '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [paymentTerms, setPaymentTerms] = useState<NonNullable<EstimateDocument['paymentTerms']>>(initial?.paymentTerms ?? { method: 'Bonifico', days: 30, endOfMonth: false, expectedInvoiceDate: '' })
   const [lines, setLines] = useState<EditableLine[]>(
     initial?.lines?.map((line) => ({
       id: line.id,
@@ -747,6 +753,7 @@ function EstimateEditor({
     setCustomerId(nextCustomerId)
     const customer = customerById(nextCustomerId)
     if (!customer) return
+    if (!initial) setPaymentTerms({ method: customer.usualPaymentMethod ?? 'Bonifico', days: customer.paymentDays ?? data.financeSettings.defaultPaymentDays, endOfMonth: Boolean(customer.endOfMonth), expectedInvoiceDate: '' })
     if (!contactName.trim()) setContactName(customer.name)
     if (!companyName.trim() && customer.type === 'Azienda') setCompanyName(customer.name)
   }
@@ -1058,6 +1065,7 @@ function EstimateEditor({
         priority,
         requestedDeliveryDate,
         notes,
+        paymentTerms,
         productionForecast: productionForecast ?? undefined,
         lines,
       })
@@ -1117,6 +1125,8 @@ function EstimateEditor({
             <label>Data preventivo<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
             <label>Priorita<select value={priority} onChange={(event) => setPriority(event.target.value as RepairJob['priority'])}><option>Normale</option><option>Alta</option><option>Urgente</option></select></label>
             <label className="full">Note<textarea rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+            <PaymentTermsFields value={paymentTerms} onChange={setPaymentTerms} />
+            {initial?.convertedJobId && <p className="full">Revisione del titolare: aggiorna il preventivo e gli importi della commessa. Il budget dei timer già avviati resta invariato.</p>}
           </>}
         </div>
       </section>}
@@ -1485,7 +1495,7 @@ function EstimateEditor({
           <button type="button" className="secondary" onClick={() => setStep((current) => Math.max(1, current - 1) as EstimateEditorStep)} disabled={step === 1}>Indietro</button>
           {step < 4 && <button type="button" className="primary" onClick={() => setStep((current) => Math.min(4, current + 1) as EstimateEditorStep)} disabled={!canAdvance[step]}>Avanti</button>}
           {step === 4 && <button className="secondary" type="submit">Salva bozza</button>}
-          {step === 4 && <button type="button" className="primary" onClick={() => onConfirm?.({
+          {step === 4 && !initial?.convertedJobId && <button type="button" className="primary" onClick={() => onConfirm?.({
             customerId,
             vehicleId: vehicleId || undefined,
             plate,
@@ -1495,7 +1505,8 @@ function EstimateEditor({
             priority,
             requestedDeliveryDate,
             notes,
-            productionForecast: productionForecast ?? undefined,
+            paymentTerms,
+        productionForecast: productionForecast ?? undefined,
             lines,
           })} disabled={!canAdvance[4] || !productionForecast}>Conferma preventivo</button>}
         </div>
