@@ -2,10 +2,32 @@ import { describe, expect, it, vi } from 'vitest'
 import { applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
 import { emptyData } from './erp'
 import type { RepairJob } from '../types'
+import { createDefaultQuote } from './acceptance'
+import { acceptanceEstimateLines } from './damageQuote'
+import { calculateQuoteHourBudget } from './quoteHourBudget'
 
 const clock: LiveClock = { jobId: 'j', plate: 'TEST', number: '1', remainingSeconds: 7200,
   remainingPercent: 100, activeCount: 2, ownStatus: 'running', operators: [] }
 describe('tablet budget clock', () => {
+  it('keeps the quote and tablet budget aligned after adding manual materials without changing prices', () => {
+    const data = structuredClone(emptyData)
+    data.plannerSettings.internalCostSettings = { internalHourlyRate: 0, minimumMarginPercent: 0, budgetMaterialsPercent: 20, budgetUseManualStructureRate: true, budgetManualStructureRate: 30 }
+    data.plannerSettings.operators = [{ id: 'a', name: 'A', active: true, dailyHours: 8, hourlyCost: 20 }]
+    const quote = createDefaultQuote(data.plannerSettings, '2026-10')
+    quote.lines = [
+      { id: 'labor', kind: 'labor', description: 'Lavorazione pannello', quantity: 1, unitPrice: 150, unitCost: 0, source: 'manual' },
+      { id: 'materials', kind: 'consumption', description: 'Materiali aggiuntivi', quantity: 1, unitPrice: 30, unitCost: 30, source: 'manual' },
+    ]
+    quote.budgetOperatorId = 'a'
+    const expected = calculateQuoteHourBudget(quote, data.plannerSettings)
+    const job = { status: 'In lavorazione', taxableAmount: expected.revenue, lines: acceptanceEstimateLines(quote, data.plannerSettings) } as RepairJob
+    const original = structuredClone(job)
+    expect(prepareLiveJob(data, job)).toMatchObject({ budget: expected.available, materials: 30, directCosts: 30, revenue: 180 })
+    expect(expected.available).toBe(120)
+    expect(job).toEqual(original)
+    job.lines.push({ ...job.lines[1], budgetDirectUnitCost: undefined, unitPrice: 0 })
+    expect(prepareLiveJob(data, job).directCosts).toBe(30)
+  })
   it('imports a signed phase into the office workflow once and restores it after a stale overwrite', () => {
     const data = structuredClone(emptyData)
     data.jobs = [{ id: 'j', history: [], phases: [{ id: 'p', name: 'Preparazione', status: 'Da fare' }] } as unknown as RepairJob]
