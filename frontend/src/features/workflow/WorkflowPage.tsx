@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 26653)
-Total output lines: 1831
-
 import { PaymentTermsFields } from '../../components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent, type WheelEvent } from 'react'
 import { Modal } from '../../components/Modal'
@@ -1075,7 +1072,101 @@ function EstimateEditor({
     }}>
       <div className="full estimate-step-tabs" role="tablist" aria-label="Step preventivo">
         <button type="button" role="tab" aria-selected={step === 1} className={step === 1 ? 'active' : ''} onClick={() => setStep(1)}>1 Cliente e vettura</button>
-        <button type="button" role="tab" aria-s…1653 tokens truncated…g viewBox={VIEW_BOX_BY_VIEW[activeView]} aria-label={`Sagoma vettura ${VIEW_LABELS.find((view) => view.id === activeView)?.label.toLowerCase()}`}>
+        <button type="button" role="tab" aria-selected={step === 2} className={step === 2 ? 'active' : ''} onClick={() => setStep(2)}>2 Seleziona pannelli</button>
+        <button type="button" role="tab" aria-selected={step === 3} className={step === 3 ? 'active' : ''} onClick={() => setStep(3)}>3 Scegli lavorazioni</button>
+        <button type="button" role="tab" aria-selected={step === 4} className={step === 4 ? 'active' : ''} onClick={() => setStep(4)}>4 Controlla e conferma</button>
+      </div>
+
+      {step === 1 && <section className="full panel estimate-step-panel">
+        <div className="panel-head"><div><span className="eyebrow">STEP 1</span><h3>Cliente e vettura</h3></div></div>
+        <div className="estimate-quick-search">
+          <label className="full">Ricerca unica
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Targa, cliente o telefono"
+            />
+          </label>
+          {!!searchResults.length && <div className="estimate-search-results">
+            {searchResults.map((result) => <button
+              key={`${result.kind}-${result.id}`}
+              type="button"
+              className="estimate-search-result"
+              onClick={() => {
+                if (result.kind === 'vehicle') {
+                  applyVehicleSelection(result.id)
+                  return
+                }
+                applyCustomerSelection(result.id)
+                setSearchTerm(result.title)
+              }}
+            >
+              <strong>{result.title}</strong>
+              <small>{result.subtitle}</small>
+            </button>)}
+          </div>}
+        </div>
+        <div className="estimate-customer-grid">
+          <label>Cliente<select required value={customerId} onChange={(event) => applyCustomerSelection(event.target.value)}><option value="">Seleziona cliente</option>{data.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+          <label>Vettura esistente<select value={vehicleId} onChange={(event) => applyVehicleSelection(event.target.value)}><option value="">Nessuna vettura</option>{vehicleOptions.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} - {vehicle.make} {vehicle.model}</option>)}</select></label>
+          <label>Targa<input required value={plate} onChange={(event) => setPlate(event.target.value.toUpperCase())} placeholder="AB123CD" /></label>
+          <label>Consegna richiesta<input type="date" value={requestedDeliveryDate} onChange={(event) => setRequestedDeliveryDate(event.target.value)} /></label>
+          <div className="full estimate-smart-card-grid">
+            <article className="summary-card"><span>Cliente selezionato</span><strong>{selectedCustomer?.name || 'Da selezionare'}</strong><small>{selectedCustomer?.phone || 'Telefono non disponibile'}</small></article>
+            <article className="summary-card"><span>Vettura collegata</span><strong>{vehicleId ? plate : 'Nuova targa'}</strong><small>{vehicleId ? `${data.vehicles.find((item) => item.id === vehicleId)?.make || ''} ${data.vehicles.find((item) => item.id === vehicleId)?.model || ''}`.trim() || 'Vettura esistente' : 'Sarà completata più avanti se necessario'}</small></article>
+            <article className="summary-card"><span>Preventivo</span><strong>{date}</strong><small>Data proposta automaticamente</small></article>
+          </div>
+          <div className="full estimate-advanced-toggle-row">
+            <button type="button" className="secondary" onClick={() => setAdvancedMetaOpen((current) => !current)}>{advancedMetaOpen ? 'Nascondi dettagli' : 'Dettagli cliente e opzioni'}</button>
+          </div>
+          {advancedMetaOpen && <>
+            <label>Concessionario / azienda<input value={companyName} onChange={(event) => setCompanyName(event.target.value)} /></label>
+            <label>Referente<input value={contactName} onChange={(event) => setContactName(event.target.value)} /></label>
+            <label>Data preventivo<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+            <label>Priorita<select value={priority} onChange={(event) => setPriority(event.target.value as RepairJob['priority'])}><option>Normale</option><option>Alta</option><option>Urgente</option></select></label>
+            <label className="full">Note<textarea rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+            <PaymentTermsFields value={paymentTerms} onChange={setPaymentTerms} />
+            {initial?.convertedJobId && <p className="full">Revisione del titolare: aggiorna il preventivo e gli importi della commessa. Il budget dei timer già avviati resta invariato.</p>}
+          </>}
+        </div>
+      </section>}
+
+      {step === 2 && <section className="full estimate-step-panel">
+        <div className="full exploded-layout estimate-work-layout">
+          <div className="exploded-views" data-testid="exploded-vehicle">
+            <section className="exploded-view" data-testid="exploded-vehicle-main">
+              <header>Vettura interattiva grande</header>
+              <div className="exploded-toolbar">
+                <div className="exploded-view-switch" role="tablist" aria-label="Seleziona vista vettura">
+                  {VIEW_LABELS.map((view) => <button
+                    key={view.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeView === view.id}
+                    className={activeView === view.id ? 'active' : ''}
+                    onClick={() => setActiveView(view.id)}
+                  >
+                    {view.tabLabel}
+                  </button>)}
+                </div>
+
+                <div className="exploded-zoom-controls" aria-label="Controlli zoom vettura">
+                  <button type="button" onClick={zoomIn}>+ Zoom</button>
+                  <button type="button" onClick={zoomOut}>- Zoom</button>
+                  <button type="button" onClick={zoomFit}>Adatta</button>
+                </div>
+              </div>
+
+              <div
+                className={`exploded-canvas-pro view-${activeView}`}
+                onWheel={onCanvasWheel}
+                onTouchStart={onCanvasTouchStart}
+                onTouchMove={onCanvasTouchMove}
+                onTouchEnd={onCanvasTouchEnd}
+                onTouchCancel={onCanvasTouchEnd}
+              >
+                <div className="exploded-zoom-stage" style={{ transform: `scale(${zoomLevel})` }}>
+                  <svg viewBox={VIEW_BOX_BY_VIEW[activeView]} aria-label={`Sagoma vettura ${VIEW_LABELS.find((view) => view.id === activeView)?.label.toLowerCase()}`}>
                     <defs>
                       <linearGradient id="carBodyGradient" x1="0" x2="1" y1="0" y2="1">
                         <stop offset="0%" stopColor="#292b32" />
