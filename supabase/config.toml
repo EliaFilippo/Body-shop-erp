@@ -1,0 +1,4 @@
+[functions.operator-pin]
+# Login protetto da collegamento tablet casuale + PIN, verificati nel server.
+# Configure verifica separatamente l'utente e il ruolo titolare.
+verify_jwt = false

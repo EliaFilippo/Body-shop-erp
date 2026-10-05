@@ -5,6 +5,8 @@ import { loadCloudSnapshot, type CloudSnapshot } from '../../services/cloudSync'
 import { liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
 import './liveProduction.css'
 import { EmployeeHours, HoursTotals } from './EmployeeHours'
+import { OperatorPinAdmin, OperatorPinLogin } from './OperatorPinAccess'
+import { readTabletPairing } from '../../services/operatorPin'
 
 const config = getCloudAuthConfig()
 const sessionKey = 'body-shop-erp.cloud-session.v1'
@@ -18,6 +20,7 @@ const clockText = (seconds: number | null) => {
 }
 
 export function LiveProductionPage() {
+  const [tabletPairing] = useState(readTabletPairing)
   const [session, setSession] = useState(storedSession)
   const [companyId, setCompanyId] = useState('')
   const [feed, setFeed] = useState<LiveFeed | null>(null)
@@ -130,17 +133,18 @@ export function LiveProductionPage() {
   return <main className="live-production">
     <header><div><p>ELIAS · BODY SHOP ERP</p><h1>{feed && ['owner', 'office'].includes(feed.role) ? 'Produzione e monte ore' : 'Il mio lavoro'}</h1></div>
       <div>{feed?.operatorName && <strong>{feed.operatorName}</strong>} {session && <button disabled={busy} onClick={() => void logout()}>Esci dal profilo</button>}
-        <a href={import.meta.env.BASE_URL}>Gestionale</a></div></header>
+        {feed && ['owner','office'].includes(feed.role) && <a href={import.meta.env.BASE_URL}>Gestionale</a>}</div></header>
     {!config && <p role="alert">Collegamento Supabase non configurato.</p>}
     {error && <p className="live-alert" role="alert">{error}</p>}
-    {config && !session && <form className="live-login" onSubmit={async e => {
+    {config && !session && tabletPairing && <OperatorPinLogin pairing={tabletPairing} config={config} onLogin={result=>{sessionStorage.setItem(sessionKey,JSON.stringify(result));setSession(result)}} />}
+    {config && !session && <details open={!tabletPairing}><summary>Accesso titolare o account con email</summary><form className="live-login" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError('')
       try { const result = await signInWithPassword(email, password, config); sessionStorage.setItem(sessionKey, JSON.stringify(result)); setPassword(''); setSession(result) }
       catch (e) { setError(e instanceof Error ? e.message : 'Accesso non riuscito.') }
       finally { setBusy(false) }
     }}><h2>Accedi al tuo profilo</h2><label>Email <input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>
       <label>Password <input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
-      <button disabled={busy}>Accedi</button><p>Usa il tuo account aziendale personale.</p></form>}
+      <button disabled={busy}>Accedi</button><p>Usa il tuo account aziendale personale.</p></form></details>}
     {session && feed && <>
       {!feed.operatorName && <p className="live-alert">Il titolare deve collegare questo account al tuo operatore prima di avviare il lavoro.</p>}
       <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 2 secondi'}</p>
@@ -195,6 +199,7 @@ export function LiveProductionPage() {
       </section>
       {['owner', 'office'].includes(feed.role) && <EmployeeHours feed={feed} session={session} config={config!} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />}
       {feed.role === 'owner' && snapshot && <details className="live-admin"><summary>Configurazione tablet e budget · Titolare</summary>
+        <OperatorPinAdmin companyId={companyId} operators={snapshot.payload.plannerSettings.operators} session={session} config={config!} />
         <h2>Collega gli account agli operatori</h2><p>Gli account devono già appartenere all’azienda. Un profilo per operatore. Anche un account Ufficio può essere collegato: conserva l’accesso all’ufficio e usa sul tablet le mansioni e gli orari del proprio operatore.</p>
         {feed.members.map(member => <label key={member.userId}>{member.name}<select aria-label={`Operatore per ${member.name}`} value={member.operatorId ?? ''} disabled={busy}
           onChange={e => { if (e.target.value) void act('production_bind_profile', { p_user_id: member.userId, p_operator_id: e.target.value }) }}>
