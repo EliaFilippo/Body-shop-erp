@@ -31,19 +31,25 @@ Deno.serve(async req => {
       const token = req.headers.get('Authorization')?.replace(/^Bearer /i,'') || ''
       const { data: identity, error: authError } = await db.auth.getUser(token)
       if (authError || !identity.user) return response({ message:'Accedi con il profilo titolare.' },401)
-      const { data: owner, error: ownerError } = await db.from('company_members').select('user_id')
+      // Read company data with the caller's existing RLS permissions.
+      // service_role bypasses RLS but custom tables may not grant it SELECT.
+      const ownerDb = createClient(url,anonKey,{ global:{ headers:{ Authorization:`Bearer ${token}` } },
+        auth:{ persistSession:false,autoRefreshToken:false } })
+      const { data: owner, error: ownerError } = await ownerDb.from('company_members').select('user_id')
         .eq('company_id',companyId).eq('user_id',identity.user.id).eq('role','owner').eq('active',true).maybeSingle()
-      if (ownerError || !owner) return response({ message:'Solo il titolare può configurare i PIN.' },403)
+      if (ownerError) return response({ message:'Verifica del ruolo non riuscita. Contatta l’assistenza.' },503)
+      if (!owner) return response({ message:'Solo il titolare può configurare i PIN.' },403)
       if (!/^[0-9]{6}$/.test(body.pin || '') || /^(\d)\1{5}$/.test(body.pin) || ['123456','654321'].includes(body.pin))
         return response({ message:'Scegli un PIN di 6 cifre non ripetute o consecutive.' },400)
       // Verifica la destinazione prima di creare un account tecnico.
-      const { data: snapshot } = await db.from('erp_snapshots').select('payload').eq('company_id',companyId).single()
+      const { data: snapshot } = await ownerDb.from('erp_snapshots').select('payload').eq('company_id',companyId).single()
       const operator = snapshot?.payload?.plannerSettings?.operators?.find((o: { id:string; active:boolean }) => o.id===operatorId && o.active)
       if (!operator) return response({ message:'Operatore non attivo.' },400)
       const { data: existing, error: readError } = await db.from('production_pin_accounts').select('user_id').eq('company_id',companyId).eq('operator_id',operatorId).maybeSingle()
       if (readError) return response({ message:'Attivazione PIN sul server ancora da completare.' },503)
-      const { data: bound, error: boundError } = await db.from('production_profiles').select('user_id').eq('company_id',companyId).eq('operator_id',operatorId).maybeSingle()
-      if (boundError || (bound && bound.user_id!==existing?.user_id)) return response({ message:'Operatore già collegato a un altro account. Contatta il titolare per scollegarlo prima di attivare il PIN.' },409)
+      const { data: feed, error: boundError } = await ownerDb.rpc('production_live_feed',{ p_company_id:companyId })
+      const bound = feed?.members?.find((member: { operatorId?:string;userId:string }) => member.operatorId===operatorId)
+      if (boundError || (bound && bound.userId!==existing?.user_id)) return response({ message:'Operatore già collegato a un altro account. Contatta il titolare per scollegarlo prima di attivare il PIN.' },409)
       const authCredentials = await credentials(companyId,operatorId)
       let userId = existing?.user_id
       if (!userId) {
