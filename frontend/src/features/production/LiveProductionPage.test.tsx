@@ -39,6 +39,8 @@ describe('profilo tablet', () => {
     await screen.findByText(/Visto di Mario/)
     expect(screen.getByLabelText('Fase da lavorare su AA123BB')).toHaveValue('p2')
     expect(screen.queryByText('Profili dipendenti · monte ore')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link',{name:'Gestionale'})).not.toBeInTheDocument()
+    expect(screen.queryByText('Accessi tablet con PIN')).not.toBeInTheDocument()
   })
   it('shows a shared low-budget clock and pauses only the authenticated operator', async () => {
     let paused = false

@@ -33,6 +33,8 @@ jobs:
         run: psql -f supabase/tests/owner_password_unlock.sql
       - name: Ordered work cycle, one hour drying, duties and office profile
         run: psql -f supabase/tests/work_cycle.sql
+      - name: Personal PIN, paired tablet, lockout and production-only permissions
+        run: psql -f supabase/tests/operator_pin.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
@@ -62,3 +64,11 @@ jobs:
         working-directory: frontend
       - run: npm test && npm run build
         working-directory: frontend
+  operator-pin-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/operator-pin/index.ts
