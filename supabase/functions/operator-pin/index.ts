@@ -47,8 +47,9 @@ Deno.serve(async req => {
       if (!operator) return response({ message:'Operatore non attivo.' },400)
       const { data: existing, error: readError } = await db.from('production_pin_accounts').select('user_id').eq('company_id',companyId).eq('operator_id',operatorId).maybeSingle()
       if (readError) return response({ message:'Attivazione PIN sul server ancora da completare.' },503)
-      const { data: bound, error: boundError } = await ownerDb.from('production_profiles').select('user_id').eq('company_id',companyId).eq('operator_id',operatorId).maybeSingle()
-      if (boundError || (bound && bound.user_id!==existing?.user_id)) return response({ message:'Operatore già collegato a un altro account. Contatta il titolare per scollegarlo prima di attivare il PIN.' },409)
+      const { data: feed, error: boundError } = await ownerDb.rpc('production_live_feed',{ p_company_id:companyId })
+      const bound = feed?.members?.find((member: { operatorId?:string;userId:string }) => member.operatorId===operatorId)
+      if (boundError || (bound && bound.userId!==existing?.user_id)) return response({ message:'Operatore già collegato a un altro account. Contatta il titolare per scollegarlo prima di attivare il PIN.' },409)
       const authCredentials = await credentials(companyId,operatorId)
       let userId = existing?.user_id
       if (!userId) {
