@@ -1,3 +1,4 @@
+import { PhaseNotices } from './PhaseNotices'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
 import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../services/cloudAuth'
@@ -193,6 +194,7 @@ export function LiveProductionPage() {
                   onClick={() => void act('production_complete_phase', { p_job_id: job.jobId, p_phase_id: phase.id })}>✓ Completa {phase.name}</button>}
               </li>)}</ol><p>Il visto registra chi ha completato la fase e ferma il suo timer su quella fase. Gli altri operatori devono prima mettere in pausa o terminare il lavoro sulla stessa fase.</p>
             </section>}
+            <PhaseNotices connection={{ companyId, session, config: config! }} jobId={job.jobId} phases={job.phases ?? []} office={['owner', 'office'].includes(feed.role)} />
           </article>
         })}
         {!feed.jobs.length && <p>Il titolare deve confermare il budget della prima commessa.</p>}

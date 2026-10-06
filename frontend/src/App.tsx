@@ -1139,7 +1139,7 @@ function App() {
         }} setNotice={setNotice} setError={setError} />}
         {view === 'price-list' && <PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} />}
         {view === 'finance' && <FinancePage data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
-        {view === 'estimates-jobs' && <WorkflowPage onOwnerUnlock={async password => {
+        {view === 'estimates-jobs' && <WorkflowPage noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')
           const verified = await signInWithPassword(cloudSession.email, password, cloudConfig)
           if (verified.userId !== cloudSession.userId) throw new Error('La password deve appartenere al titolare collegato.')

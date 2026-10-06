@@ -35,6 +35,8 @@ jobs:
         run: psql -f supabase/tests/work_cycle.sql
       - name: Personal PIN, paired tablet, lockout and production-only permissions
         run: psql -f supabase/tests/operator_pin.sql
+      - name: Phase notices, author identity, office review and tenant isolation
+        run: psql -f supabase/tests/phase_notices.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
