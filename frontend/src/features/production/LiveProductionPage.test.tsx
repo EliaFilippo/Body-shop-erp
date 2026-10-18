@@ -150,3 +150,22 @@ it('shows the selected front and rear bumper as individual work items on legacy 
  expect(screen.getByText('½ paraurti posteriore (lieve)')).toBeInTheDocument()
  expect(screen.queryByText(/½ paraurti anteriore\/posteriore/)).not.toBeInTheDocument()
 })
+
+it('colora l’intera pagina al 20% della fase attiva e spegne l’avviso quando Stefania mette in pausa',async()=>{
+ let paused=false
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_timer_action'){paused=true;return null}
+  return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
+   jobId:'j1',plate:'WASH25',number:'COMM-1',remainingSeconds:3600,remainingPercent:100,activeCount:paused?0:1,ownStatus:paused?'paused':'running',ownPhaseId:'wash',operators:[{name:'Stefania',status:paused?'paused':'running'}],
+   phases:[{id:'wash',name:'Lavaggio esterno',status:'Da fare',notRequired:false,canComplete:true,checkedBy:null,checkedAt:null,
+    standardClock:{label:'Lavaggio esterno',totalMinutes:25,remainingSeconds:300,ownRemainingSeconds:300,ownBurnFactor:0,remainingPercent:20,activeCount:paused?0:1}}]
+  }]}
+ })
+ render(<LiveProductionPage/>)
+ await screen.findByText('ATTENZIONE: TEMPO RESIDUO AL 20% O MENO')
+ expect(screen.getByRole('main')).toHaveClass('live-time-alert-screen')
+ fireEvent.click(screen.getByRole('button',{name:'Pausa'}))
+ await waitFor(()=>expect(screen.getByRole('main')).not.toHaveClass('live-time-alert-screen'))
+ expect(screen.queryByText('ATTENZIONE: TEMPO RESIDUO AL 20% O MENO')).not.toBeInTheDocument()
+})
