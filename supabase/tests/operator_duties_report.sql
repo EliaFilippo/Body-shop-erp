@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
-\ir ../migrations/20261018_operator_duties_report.sql
+\ir ../updates/20261018_operator_duties_report.sql
 \ir ../migrations/20261018_operator_duties_report.sql
 begin;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
