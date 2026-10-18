@@ -51,6 +51,8 @@ jobs:
         run: psql -f supabase/tests/operator_duties_report.sql
       - name: Owner password for staff hours and productivity, expiry and self-access
         run: psql -f supabase/tests/private_employee_reports.sql
+      - name: Separate private password, session isolation, rotation and lockout
+        run: psql -f supabase/tests/separate_private_password.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

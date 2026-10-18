@@ -1149,10 +1149,8 @@ function App() {
         {view === 'finance' && <FinancePage passwordConnection={cloudConfig && cloudSession && cloudMembership ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
         {view === 'estimates-jobs' && <WorkflowPage noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')
-          const verified = await signInWithPassword(cloudSession.email, password, cloudConfig)
-          if (verified.userId !== cloudSession.userId) throw new Error('La password deve appartenere al titolare collegato.')
-          sessionStorage.setItem(CLOUD_SESSION_KEY, JSON.stringify(verified))
-          setCloudSession(verified)
+          const result = await productionRpc<{ok:boolean;message?:string}>('production_private_password', {p_company_id:cloudMembership.companyId,p_action:'unlock',p_password:password}, cloudSession, cloudConfig)
+          if (!result.ok) throw new Error(result.message || 'Password dei blocchi non corretta.')
         }} isOwner={cloudMembership?.role === 'owner'} data={data} customerById={customerById} query={query} onChange={setData} setError={setError} setNotice={setNotice} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'acceptance' && <AcceptancePage data={data} autosaveState={acceptanceAutosaveState} customerById={customerById} onCreate={(customerId, vehicleId) => {
           const draft = createAcceptanceDraft(customerId, vehicleId, data.plannerSettings, new Date().toISOString().slice(0, 7))
