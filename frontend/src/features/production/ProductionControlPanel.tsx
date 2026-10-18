@@ -5,6 +5,8 @@ import './productionControl.css'
 
 export interface ProductionControlReport {
  serverNow: string;
+ phaseReview?: { phase:string; samples:number; pending:number; missing:number; assignedSeconds:number; workedSeconds:number; averageWorkedSeconds:number|null; deviationPercent:number|null; review:string;
+  jobs:{jobId:string;plate:string;number:string;assignedSeconds:number;workedSeconds:number;completed:boolean;active:boolean}[] }[];
  alerts: { id: number; jobId: string; plate: string; number: string; phase: string; detectedAt: string; acknowledgedAt: string | null; overrunSeconds: number; active: boolean; operators: { name: string }[] }[];
  operators: { operatorId: string; name: string; assignedSeconds: number; workedSeconds: number; score: number | null; completedGroups: number; unscoredSharedSeconds: number }[];
  teams: { jobId: string; plate: string; phase: string; assignedSeconds: number; workedSeconds: number; score: number; operators: { name: string }[] }[];
@@ -64,6 +66,20 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
    {report && !report.operators.length && <p>Nessuna fase conclusa con tempo standard e lavoro registrato in questo mese.</p>}
    <p>Le quote personali dei lavori condivisi vengono conservate al primo Start. Senza una ripartizione affidabile, il risultato resta della squadra e non modifica il punteggio individuale. Il punteggio misura i tempi, non la qualità né gli incassi.</p>
    {!!report?.teams.length && <details><summary>Risultati delle squadre</summary>{report.teams.map(t => <p key={`${t.jobId}:${t.phase}`}>{t.plate} · {t.phase} · {t.operators.map(o => o.name).join(', ')}: {t.score.toLocaleString('it-IT')} punti ({duration(t.assignedSeconds)} assegnate / {duration(t.workedSeconds)} lavorate)</p>)}</details>}
+   <details><summary>Report di tutte le fasi · verifica del tempario</summary>
+    <p>Confronto delle lavorazioni concluse nel mese; quelle aperte sono indicate a parte. Uno scostamento medio oltre il 15%, con almeno 5 lavori, segnala una verifica. Vetture, pannelli e difficoltà possono essere diversi: il tempario non cambia da solo.</p>
+    <p>S/R e I/S hanno un tempo totale condiviso: il confronto li considera insieme per non duplicare le ore.</p>
+    {report?.phaseReview?.map(phase => <article key={phase.phase}><h3>{phase.phase}</h3>
+     <p>{phase.samples} concluse confrontabili · {phase.pending} aperte · {phase.missing} con tempo da configurare</p>
+     <p>Totale assegnato: {duration(phase.assignedSeconds)} · lavorato: {duration(phase.workedSeconds)} · scostamento: {phase.deviationPercent === null ? '—' : `${phase.deviationPercent > 0 ? '+' : ''}${phase.deviationPercent.toLocaleString('it-IT')}%`}</p>
+     <strong>{phase.review}</strong>
+     <details><summary>Dettaglio per vettura</summary><div className="production-score-table"><table><thead><tr><th>Vettura</th><th>Assegnato</th><th>Lavorato</th><th>Stato</th></tr></thead><tbody>
+      {phase.jobs.map(job => <tr key={job.jobId}><td>{job.plate} · {job.number}</td><td>{job.assignedSeconds > 0 ? duration(job.assignedSeconds) : 'Da configurare'}</td><td>{duration(job.workedSeconds)}</td><td>{job.completed ? 'Conclusa' : job.active ? 'Al lavoro' : 'Aperta'}</td></tr>)}
+     </tbody></table></div></details>
+    </article>)}
+    {report && !report.phaseReview?.length && <p>Nessuna fase disponibile per il confronto.</p>}
+    <p>Puoi modificare i tempi preimpostati in Listino prezzi; i tempi già conservati sulle commesse avviate restano invariati.</p>
+   </details>
    <button type="button" onClick={() => setHistory(!history)}>{history ? 'Nascondi storico avvisi' : 'Mostra storico avvisi'}</button>
    {history && report?.alerts.filter(a => a.acknowledgedAt).map(a => <p key={a.id}>✓ {a.plate} · {a.phase} · preso in carico il {new Date(a.acknowledgedAt!).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>)}
   </details>

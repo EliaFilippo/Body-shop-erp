@@ -7,7 +7,7 @@ export interface LiveClock {
   remainingPercent: number; activeCount: number; ownStatus: 'running' | 'paused' | 'finished' | null;
   operators: { name: string; status: string }[];
   overrunSeconds?: number; ownRemainingSeconds?: number | null; ownBurnFactor?: number; ownPhaseId?: string | null;
-  phases?: LivePhase[];
+  dutiesFiltered?: boolean; phases?: LivePhase[];
   tasks?: { id: string; description: string; panel?: string; quantity: number }[];
 }
 export interface LivePhase { standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
