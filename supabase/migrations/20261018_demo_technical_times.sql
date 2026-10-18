@@ -1,9 +1,9 @@
 begin;
 -- The owner identified this test job's two pieces from the tablet.
--- This one-off correction changes technical allowances only, never sale amounts or worked records.
+-- This one-off correction changes phase allowances only: quote/job lines, sale amounts and worked records stay intact.
 create or replace function public.production_demo_technical_job(job jsonb)
 returns jsonb language plpgsql set search_path=public,pg_temp as $$
-declare line jsonb; lines jsonb:='[]'; phases jsonb:='[]'; ph jsonb; stage text; descriptor text;
+declare line jsonb; phases jsonb:='[]'; ph jsonb; stage text; descriptor text;
  found_blend integer:=0; found_wing integer:=0; minutes integer; shared_minutes integer; group_key text;
  required boolean; ordinal integer:=0; stamp text:=clock_timestamp()::text;
 begin
@@ -16,12 +16,11 @@ begin
   if coalesce((line->>'quantity')::numeric,1)<>1 then raise exception 'Quantità della prova da verificare';end if;
   if descriptor like '%sfumatura%' and descriptor like '%parafango%' and descriptor like '%posteriore%' and descriptor like '%sx%' then
    found_blend:=found_blend+1;
-   line:=line||jsonb_build_object('minorDamageTimes',jsonb_build_object('is',30,'v',30),'estimatedMinutes',60,'lineTotalMinutes',60,'manualTimeOverride',true);
+  
   elsif descriptor not like '%sfumatura%' and descriptor like '%parafango%' and descriptor like '%anteriore%' and descriptor like '%dx%' then
    found_wing:=found_wing+1;
-   line:=line||jsonb_build_object('minorDamageTimes',jsonb_build_object('sr',60,'is',40,'v',60,'lc',15),'estimatedMinutes',175,'lineTotalMinutes',175,'manualTimeOverride',true);
+  
   else raise exception 'Pannello della prova diverso dalle foto: correzione interrotta';end if;
-  lines:=lines||jsonb_build_array(line);
  end loop;
  if found_blend<>1 or found_wing<>1 then raise exception 'Servono sfumatura parafango posteriore SX e parafango anteriore DX';end if;
  foreach stage in array array['Lavaggio esterno','Smontaggio','Riparazione grandine','Lattoneria','Stuccatura','Incartatura','Verniciatura','Scartatura','Rimontaggio','Meccanica / gommista','Lucidatura','Lavaggio interni','Ritocchi','Consegna'] loop
@@ -39,7 +38,7 @@ begin
     'technicalWaitMinutes',case when stage='Verniciatura' then 60 else 0 end);
   phases:=phases||jsonb_build_array(ph);
  end loop;
- return job||jsonb_build_object('lines',lines,'phases',phases,'workflowCycle','elias-v1','technicalTimeRevision','demo-tempario-20261018','updatedAt',stamp,
+ return job||jsonb_build_object('phases',phases,'workflowCycle','elias-v1','technicalTimeRevision','demo-tempario-20261018','updatedAt',stamp,
   'history',jsonb_build_array(jsonb_build_object('id','demo-tempario-20261018','at',stamp,'actor','Titolare','message','Tempario prova corretto: S/R 60 min, I/S 70 min, verniciatura inclusa stuccatura 90 min, lucidatura 15 min, lavaggio esterno 25 min. Prezzi e lavoro registrato conservati.'))||coalesce(job->'history','[]'));
 end $$;
 revoke all on function public.production_demo_technical_job(jsonb) from public,anon,authenticated;
