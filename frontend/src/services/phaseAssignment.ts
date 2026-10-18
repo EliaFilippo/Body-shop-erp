@@ -6,11 +6,11 @@ import { addWorkingMinutes, nextWorkingInstant } from './workCalendar'
 export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt: string }>(
   data: ErpData, job: RepairJob, phase: JobPhase, candidates: T[], minutes: number, floor: string, ready: string,
 ): { operators: T[]; reason: string } {
-  const workingNames = (phase.operatorAssignments ?? []).filter(a => a.activityStatus === 'Attivo' && !a.endedAt).map(a => a.operatorName)
-  if (workingNames.length) return { operators: candidates.filter(c => workingNames.includes(c.operator.name)), reason: 'Prosegue il lavoro degli operatori già attivi' }
   if (phase.preferredOperatorId) return {
     operators: candidates.filter(c => c.operator.id === phase.preferredOperatorId), reason: 'Operatore scelto dall’ufficio',
   }
+  const workingNames = (phase.operatorAssignments ?? []).filter(a => a.activityStatus === 'Attivo' && !a.endedAt).map(a => a.operatorName)
+  if (workingNames.length) return { operators: candidates.filter(c => workingNames.includes(c.operator.name)), reason: 'Prosegue il lavoro degli operatori già attivi' }
   const structure = quoteStructureRate(data.plannerSettings, floor.slice(0, 7))
   const marginPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.minimumMarginPercent ?? 0))
   const materialsPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.budgetMaterialsPercent ?? 20))

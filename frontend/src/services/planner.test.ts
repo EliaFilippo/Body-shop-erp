@@ -1449,4 +1449,14 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(assigned(data)).toEqual(['op-1'])
   })
 
+  it('consente la riassegnazione manuale durante la lavorazione conservando lo storico e i timer', () => {
+    const data = setup(); const phase = data.jobs![0].phases[0]
+    phase.status = 'In lavorazione'
+    phase.operatorAssignments = [{ id: 'working', operatorName: 'Filippo', startedAt: '2026-07-27T08:00:00.000Z', workedMinutes: 30, activityStatus: 'Attivo' }]
+    phase.preferredOperatorId = 'op-2'
+    const history = JSON.stringify(phase.operatorAssignments)
+    expect(assigned(data)).toEqual(['op-2'])
+    expect(JSON.stringify(phase.operatorAssignments)).toBe(history)
+  })
+
 })
