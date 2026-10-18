@@ -29,6 +29,7 @@ do $$declare job jsonb;begin
 end $$;
 reset role;
 -- Trigger cannot redistribute an already-started job after a stale office edit.
+update erp_snapshots set payload=jsonb_set(payload,'{jobs,2,phases,0,estimatedMinutes}','120') where company_id='10000000-0000-0000-0000-000000000001';
 update production_live_jobs set initial_budget=120 where job_id='phase-budget-job';
 do $$begin if (select (phase_budgets->>'phase-a')::numeric from production_live_jobs where job_id='phase-budget-job')<>40 then raise exception 'Frozen shares changed';end if;end $$;
 rollback;

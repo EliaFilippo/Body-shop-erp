@@ -93,7 +93,7 @@ describe('pubblicazione automatica dopo conferma', () => {
     const data = structuredClone(emptyData)
     data.plannerSettings.internalCostSettings = { internalHourlyRate: 0, minimumMarginPercent: 0, budgetUseManualStructureRate: true, budgetManualStructureRate: 30 }
     data.plannerSettings.operators = [{ id: 'a', name: 'A', active: true, dailyHours: 8, hourlyCost: 20 }]
-    data.jobs = [{ id: 'auto-job', number: 'AUTO', status: 'Da pianificare', taxableAmount: 150, lines: [], phases: [{ name: 'Verniciatura', estimatedMinutes: 60 }] } as RepairJob]
+    data.jobs = [{ id: 'auto-job', number: 'AUTO', status: 'Da pianificare', taxableAmount: 150, lines: [], phases: [{ name: 'Verniciatura', estimatedMinutes: 60 }] } as unknown as RepairJob]
     return data
   }
   const session = { email: 'owner@example.invalid', userId: 'owner', accessToken: 'test', refreshToken: 'test', expiresIn: 3600 }
