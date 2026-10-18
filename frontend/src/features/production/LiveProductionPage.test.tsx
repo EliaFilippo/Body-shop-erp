@@ -9,6 +9,7 @@ vi.mock('../../services/cloudAuth', () => ({
 vi.mock('../../services/liveProduction', async original => ({ ...await original<typeof import('../../services/liveProduction')>(),
   productionRpc: mocked.rpc, refreshProductionSession: vi.fn(async session => session),
 }))
+vi.mock('../../services/cloudSync', () => ({ loadCloudSnapshot: vi.fn(async () => ({ revision: 1, payload: { plannerSettings: { operators: [{ id: 's', name: 'Stefania', active: true }] }, jobs: [] } })) }))
 beforeEach(() => {
   sessionStorage.setItem('body-shop-erp.cloud-session.v1', JSON.stringify({ accessToken: 'token', refreshToken: 'refresh', userId: 'u1', email: 'test@example.test', expiresIn: 3600 }))
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ company_id: 'c1', role: 'production' }]))))
@@ -63,4 +64,19 @@ describe('profilo tablet', () => {
     expect(screen.getByText(/Mario: in pausa · Luca: al lavoro/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Riprendi' })).toBeEnabled()
   })
+})
+
+it('allows the owner to clear the operator binding and displays the saved result', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ company_id: 'c1', role: 'owner' }]))))
+  let bound = true
+  mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_unbind_profile') { bound = false; return null }
+    return { companyId: 'c1', role: 'owner', operatorName: null, serverNow: new Date().toISOString(), jobs: [], members: [{ userId: 'u1', name: 'Filippo Elia', operatorId: bound ? 's' : null }], staff: [] }
+  })
+  render(<LiveProductionPage />)
+  const select = await screen.findByLabelText('Operatore per Filippo Elia')
+  expect(select).toHaveValue('s')
+  fireEvent.change(select, { target: { value: '' } })
+  await waitFor(() => expect(select).toHaveValue(''))
+  expect(mocked.rpc).toHaveBeenCalledWith('production_unbind_profile', { p_company_id: 'c1', p_user_id: 'u1' }, expect.anything(), expect.anything())
 })

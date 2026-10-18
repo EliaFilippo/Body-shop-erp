@@ -204,7 +204,7 @@ export function LiveProductionPage() {
         <OperatorPinAdmin companyId={companyId} operators={snapshot.payload.plannerSettings.operators} session={session} config={config!} />
         <h2>Collega gli account agli operatori</h2><p>Gli account devono già appartenere all’azienda. Un profilo per operatore. Anche un account Ufficio può essere collegato: conserva l’accesso all’ufficio e usa sul tablet le mansioni e gli orari del proprio operatore.</p>
         {feed.members.map(member => <label key={member.userId}>{member.name}<select aria-label={`Operatore per ${member.name}`} value={member.operatorId ?? ''} disabled={busy}
-          onChange={e => { if (e.target.value) void act('production_bind_profile', { p_user_id: member.userId, p_operator_id: e.target.value }) }}>
+          onChange={e => { void act(e.target.value ? 'production_bind_profile' : 'production_unbind_profile', { p_user_id: member.userId, ...(e.target.value ? { p_operator_id: e.target.value } : {}) }) }}>
           <option value="">Da collegare</option>{snapshot.payload.plannerSettings.operators.filter(o => o.active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>)}
         <h2>Conferma il budget delle commesse</h2><p>Prezzi IVA esclusa, meno materiali e costi diretti. Il budget e le tariffe si congelano al primo Start. Queste ore sono il limite economico a pareggio; non riservano un margine di utile.</p>
         <button disabled={busy} onClick={async () => { try { setSnapshot(await loadCloudSnapshot(companyId, session, config!)) } catch (e) { setError(e instanceof Error ? e.message : 'Aggiornamento non riuscito.') } }}>Aggiorna preventivi e costi</button>
