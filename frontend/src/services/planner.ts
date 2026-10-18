@@ -1,3 +1,4 @@
+import { rankPhaseOperators } from './phaseAssignment'
 import { buildSelectedWorkCycle } from './workCycle'
 import { supportsOperatorDuty } from './operatorSkills'
 import type {
@@ -875,7 +876,7 @@ function phaseReadyAt(job: RepairJob, phase: JobPhase) {
   return readyAt
 }
 
-function selectSchedulablePhase(job: RepairJob) {
+export function selectSchedulablePhase(job: RepairJob) {
   const active = job.phases.find((phase) => phase.status === 'In lavorazione')
   if (active) return { phase: active, readyAt: completedAtForPhase(active) || `${job.entryDate || todayKey()}T00:00:00.000Z` }
   const todo = job.phases
@@ -978,11 +979,11 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     if (item.blocked) continue
     const activeAssignments = (item.phase.operatorAssignments ?? []).filter((entry) => entry.activityStatus === 'Attivo' && !entry.endedAt)
     const residual = phaseResidualMinutes(item.phase, now)
-    const desiredOperators = Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
+    const desiredOperators = item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
 
-    const compatible = Array.from(operatorState.values())
-      .filter((state) => operatorCompatible(state.operator, item.phase))
-      .sort((a, b) => a.nextAt.localeCompare(b.nextAt))
+    const ranking = rankPhaseOperators(data, item.job, item.phase, Array.from(operatorState.values())
+      .filter((state) => operatorCompatible(state.operator, item.phase)), residual, schedulingFloor, item.readyAt)
+    const compatible = ranking.operators
     if (!compatible.length) continue
 
     const selected = compatible.slice(0, Math.min(desiredOperators, compatible.length))
@@ -1020,7 +1021,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         plannedMinutes: duration,
         priority: item.job.priority,
         reason: (() => {
-          const baseReason = reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)
+          const baseReason = `${ranking.reason} · ${reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)}`
           const sustainable = calculateOperatorSustainableMinutes(operatorName, residual, data.plannerSettings)
           return sustainable.sustainableMinutes < sustainable.baseMinutes
             ? `${baseReason} · Tempo ricalcolato per costo esterno: ${sustainable.sustainableMinutes} min su ${sustainable.baseMinutes} min`

@@ -1395,3 +1395,58 @@ describe('invarianti anagrafiche su ricalcolo planner', () => {
     expect(after).toEqual(before)
   })
 })
+
+describe('assegnazione manuale e automatica per margine', () => {
+  const setup = () => {
+    const data = makeProgramData()
+    data.jobs = [data.jobs![0]]
+    const job = data.jobs[0]
+    job.priority = 'Normale'; job.expectedDeliveryDate = '2026-08-10'; job.taxableAmount = 300
+    job.phases = [job.phases[1]]
+    job.phases[0].status = 'Da fare'
+    data.plannerSettings = structuredClone(data.plannerSettings)
+    data.plannerSettings.operators = [{ id: 'op-1', name: 'Filippo', dailyHours: 8, active: true, hourlyCost: 20, skills: ['lattoneria'] }, { id: 'op-2', name: 'Giorgio', dailyHours: 8, active: true, hourlyCost: 40, skills: ['lattoneria'] }]
+    data.plannerSettings.workingDays = [1, 2, 3, 4, 5]; data.plannerSettings.absences = []; data.plannerSettings.closures = []; data.plannerSettings.holidays = []
+    data.plannerSettings.internalCostSettings = { internalHourlyRate: 10, ...data.plannerSettings.internalCostSettings, budgetUseManualStructureRate: true, budgetManualStructureRate: 10, minimumMarginPercent: 0 }
+    return data
+  }
+  const assigned = (data: ErpData) => generateOperatorPrograms(data, '2026-07-27', 'Test').programs.filter(p => p.tasks.length).map(p => p.operatorId)
+  it('assegna il lavoro sostenibile al più costoso senza modificare il preventivo', () => {
+    const data = setup(); const before = JSON.stringify(data.jobs)
+    expect(assigned(data)).toEqual(['op-2'])
+    expect(JSON.stringify(data.jobs)).toBe(before)
+  })
+  it('con meno margine sceglie il meno costoso sostenibile', () => {
+    const data = setup(); data.jobs![0].taxableAmount = 70
+    expect(assigned(data)).toEqual(['op-1'])
+  })
+  it('rispetta la scelta manuale anche se l’altro operatore costa di più', () => {
+    const data = setup(); data.jobs![0].phases[0].preferredOperatorId = 'op-1'
+    expect(assigned(data)).toEqual(['op-1'])
+    expect(assigned(recalculateOperatorPrograms(data, '2026-07-27', 'Ricalcolo'))).toEqual(['op-1'])
+  })
+  it('non sostituisce silenziosamente un operatore manuale inattivo', () => {
+    const data = setup(); data.jobs![0].phases[0].preferredOperatorId = 'op-1'; data.plannerSettings.operators[0].active = false
+    expect(assigned(data)).toEqual([])
+  })
+  it('non assegna il lavoro a chi non possiede la mansione', () => {
+    const data = setup(); data.plannerSettings.operators[1].skills = ['verniciatura']
+    expect(assigned(data)).toEqual(['op-1'])
+  })
+  it('se il budget non sostiene nessuno segnala il problema senza alterare il prezzo', () => {
+    const data = setup(); data.jobs![0].taxableAmount = 1
+    const plan = generateOperatorPrograms(data, '2026-07-27', 'Test')
+    expect(plan.programs.find(p => p.operatorId === 'op-1')?.tasks[0].reason).toContain('Margine insufficiente')
+    expect(data.jobs![0].taxableAmount).toBe(1)
+  })
+  it('preferisce la consegna a un operatore più costoso disponibile troppo tardi', () => {
+    const data = setup(); data.jobs![0].expectedDeliveryDate = '2026-07-28'
+    data.plannerSettings.absences = [{ id: 'absence-costly', operatorId: 'op-2', startDate: '2026-07-27', endDate: '2026-08-03', hoursPerDay: 8, reason: 'Assente' }]
+    expect(assigned(data)).toEqual(['op-1'])
+  })
+  it('non usa come gratuito un operatore con costo mancante', () => {
+    const data = setup(); data.plannerSettings.operators[1].hourlyCost = 0
+    expect(assigned(data)).toEqual(['op-1'])
+  })
+
+})

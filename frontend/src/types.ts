@@ -1074,6 +1074,8 @@ export interface EstimateDocument {
 }
 
 export interface JobPhase {
+  /** Empty selects automatic scheduling; an ID pins this phase to one operator. */
+  preferredOperatorId?: string
   id: string
   name: string
   completedByName?: string
