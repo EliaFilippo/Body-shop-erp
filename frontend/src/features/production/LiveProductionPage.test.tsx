@@ -80,3 +80,20 @@ it('allows the owner to clear the operator binding and displays the saved result
   await waitFor(() => expect(select).toHaveValue(''))
   expect(mocked.rpc).toHaveBeenCalledWith('production_unbind_profile', { p_company_id: 'c1', p_user_id: 'u1' }, expect.anything(), expect.anything())
 })
+
+it('shows the selected phase countdown separately from the whole vehicle', async () => {
+  mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_phase_notices_action') return []
+    return { companyId: 'c1', role: 'production', operatorName: 'Mario', serverNow: new Date().toISOString(), members: [], jobs: [{
+      jobId: 'j1', plate: 'PHASE123', number: '1', remainingSeconds: 1800, ownRemainingSeconds: 1800, ownBurnFactor: 0, remainingPercent: 100, activeCount: 0, ownStatus: null, operators: [],
+      phases: [300, 1200].map((seconds, i) => ({ id: `p${i}`, name: i ? 'Verniciatura' : 'Preparazione', notRequired: false, status: 'Da fare', canComplete: false, checkedBy: null, checkedAt: null,
+        clock: { remainingSeconds: seconds, ownRemainingSeconds: seconds, ownBurnFactor: 0, remainingPercent: 100, activeCount: 0 } })),
+    }] }
+  })
+  render(<LiveProductionPage />)
+  await screen.findByText('PHASE123')
+  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:05:00')
+  expect(screen.getByText('Residuo complessivo vettura: 0:30:00')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Fase da lavorare su PHASE123'), { target: { value: 'p1' } })
+  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:20:00')
+})

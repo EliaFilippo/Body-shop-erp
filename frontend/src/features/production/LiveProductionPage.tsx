@@ -175,7 +175,7 @@ export function LiveProductionPage() {
             <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? clock.individualSeconds : clock.seconds)}</strong>
             {selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
             <p>Residuo complessivo vettura: {stale ? 'Da aggiornare' : clockText(totalClock.individualSeconds)}</p>
-            {clock.seconds !== null && phaseActiveCount > 0 && feed.operatorName && <p>{`Tempo residuo fase con ${phaseActiveCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
+            {clock.seconds !== null && phaseActiveCount > 0 && feed.operatorName && <p>{`${selectedPhase?.clock ? 'Tempo residuo fase con' : 'Tempo residuo con'} ${phaseActiveCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy || job.ownStatus === 'running'}
