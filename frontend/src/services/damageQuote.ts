@@ -7,6 +7,15 @@ import { budgetLineSnapshot } from './quoteHourBudget'
 const round = (value: number) => Math.round(value * 100) / 100
 const safe = (value: number) => Number.isFinite(value) ? Math.max(0, value) : 0
 
+function retainOptionalChoices(times: EstimateLine['minorDamageTimes'], source?: Pick<EstimateLine, 'minorDamageTimes' | 'optionalPanelTimes'>) {
+ if (!times || !source?.optionalPanelTimes) return times
+ const result = { ...times }
+ for (const key of ['sr', 'lc'] as const) {
+  if (Number(source.optionalPanelTimes[key]) > 0 && source.minorDamageTimes?.[key] === 0) result[key] = 0
+ }
+ return result
+}
+
 export function recalculateDamageLine(line: EstimateLine, settings: PlannerSettings): EstimateLine {
   const estimatedMinutes = Math.round(safe(line.estimatedMinutes ?? 0))
   const unitPrice = round(safe(line.unitPrice))
@@ -24,7 +33,7 @@ export function makeDamageLine(settings: PlannerSettings, panel: { id: string; n
   const listItem = resolvePriceListItem(settings.standardWorkPriceList ?? [], context)
   const minutes = preset?.minutes ?? resolved.standardMinutes
   return recalculateDamageLine({
-    ...context, id: crypto.randomUUID(), damageSeverity: severity, minorDamageTimes: preset?.minorDamageTimes,
+    ...context, id: crypto.randomUUID(), damageSeverity: severity, minorDamageTimes: preset?.minorDamageTimes, optionalPanelTimes: preset?.optionalPanelTimes,
     materialsIncluded: preset?.materialsIncluded ?? Boolean(eliasEntryForWork(work.id)), priceVariant: preset?.priceVariant,
     category: /verniciatura/i.test(work.categoryOrPhase ?? '') ? 'verniciatura' : 'carrozzeria',
     panelSide: /-(sx|left)$/.test(panel.id) ? 'sx' : /-(dx|right)$/.test(panel.id) ? 'dx' : 'center',
@@ -47,7 +56,7 @@ export function minorDamageLines(settings: PlannerSettings, panel: { id: string;
     if (saved && entry && (override?.times || override?.prices || override?.manualPricing !== undefined)) {
       const configured = configuredEliasEntry(entry,settings,panel.id)
       if (override.prices && configured.prices.length !== 1) return []
-      const times = override.times ? configuredEliasTimes(entry,settings,panel.id) : saved.minorDamageTimes
+      const times = override.times ? retainOptionalChoices(configuredEliasTimes(entry,settings,panel.id),saved) : saved.minorDamageTimes
       saved = {...saved, price:configured.manualPricing ? 0 : override.prices ? configured.prices[0] : saved.price, minorDamageTimes:times, minutes:override.times && times ? Object.values(times).reduce((sum,n)=>sum+(n??0),0) : saved.minutes}
     }
     if (preset && !saved) return []
@@ -71,7 +80,7 @@ export function makeMinorDamagePreset(panel: { id: string; name: string }, lines
   if (error) throw new Error(error)
   return { panelId: panel.id, panelName: panel.name, updatedAt: new Date().toISOString(),
     lines: selected.map((line) => ({ workId: line.standardWorkId!, minutes: line.estimatedMinutes!, price: line.unitPrice,
-      materialsIncluded: line.materialsIncluded, priceVariant: line.priceVariant, minorDamageTimes: line.minorDamageTimes })) }
+      materialsIncluded: line.materialsIncluded, priceVariant: line.priceVariant, minorDamageTimes: line.minorDamageTimes, optionalPanelTimes: line.optionalPanelTimes })) }
 }
 
 export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[], panel: { id: string; name: string }, entry: EliasPriceEntry,
@@ -83,10 +92,10 @@ export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[
   const existing = lines.find((line) => line.panelId === panel.id && line.standardWorkId === work.id)
   const preset = settings.minorDamagePresets?.find((item) => item.panelId === panel.id)?.lines.find((line) => line.workId === work.id)
   const hasSensor = entry.id === 'parabrezza' && rainSensor
-  const times = severity === 'lieve' ? (existing ? existing.minorDamageTimes : eliasCatalogOverride(settings,entry.id,panel.id).times ? configuredEliasTimes(entry,settings,panel.id) : preset ? preset.minorDamageTimes : configuredEliasTimes(entry,settings,panel.id)) : undefined
+  const times = retainOptionalChoices(severity === 'lieve' ? (existing ? existing.minorDamageTimes : eliasCatalogOverride(settings,entry.id,panel.id).times ? configuredEliasTimes(entry,settings,panel.id) : preset ? preset.minorDamageTimes : configuredEliasTimes(entry,settings,panel.id)) : undefined, existing ?? preset)
   const next = makeDamageLine(settings, panel, work, severity, vatRate, hourlyRate, {
     workId: work.id, minutes: existing?.estimatedMinutes ?? (eliasCatalogOverride(settings,entry.id,panel.id).times ? Object.values(times ?? {}).reduce((a,b)=>a+(b??0),0) : preset?.minutes ?? Object.values(times ?? {}).reduce((a,b)=>a+(b??0),0)),
-    minorDamageTimes: times,
+    minorDamageTimes: times, optionalPanelTimes: existing?.optionalPanelTimes ?? preset?.optionalPanelTimes,
     price: (entry.manualPricing ? 0 : price) + (hasSensor ? 15 : 0), materialsIncluded: true,
     priceVariant: hasSensor ? 'sensore pioggia (+15 €)' : undefined,
   })

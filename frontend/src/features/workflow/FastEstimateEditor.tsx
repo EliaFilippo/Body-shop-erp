@@ -1,3 +1,4 @@
+import { OptionalPanelPhases } from './OptionalPanelPhases'
 import { useMemo, useRef, useState } from 'react'
 import type { ErpData, EstimateLine } from '../../types'
 import { Modal } from '../../components/Modal'
@@ -46,7 +47,7 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
     <div className="planner-actions">{choices.flatMap(entry=>entry.prices.map(price=><button type="button" className="secondary" key={`${entry.id}:${price}`} onClick={()=>{if(!panel)return;setLines(chooseEliasPrice(data.plannerSettings,lines,panel,entry,price,quote.appliedVatRate,'lieve',quote.hourlyRate));setError('')}}>{entry.name} · {entry.manualPricing?'Inserisci tempo e prezzo':euro(price)}</button>))}</div>
    </section>
    {lines.map(line=><section className="panel" key={line.id}><strong>{line.standardWorkName}</strong><p>{line.estimatedMinutes||0} min · {euro(line.unitPrice)} IVA esclusa</p>
-    <details><summary>Modifica questa riga</summary><label>Prezzo {line.standardWorkName} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
+    <OptionalPanelPhases line={line} settings={data.plannerSettings} onChange={updated=>setLines(lines.map(item=>item.id===line.id?updated:item))}/><details><summary>Modifica questa riga</summary><label>Prezzo {line.standardWorkName} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
     {(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing)&&<label>Minuti {line.standardWorkName}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
    </section>)}

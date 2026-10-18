@@ -1,3 +1,4 @@
+import { OptionalPanelPhases } from './OptionalPanelPhases'
 import { quoteCustomerLines } from '../../services/quotePricing'
 import { useId, useState } from 'react'
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings } from '../../types'
@@ -117,7 +118,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
           {!selected.length && <p className="damage-hint">Nessuna lavorazione inserita. Seleziona quelle necessarie e completa tempi e prezzi.</p>}
           <div className="damage-work-list">{catalogLines.map((line) => <div className="damage-work" key={line.id}>
             <strong>{line.standardWorkName}</strong><small className="elias-materials">Materiali inclusi{line.priceVariant?.includes('sensore pioggia') ? ' · sensore pioggia incluso' : ''}</small>
-            {line.minorDamageTimes && <div className="damage-work-values">{Object.entries(line.minorDamageTimes).map(([key, minutes]) => <label key={key}>{MINOR_TIME_LABELS[key as keyof typeof MINOR_TIME_LABELS]} · minuti totali<input type="number" min="0" step="1" value={minutes} onChange={event => {
+            <OptionalPanelPhases line={line} settings={settings} onChange={updated=>commit(lines.map(item=>item.id===line.id?updated:item))}/>{line.minorDamageTimes && <div className="damage-work-values">{Object.entries(line.minorDamageTimes).map(([key, minutes]) => <label key={key}>{MINOR_TIME_LABELS[key as keyof typeof MINOR_TIME_LABELS]} · minuti totali<input type="number" min="0" step="1" disabled={(key==='sr'||key==='lc')&&line.optionalPanelTimes?.[key]!==undefined&&!minutes} value={minutes} onChange={event => {
               const times = { ...line.minorDamageTimes, [key]: Math.max(0, Math.round(Number(event.target.value))) }
               const total = Object.values(times).reduce((sum, value) => sum + (value ?? 0), 0)
               commit(lines.map(item => item.id !== line.id ? item : recalculateDamageLine({ ...item, minorDamageTimes: times, estimatedMinutes: total }, settings)))
