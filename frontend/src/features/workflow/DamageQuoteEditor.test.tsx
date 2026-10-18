@@ -66,7 +66,7 @@ describe('pannelli cliccabili in accettazione', () => {
   it('applica il listino alla porta senza ricarico materiali e riusa le ore memorizzate', () => {
     render(<Harness />)
     fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Porta: 150 euro' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX: 150 euro' }))
     expect(latest.damageLines).toHaveLength(1)
     expect(latest.damageLines![0]).toMatchObject({ unitPrice: 150, estimatedMinutes: 180, materialsIncluded: true })
     expect(latest.lines.find((line) => line.kind === 'consumption')!.unitPrice).toBe(0)
@@ -79,7 +79,7 @@ describe('pannelli cliccabili in accettazione', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Danno grave' }))
     fireEvent.change(screen.getByLabelText(/Tariffa vendita per danni gravi/), { target: { value: '60' } })
     fireEvent.blur(screen.getByLabelText(/Tariffa vendita per danni gravi/))
-    fireEvent.change(screen.getByLabelText('Ore Porta'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('Ore Porta anteriore SX'), { target: { value: '3' } })
     expect(latest.damageLines![0]).toMatchObject({ estimatedMinutes: 180, unitPrice: 150, damageSeverity: 'grave' })
   })
 

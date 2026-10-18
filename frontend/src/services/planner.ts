@@ -1,5 +1,5 @@
 import { rankPhaseOperators } from './phaseAssignment'
-import { buildSelectedWorkCycle } from './workCycle'
+import { buildSelectedWorkCycle, cyclePhasesForLine } from './workCycle'
 import { supportsOperatorDuty } from './operatorSkills'
 import type {
   ErpData,
@@ -1005,8 +1005,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const endAt = addWorkingMinutes(startAt, duration, data.plannerSettings, selected[0]?.operator)
     const activeNames = activeAssignments.map((entry) => entry.operatorName)
     const isAdvancedFromFuture = Boolean(item.job.expectedDeliveryDate && item.job.expectedDeliveryDate > effectiveDate)
-    const phaseLines = (item.job.lines ?? []).filter((line) => String(line.categoryOrPhase ?? '').trim().toLowerCase() === item.phase.name.trim().toLowerCase())
-    const panelNames = Array.from(new Set(phaseLines.map((line) => String(line.panelName ?? '').trim()).filter(Boolean)))
+    const phaseLines = (item.job.lines ?? []).filter((line) => String(line.categoryOrPhase ?? '').trim().toLowerCase() === item.phase.name.trim().toLowerCase() || Boolean(line.minorDamageTimes && cyclePhasesForLine(line).includes(item.phase.name)))
+    const panelNames = Array.from(new Set(phaseLines.map((line) => String(line.standardWorkId?.startsWith('elias-listino:') ? line.standardWorkName || line.panelName || '' : line.panelName ?? '').trim()).filter(Boolean)))
     const panelNotes = Array.from(new Set(phaseLines.map((line) => String(line.panelWorkNote ?? '').trim()).filter(Boolean)))
 
     for (const state of selected) {

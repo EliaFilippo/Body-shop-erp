@@ -9,11 +9,12 @@ export interface EliasPriceEntry {
   family: string
   phase: string
   manualPricing?: boolean
+  timeSourceId?: string
 }
 
 // Trascrizione del listino fornito dal titolare il 03/10/2026.
 // IVA esclusa e materiali inclusi. Tempi confermati dal titolare il 18/10/2026.
-export const ELIAS_PRICE_LIST: EliasPriceEntry[] = [
+const ELIAS_PRICE_SOURCE: EliasPriceEntry[] = [
   { id: 'paraurti-anteriore', name: 'Paraurti anteriore', panels: ['front-bumper'], prices: [185], family: 'finitura', phase: 'Verniciatura' },
   { id: 'mezzo-paraurti', name: '½ paraurti anteriore/posteriore', panels: ['front-bumper', 'rear-bumper'], prices: [80], family: 'finitura', phase: 'Verniciatura' },
   { id: 'cofano', name: 'Cofano anteriore', panels: ['hood'], prices: [200, 250], family: 'finitura', phase: 'Verniciatura' },
@@ -44,6 +45,19 @@ export const ELIAS_PRICE_LIST: EliasPriceEntry[] = [
   { id: 'interni', name: 'Lavaggio interni (senza smontaggio sedili)', panels: ['whole'], prices: [50], family: 'lavaggio', phase: 'Lavaggio' },
 ]
 
+// Alternatives on one drawing area are separate choices, not two charged parts.
+export const ELIAS_PRICE_LIST: EliasPriceEntry[] = ELIAS_PRICE_SOURCE.flatMap(entry => {
+  if (entry.id === 'maniglia') return [
+    {...entry,id:'maniglia-porta',name:'Maniglia porta',timeSourceId:entry.id},
+    {...entry,id:'profilo-porta',name:'Profilo porta',timeSourceId:entry.id},
+  ]
+  if (entry.id === 'profili-paraurti') return [
+    {...entry,id:'profilo-paraurti',name:'Profilo paraurti',timeSourceId:entry.id},
+    {...entry,id:'spoiler-paraurti',name:'Spoiler paraurti',timeSourceId:entry.id},
+  ]
+  return [entry]
+})
+
 export function eliasPanelKind(id: string): EliasPanelKind | undefined {
   if (id === 'vettura-intera') return 'whole'
   if (id === 'paraurti-anteriore') return 'front-bumper'
@@ -65,11 +79,40 @@ export function eliasPanelKind(id: string): EliasPanelKind | undefined {
   if (id === 'parabrezza') return 'windshield'
 }
 
-export const eliasPricesForPanel = (id: string) => ELIAS_PRICE_LIST.filter((entry) => entry.panels.includes(eliasPanelKind(id)!))
-export const eliasEntryForWork = (workId?: string) => ELIAS_PRICE_LIST.find((entry) => `elias-listino:${entry.id}` === workId)
+/** Resolve the selected physical part; front/rear and left/right are alternatives, never a bundle. */
+export function eliasPanelWorkName(entry: EliasPriceEntry, panel: { id?: string; name: string }): string {
+  entry = ELIAS_PRICE_LIST.find(item => item.id === entry.id) ?? entry
+  const name = panel.name.replace('Portellone/cofano', 'Portellone')
+  if (['maniglia-porta','profilo-porta'].includes(entry.id)) return `${entry.name} ${name.replace(/^Profilo\/maniglia porta\s*/i, '')}`
+  if (['profilo-paraurti','spoiler-paraurti'].includes(entry.id)) return `${entry.name} ${name.replace(/^Profili\/spoiler paraurti\s*/i, '')}`
+  if (entry.id === 'mezzo-paraurti') return `½ ${name.toLocaleLowerCase('it-IT')}`
+  if (['parafango','porta','sottoporta','montante','codolino','portellone'].includes(entry.id)) return name
+  if (entry.id === 'sfumatura') return `Sfumatura ${name.toLocaleLowerCase('it-IT')}`
+  if (entry.id === 'specchio') return `Coppa ${name.toLocaleLowerCase('it-IT')}`
+  if (entry.id === 'lucidatura-faro') return `Lucidatura ${name.toLocaleLowerCase('it-IT')}`
+  if (entry.name.toLocaleLowerCase('it-IT').includes(name.toLocaleLowerCase('it-IT')) || panel.id === 'vettura-intera') return entry.name
+  return `${entry.name} · ${name}`
+}
+export const eliasPricesForPanel = (id: string, panelName?: string) => ELIAS_PRICE_LIST
+  .filter((entry) => entry.panels.includes(eliasPanelKind(id)!))
+  .map(entry => panelName ? { ...entry, name: eliasPanelWorkName(entry, {id,name:panelName}) } : entry)
 
-export function eliasWork(entry: EliasPriceEntry): StandardWorkDefinition {
-  return { id: `elias-listino:${entry.id}`, name: entry.name, calculationType: entry.panels[0] === 'whole' ? 'per-vehicle' : 'per-panel',
+/** Old jobs retain their prices/timers; the tablet reads their saved physical panel. */
+export function panelTaskDescription(description: string, panel?: string): string {
+  if (!panel) return description
+  const entry = [...ELIAS_PRICE_LIST,...ELIAS_PRICE_SOURCE].find(item => description === item.name || description.startsWith(`${item.name} ·`))
+  if (!entry) return description.toLocaleLowerCase('it-IT').includes(panel.toLocaleLowerCase('it-IT')) ? description : `${description} · ${panel}`
+  const label = eliasPanelWorkName(entry, {name:panel})
+  let suffix = description.slice(entry.name.length)
+  const repeatedPanel = ` · ${panel}`
+  if (suffix.startsWith(repeatedPanel)) suffix = suffix.slice(repeatedPanel.length)
+  if (['maniglia','profili-paraurti'].includes(entry.id)) return `${entry.name} · ${panel} · tipo da precisare in ufficio${suffix}`
+  return `${label}${suffix}`
+}
+export const eliasEntryForWork = (workId?: string) => [...ELIAS_PRICE_LIST,...ELIAS_PRICE_SOURCE].find((entry) => `elias-listino:${entry.id}` === workId)
+
+export function eliasWork(entry: EliasPriceEntry, panel?: {id:string;name:string}): StandardWorkDefinition {
+  return { id: `elias-listino:${entry.id}`, name: panel ? eliasPanelWorkName(entry, panel) : entry.name, calculationType: entry.panels[0] === 'whole' ? 'per-vehicle' : 'per-panel',
     standardMinutes: 0, active: true, categoryOrPhase: entry.phase, cycleOrder: entry.phase === 'Lavaggio' ? 80 : entry.phase === 'Lucidatura' ? 70 : 50 }
 }
 
