@@ -177,3 +177,17 @@ it('colora l’intera pagina al 20% della fase attiva e spegne l’avviso quando
  await waitFor(()=>expect(screen.getByRole('main')).not.toHaveClass('live-time-alert-screen'))
  expect(screen.queryByText('ATTENZIONE: TEMPO RESIDUO AL 20% O MENO')).not.toBeInTheDocument()
 })
+
+it('shows only permitted phases and keeps Start disabled on a revoked paused card', async () => {
+ mocked.rpc.mockImplementation(async (name: string) => {
+  if(name==='production_phase_notices_action') return []
+  return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
+   jobId:'j1',plate:'REVOKED',number:'1',remainingSeconds:3600,remainingPercent:100,activeCount:0,ownStatus:'paused',ownPhaseId:'s',dutiesFiltered:true,operators:[],phases:[]
+  }]}
+ })
+ render(<LiveProductionPage />)
+ await screen.findByText('REVOKED')
+ expect(screen.getByRole('button',{name:'Riprendi'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'Fine'})).toBeEnabled()
+ expect(screen.queryByRole('option',{name:'Smontaggio'})).not.toBeInTheDocument()
+})

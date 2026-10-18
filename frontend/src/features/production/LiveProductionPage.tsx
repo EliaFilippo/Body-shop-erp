@@ -173,14 +173,15 @@ export function LiveProductionPage() {
           const totalClock = liveCountdown(job, (performance.now() - lastSample.current) / 1000)
           const availablePhases = (job.phases ?? []).filter(p => !p.notRequired && !['Completata', 'Bloccata'].includes(p.status))
           const selected = [phaseChoices[job.jobId], job.ownPhaseId, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
-          const requiresPhase = (job.phases ?? []).some(p => !p.notRequired)
+          const requiresPhase = job.dutiesFiltered || (job.phases ?? []).some(p => !p.notRequired)
           const selectedPhase = availablePhases.find(p => p.id === selected)
+          const permissionRemoved = job.dutiesFiltered && !job.phases?.some(p => p.id === job.ownPhaseId) && ['running','paused'].includes(job.ownStatus ?? '')
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
           const standardClock = selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
           const clock = selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
           const workClock = standardClock ?? clock
           return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && workClock.warning ? 'live-warning' : ''}`}>
-            <h2>{job.plate}</h2><p>Commessa {job.number}</p>
+            <h2>{job.plate}</h2><p>Commessa {job.number}</p>{permissionRemoved && <p role="alert">La mansione precedente non è più abilitata. Puoi mettere in pausa o terminare il timer; chiedi all’ufficio per la riassegnazione.</p>}
             <p>{standardClock && workClock.overrunSeconds > 0 ? `Tempo oltre il previsto · ${selectedPhase?.standardClock?.label}` : standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
             <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : standardClock && workClock.overrunSeconds > 0 ? `+${clockText(workClock.overrunSeconds)}` : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
             {standardClock ? standardClock.individualSeconds === null && <p>Tempo standard non impostato su questa commessa: richiedi la configurazione all’ufficio.</p> : selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}

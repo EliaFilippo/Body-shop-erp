@@ -18,3 +18,12 @@ it('shows global office alert and acknowledges it without erasing history', asyn
  fireEvent.click(screen.getByText('Mostra storico avvisi'))
  expect(screen.getByText(/preso in carico il/)).toBeInTheDocument()
 })
+
+it('shows phase comparisons and a review suggestion without editing assigned times', async () => {
+ mock.rpc.mockResolvedValue({alerts:[],operators:[],teams:[],phaseReview:[{phase:'Lavaggio esterno',samples:6,pending:1,missing:0,assignedSeconds:9000,workedSeconds:10800,averageWorkedSeconds:1800,deviationPercent:20,review:'Verificare tempi o difficoltà delle lavorazioni',jobs:[{jobId:'j',plate:'PHASE01',number:'COMM-1',assignedSeconds:1500,workedSeconds:1800,completed:true,active:false}]}]})
+ render(<ProductionControlPanel connection={connection} />)
+ expect(await screen.findByText('Verificare tempi o difficoltà delle lavorazioni')).toBeInTheDocument()
+ expect(screen.getByText(/6 concluse confrontabili/)).toBeInTheDocument()
+ expect(screen.getByText('PHASE01 · COMM-1')).toBeInTheDocument()
+ expect(mock.rpc).toHaveBeenCalledTimes(1)
+})

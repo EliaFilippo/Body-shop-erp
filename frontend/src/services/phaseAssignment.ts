@@ -1,6 +1,7 @@
 import type { ErpData, JobPhase, PlannerOperator, RepairJob } from '../types'
 import { quoteOperatorRate, quoteStructureRate } from './quoteHourBudget'
-import { addWorkingMinutes, nextWorkingInstant } from './workCalendar'
+import { prefersOperatorDuty } from './operatorSkills'
+import { addWorkingMinutes, getOperatorWorkingIntervals, nextWorkingInstant } from './workCalendar'
 
 /** Economic preference only: never changes the quote or starts an operator's timer. */
 export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt: string }>(
@@ -20,6 +21,13 @@ export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt
   }
   const workingNames = (phase.operatorAssignments ?? []).filter(a => a.activityStatus === 'Attivo' && !a.endedAt).map(a => a.operatorName)
   if (workingNames.length) return { operators: candidates.filter(c => workingNames.includes(c.operator.name)), reason: 'Prosegue il lavoro degli operatori già attivi' }
+  const day = [floor, ready].sort().at(-1)!.slice(0, 10)
+  const present = candidates.filter(c => getOperatorWorkingIntervals(day, data.plannerSettings, c.operator).length > 0
+    && nextWorkingInstant([floor, ready].sort().at(-1)!, data.plannerSettings, c.operator).slice(0, 10) === day)
+  const preferred = present.filter(c => prefersOperatorDuty(c.operator, phase.requiredSkill || phase.name))
+  if (preferred.length) return { operators: [...preferred].sort((a,b) => a.nextAt.localeCompare(b.nextAt)),
+    reason: 'Precedenza per mansione: operatore presente; sostituzione automatica in assenza' }
+  if (present.length) candidates = present
   const structure = quoteStructureRate(data.plannerSettings, floor.slice(0, 7))
   const marginPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.minimumMarginPercent ?? 0))
   const materialsPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.budgetMaterialsPercent ?? 20))

@@ -1,3 +1,4 @@
+import { preferredOperatorDuties } from '../../services/operatorSkills'
 import { useEffect, useMemo, useState } from 'react'
 import { MoneyInput } from '../../components/MoneyInput'
 import { Modal } from '../../components/Modal'
@@ -462,6 +463,10 @@ export function PlannerSettingsPage({
             {(operator.skillsConfigured ?? Boolean(operator.skills?.length)) && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
               {OPERATOR_DUTIES.map(duty => <label key={duty}><input type="checkbox" checked={(operator.skills ?? []).some(skill => skill.toLowerCase() === duty.toLowerCase())} onChange={event => updateOperator(operator.id, { skillsConfigured: true, skills: event.target.checked ? [...operator.skills ?? [], duty.toLowerCase()] : (operator.skills ?? []).filter(skill => skill.toLowerCase() !== duty.toLowerCase()) })} /> {duty}</label>)}
             </div>}
+            <fieldset><legend>Precedenza automatica per mansione</legend>
+              <p>Queste fasi vanno prima a questo operatore quando è presente nel calendario. In assenza vengono assegnate agli altri abilitati. La scelta manuale sulla commessa resta prioritaria.</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{OPERATOR_DUTIES.filter(duty => (operator.skills ?? []).some(skill => skill.toLowerCase() === duty.toLowerCase())).map(duty => <label key={duty}><input type="checkbox" checked={preferredOperatorDuties(operator).some(skill => skill.toLowerCase() === duty.toLowerCase())} onChange={event => updateOperator(operator.id, { preferredDuties: event.target.checked ? [...preferredOperatorDuties(operator), duty.toLowerCase()] : preferredOperatorDuties(operator).filter(skill => skill.toLowerCase() !== duty.toLowerCase()) })} /> Precedenza {duty}</label>)}</div>
+            </fieldset>
             <p>Preparazione comprende incartatura e scartatura; Lavaggio comprende esterno e interni. Per una fase raggruppata servono entrambe le abilitazioni oppure quella generale. Nessuna casella selezionata significa nessuna mansione assegnabile.</p>
           </fieldset>
           <label>Costo reale €/h<input aria-label="Costo reale orario operatore" type="number" min="0" step="1" value={operator.hourlyCost ?? 0} onChange={(event) => updateOperator(operator.id, { hourlyCost: Number(event.target.value) })} /></label>
