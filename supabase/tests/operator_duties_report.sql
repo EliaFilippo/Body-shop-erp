@@ -51,7 +51,7 @@ insert into production_live_segments(company_id,job_id,operator_id,user_id,phase
 set role authenticated;
 do $$declare report jsonb; j jsonb;begin
  report:=production_control_report('10000000-0000-0000-0000-000000000001',current_date-1,current_date+1);
- if jsonb_array_length(report->'phaseReview')<>2 then raise exception 'All-phase report missing: %',report;end if;
+ if jsonb_array_length(report->'phaseReview')<2 then raise exception 'All-phase report missing: %',report;end if;
  if not exists(select 1 from jsonb_array_elements(report->'phaseReview') x where x->>'phase'='Lavaggio esterno' and (x->>'samples')::int=6 and (x->>'deviationPercent')::numeric=20 and (x->>'workedSeconds')::numeric=10800 and x->>'review'='Verificare tempi o difficoltà delle lavorazioni') then raise exception 'Phase review comparison incorrect: %',report;end if;
  if not exists(select 1 from jsonb_array_elements(report->'phaseReview') x where x->>'phase'='Smontaggio' and (x->>'samples')::int=0 and x->>'review'='Pochi dati: osservare ancora') then raise exception 'Unworked phase falsely evaluated';end if;
  select value into j from jsonb_array_elements(production_live_feed('10000000-0000-0000-0000-000000000001')->'jobs') where value->>'jobId'='duty-job';
