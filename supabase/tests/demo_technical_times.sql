@@ -3,7 +3,7 @@
 begin;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 update erp_snapshots set payload=jsonb_set(payload,'{jobs}',(payload->'jobs')||'[{
- "id":"demo-technical","number":"COMM-00001","plate":"HFIEJI","status":"In lavorazione",
+ "id":"demo-technical","estimateId":"demo-estimate","number":"COMM-00001","plate":"HFIEJI","status":"In lavorazione",
  "taxableAmount":270,"vatAmount":59.4,"total":329.4,"history":[],
  "lines":[{"id":"blend","description":"Sfumatura parafango posteriore SX (lieve) · materiali inclusi","quantity":1,"unitPrice":120,"estimatedMinutes":60,"total":146.4},
  {"id":"wing","description":"Parafango anteriore DX (lieve) · materiali inclusi","quantity":1,"unitPrice":150,"estimatedMinutes":120,"total":183}],
@@ -15,12 +15,16 @@ update erp_snapshots set payload=jsonb_set(payload,'{jobs}',(payload->'jobs')||'
  {"id":"demo-polish","name":"Lucidatura","status":"Da fare","estimatedMinutes":0},
  {"id":"demo-delivery","name":"Consegna","status":"Da fare","estimatedMinutes":0}]
 }]'::jsonb) where company_id='10000000-0000-0000-0000-000000000001';
+update erp_snapshots set payload=jsonb_set(payload,'{estimates}',coalesce(payload->'estimates','[]')||'[{"id":"demo-estimate","status":"Approvato","convertedJobId":"demo-technical"}]'::jsonb)
+ where company_id='10000000-0000-0000-0000-000000000001';
 select production_prepare_job('10000000-0000-0000-0000-000000000001','demo-technical',10,216,'[{"id":"a","name":"A","rate":50},{"id":"b","name":"B","rate":60}]');
 insert into production_live_sessions(company_id,job_id,operator_id,user_id,operator_name,status,phase_id)
  values('10000000-0000-0000-0000-000000000001','demo-technical','a','00000000-0000-0000-0000-000000000002','A','paused','demo-wash');
 insert into production_live_segments(company_id,job_id,operator_id,user_id,phase_id,rate,started_at,ended_at)
  values('10000000-0000-0000-0000-000000000001','demo-technical','a','00000000-0000-0000-0000-000000000002','demo-wash',50,now()-interval '20 minutes',now()-interval '10 minutes'),
  ('10000000-0000-0000-0000-000000000001','demo-technical','a','00000000-0000-0000-0000-000000000002','demo-prep',50,now()-interval '30 minutes',now()-interval '25 minutes');
+-- SQL Editor has no application identity; confirmed quote guards must still pass.
+set request.jwt.claim.sub='';
 -- Running work must be paused before any allowance can be changed.
 update production_live_sessions set status='running' where job_id='demo-technical';
 do $$begin
@@ -44,6 +48,7 @@ do $$declare j jsonb; before_record record; after_record record;begin
  from production_live_jobs where job_id='demo-technical';
  if to_jsonb(before_record) is distinct from to_jsonb(after_record) then raise exception 'Finances or worked records changed';end if;
  select x into j from erp_snapshots s,jsonb_array_elements(s.payload->'jobs') x where s.company_id='10000000-0000-0000-0000-000000000001' and x->>'id'='demo-technical';
+ if j->'lines'->1->>'estimatedMinutes'<>'120' then raise exception 'Historical quote/job line time changed';end if;
  if j->>'total'<>'329.4' or j->'lines'->0->>'unitPrice'<>'120' or j->'lines'->1->>'unitPrice'<>'150' then raise exception 'Sale prices changed';end if;
  if (select sum((p->>'estimatedMinutes')::numeric) from jsonb_array_elements(j->'phases') p)<>260 then raise exception 'Technical total is not 4h20';end if;
  if exists(select 1 from jsonb_array_elements(j->'phases') p where p->>'name'='Stuccatura' and not (p->>'notRequired')::boolean) then raise exception 'Prep phase still separate';end if;
