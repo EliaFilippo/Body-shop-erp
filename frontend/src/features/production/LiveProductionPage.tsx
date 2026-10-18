@@ -175,7 +175,7 @@ export function LiveProductionPage() {
             <h2>{job.plate}</h2><p>Commessa {job.number}</p>
             <p>{standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
             <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
-            {selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
+            {standardClock ? standardClock.individualSeconds === null && <p>Tempo standard non impostato su questa commessa: richiedi la configurazione all’ufficio.</p> : selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
             {standardClock && <section aria-label="Tempo standard della lavorazione"><p>Tempo standard · {selectedPhase?.standardClock?.label}</p>
               <p>Totale condiviso: {selectedPhase?.standardClock?.totalMinutes} min. Ogni minuto lavorato da ciascun operatore consuma questo tempo.</p>
               {!stale && standardClock.warning && <p role="status">{standardClock.exhausted ? 'Tempo standard superato: segnala lo scostamento all’ufficio.' : 'Attenzione: rimane meno del 20% del tempo standard.'}</p>}

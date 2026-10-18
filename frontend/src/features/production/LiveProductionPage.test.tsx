@@ -116,3 +116,21 @@ it('keeps the shared standard allowance distinct from the economic countdown wit
   expect(screen.getByText('Residuo economico della fase: 0:40:00')).toBeInTheDocument()
   expect(screen.getByText(/Stefania: al lavoro · Martin: al lavoro/)).toBeInTheDocument()
 })
+
+it('shows the remaining washing standard on a paused legacy job without blaming a missing rate', async () => {
+ mocked.rpc.mockImplementation(async (name:string)=> {
+  if(name==='production_phase_notices_action')return []
+  return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
+   jobId:'j1',plate:'HFIEJI',number:'COMM-00001',remainingSeconds:3600,remainingPercent:100,activeCount:0,ownStatus:'paused',ownPhaseId:'wash',operators:[{name:'Stefania',status:'paused'}],
+   phases:[{id:'wash',name:'Lavaggio esterno',status:'Da fare',notRequired:false,canComplete:true,checkedBy:null,checkedAt:null,
+    clock:{remainingSeconds:null,ownRemainingSeconds:null,ownBurnFactor:0,remainingPercent:100,activeCount:0},
+    standardClock:{label:'Lavaggio esterno',totalMinutes:25,remainingSeconds:900,ownRemainingSeconds:900,ownBurnFactor:0,remainingPercent:60,activeCount:0}}],
+  }]}
+ })
+ render(<LiveProductionPage />)
+ await screen.findByText('HFIEJI')
+ expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:15:00')
+ expect(screen.getByLabelText('Tempo standard della lavorazione')).toHaveTextContent('Totale condiviso: 25 min')
+ expect(screen.queryByText(/costo operatore mancante/)).not.toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'Riprendi'})).toBeEnabled()
+})
