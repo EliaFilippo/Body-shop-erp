@@ -1148,6 +1148,9 @@ export interface JobHistoryEntry {
 }
 
 export interface RepairJob {
+  materialActualCost?: { amount: number; at: string; note: string }
+  materialCostHistory?: Array<{ at: string; before: number | null; amount: number; note: string }>
+
   workflowCycle?: 'elias-v1'
   agreedDeliveryDate?: string
   id: string
