@@ -1,3 +1,5 @@
+import { OwnerPasswordGate } from '../production/OwnerPasswordGate'
+import type { NoticesConnection } from '../production/PhaseNotices'
 import { QuoteActions } from './QuoteActions'
 import { SupplierInvoiceCapture } from './SupplierInvoiceCapture'
 import { TreasuryPanel } from './TreasuryPanel'
@@ -280,13 +282,15 @@ type FinanceModalState =
   | { type: 'riba-advance'; batchId: string }
   | { type: 'communication'; draft: CommunicationDraft }
 
-export function FinancePage({ data, onChange, customerById, setError, setNotice }: {
+export function FinancePage({ data, onChange, customerById, setError, setNotice, passwordConnection }: {
+  passwordConnection?: NoticesConnection
   data: ErpData
   onChange: (data: ErpData) => void
   customerById: (id: string) => Customer | undefined
   setError: (value: string) => void
   setNotice: (value: string) => void
 }) {
+  const [confirmedUnlocked, setConfirmedUnlocked] = useState(false)
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [calendarView, setCalendarView] = useState<'giorno' | 'settimana' | 'mese'>('mese')
   const [creditState, setCreditState] = useState<'all' | 'critical' | 'regular'>('all')
@@ -306,7 +310,12 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
   const toInvoice = data.vehicles.filter((vehicle) => vehicle.billingStatus === 'Da fatturare' && !vehicle.invoiceId)
   const openInvoices = data.invoices.filter((invoice) => invoice.status !== 'Incassata' && invoice.status !== 'Stornata')
   const quotes = data.quotes ?? []
-  const communications = data.communications ?? []
+  const communications = (data.communications ?? []).filter(entry => confirmedUnlocked || entry.documentType !== 'preventivo' || !quotes.some(q => q.id === entry.documentId && q.status === 'accettato'))
+  useEffect(() => {
+    if (confirmedUnlocked || !modal) return
+    const quoteId = modal.type === 'quote-convert' ? modal.quoteId : modal.type === 'communication' && modal.draft.documentType === 'preventivo' ? modal.draft.documentId : ''
+    if (quotes.some(q => q.id === quoteId && q.status === 'accettato')) setModal(null)
+  }, [confirmedUnlocked,modal,quotes])
   const overdue = openInvoices.filter((invoice) => invoice.dueDate < today()).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
   const economicGoal = useMemo(() => calculateEconomicGoalSnapshot(data), [data])
   const ownerWithdrawal = useMemo(() => calculateOwnerWithdrawalSnapshot(data), [data])
@@ -504,9 +513,10 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice 
       <div className="stat-grid"><div className="stat-card"><span>Importo mensile</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Separa cassa personale e costi aziendali</small></div><div className="stat-card"><span>Data prevista</span><strong>{ownerWithdrawal.plannedDate}</strong><small>{ownerWithdrawal.settled ? 'Già effettuato questo mese' : 'In attesa di prelievo'}</small></div><div className="stat-card"><span>Stato</span><strong>{ownerWithdrawal.settled ? 'Effettuato' : 'Da effettuare'}</strong><small>{ownerWithdrawal.settledAt ? new Date(ownerWithdrawal.settledAt).toLocaleString('it-IT') : 'Non ancora registrato'}</small></div><div className="stat-card"><span>Impatto cash flow</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Considerato nella previsione di liquidità</small></div></div>
     </section>
 
+    <OwnerPasswordGate title="Preventivi confermati in finanza" connection={passwordConnection} onAccessChange={setConfirmedUnlocked}>{() => <p>Preventivi confermati visibili fino al blocco automatico.</p>}</OwnerPasswordGate>
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">PREVENTIVI PROFESSIONALI</span><h3>Creazione, invio, conversione e PDF</h3></div></div>
       <div className="table-wrap"><table><thead><tr><th>Numero</th><th>Cliente / Vettura</th><th>Emissione</th><th>Scadenza</th><th>Imponibile</th><th>IVA</th><th>Totale</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>
-        {quotes.map((quote) => {
+        {quotes.filter(quote => confirmedUnlocked || quote.status !== 'accettato').map((quote) => {
           const customer = customerById(quote.customerId)
           const vehicle = data.vehicles.find((item) => item.id === quote.vehicleId)
           return <tr key={quote.id}><td><strong>{quote.number}</strong><small>{quote.lines.length} righe</small></td><td><strong>{customer?.name ?? '—'}</strong><small>{vehicle?.plate ?? '—'} · {vehicle ? `${vehicle.make} ${vehicle.model}` : ''}</small></td><td>{quote.issueDate}</td><td>{quote.dueDate}</td><td>{money(quote.taxableAmount)}</td><td>{money(quote.vatAmount)}</td><td>{money(quote.total)}</td><td><span className="tag">{quote.status}</span></td><td><div className="row-actions"><button disabled={quote.status === 'accettato'} onClick={() => run(() => updateQuoteStatus(data, quote.id, quote.status === 'inviato' ? 'bozza' : 'inviato'), quote.status === 'inviato' ? 'Preventivo riportato in bozza.' : 'Preventivo marcato come inviato.')}>{quote.status === 'inviato' ? 'Bozza' : 'Inviato'}</button><button disabled={!!quote.estimateId || quote.status === 'accettato'} onClick={() => run(() => updateQuoteStatus(data, quote.id, 'accettato'), 'Preventivo accettato registrato.')}>Accetta documento</button><button className="danger" disabled={quote.status === 'accettato'} onClick={() => run(() => updateQuoteStatus(data, quote.id, 'rifiutato'), 'Preventivo rifiutato registrato.')}>Rifiuta</button><button onClick={() => setModal({ type: 'quote-convert', quoteId: quote.id })} disabled={quote.status !== 'accettato' || !!quote.invoiceId}>In fattura</button><QuoteActions data={data} quote={quote} onChange={onChange}/><button onClick={() => setModal({ type: 'communication', draft: { documentType: 'preventivo', documentId: quote.id, customerId: quote.customerId, vehicleId: quote.vehicleId, number: quote.number, total: quote.total, dueDate: quote.dueDate } })}>Comunica</button></div></td></tr>

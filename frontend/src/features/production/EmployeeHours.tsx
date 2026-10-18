@@ -1,3 +1,4 @@
+import { OwnerPasswordGate } from './OwnerPasswordGate'
 import { useEffect, useRef, useState } from 'react'
 import type { CloudAuthConfig, CloudAuthSession } from '../../services/cloudAuth'
 import { interpolateHours, productionRpc, type HoursReport, type LiveFeed } from '../../services/liveProduction'
@@ -14,9 +15,11 @@ export function HoursTotals({ report, elapsed, stale }: { report: HoursReport; e
   </div>
 }
 
-export function EmployeeHours({ feed, session, config, elapsed, stale }: {
+function UnlockedEmployeeHours({ feed, session, config, elapsed, stale }: {
   feed: LiveFeed; session: CloudAuthSession; config: CloudAuthConfig; elapsed: number; stale: boolean;
 }) {
+  const [staff, setStaff] = useState<NonNullable<LiveFeed['staff']>>([])
+  useEffect(() => { let cancelled=false; void productionRpc<NonNullable<LiveFeed['staff']>>('production_staff_hours', {p_company_id:feed.companyId},session,config).then(result=>{if(!cancelled)setStaff(result)}).catch(e=>{if(!cancelled)setError(e instanceof Error?e.message:'Report non disponibile.')}); return()=>{cancelled=true} }, [feed.companyId,feed.serverNow,session,config])
   const [selected, setSelected] = useState('')
   const [month, setMonth] = useState(romeMonth)
   const [report, setReport] = useState<HoursReport | null>(null)
@@ -38,7 +41,7 @@ export function EmployeeHours({ feed, session, config, elapsed, stale }: {
     ? interpolateHours(report, reportStale ? 0 : (performance.now() - reportSample.current) / 1000) : null
   return <section className="live-staff"><h2>Profili dipendenti · monte ore</h2>
     <p>Ore produttive registrate sulle vetture. Le pause sono escluse; gli extra sono calcolati oltre l’orario configurato di ciascuna giornata. Non è un registro delle presenze.</p>
-    <div className="live-job-grid">{feed.staff?.map(employee => <button key={employee.operatorId} className="live-employee" aria-pressed={selected === employee.operatorId}
+    <div className="live-job-grid">{staff.map(employee => <button key={employee.operatorId} className="live-employee" aria-pressed={selected === employee.operatorId}
       onClick={() => { setSelected(employee.operatorId); setReport(null) }}><strong>{employee.name}</strong>
       <span>Oggi: {hoursText(interpolateHours(employee.today, stale ? 0 : elapsed).workedSeconds)}</span></button>)}</div>
     {selected && <><label>Mese del monte ore<input type="month" value={month} onChange={e => { setMonth(e.target.value); setReport(null) }} /></label>
@@ -48,4 +51,8 @@ export function EmployeeHours({ feed, session, config, elapsed, stale }: {
           <tbody>{display.days.map(day => <tr key={day.date}><th>{day.date}</th><td>{hoursText(day.workedSeconds)}{day.running ? ' · in corso' : ''}</td>
             <td>{hoursText(day.ordinarySeconds)}</td><td>{hoursText(day.extraSeconds)}</td></tr>)}</tbody></table></div></>}</>}
   </section>
+}
+
+export function EmployeeHours(props: {feed:LiveFeed;session:CloudAuthSession;config:CloudAuthConfig;elapsed:number;stale:boolean}) {
+ return <OwnerPasswordGate title="Report ore dei dipendenti" connection={{companyId:props.feed.companyId,session:props.session,config:props.config}}>{session => <UnlockedEmployeeHours {...props} session={session} />}</OwnerPasswordGate>
 }
