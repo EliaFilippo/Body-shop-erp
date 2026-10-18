@@ -1199,7 +1199,7 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 	const timestamp = now()
 	const checklist = qualityChecklistFromTemplates(data.qualityChecklistTemplates ?? [])
 	const usesMinorTimes = estimate.lines.some(line => line.minorDamageTimes)
-	const phases = estimate.selectedPhases === undefined && !usesMinorTimes ? buildPhases(estimate.lines) : buildSelectedWorkCycle(estimate.lines,estimate.selectedPhases ?? [])
+	const phases = estimate.selectedPhases === undefined && !usesMinorTimes ? buildPhases(estimate.lines) : buildSelectedWorkCycle(estimate.lines,estimate.selectedPhases ?? [],data.plannerSettings.eliasExteriorWashMinutes)
 	const vehicle = data.vehicles.find(v => v.id === estimate.vehicleId)
 	return {
 		id: id(),

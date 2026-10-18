@@ -1,3 +1,4 @@
+import { FastEstimateEditor } from './FastEstimateEditor'
 import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices'
 import { WorkCycleFields } from '../../components/WorkCycleFields'
 import { cyclePhasesForLine } from '../../services/workCycle'
@@ -54,6 +55,7 @@ const marginStatusLabel = (value?: EstimateLine['marginStatus']) => {
 
 type WorkflowModal =
   | { type: 'estimate-create' }
+  | { type: 'estimate-fast' }
   | { type: 'estimate-edit'; estimateId: string }
   | { type: 'job-create' }
   | { type: 'job-edit'; jobId: string }
@@ -280,7 +282,8 @@ export function WorkflowPage({
       <div className="planner-actions">
         <button className="secondary" onClick={() => setModal({ type: 'checklist-templates' })}>Checklist qualità</button>
         <button className="secondary" onClick={() => setModal({ type: 'job-create' })}>Commessa diretta</button>
-        <button className="primary" onClick={() => setModal({ type: 'estimate-create' })}>Nuovo preventivo</button>
+        <button className="secondary" onClick={() => setModal({ type: 'estimate-create' })}>Nuovo preventivo</button>
+        <button className="primary" onClick={() => setModal({ type: 'estimate-fast' })}>Preventivo fast</button>
       </div>
     </section>
 
@@ -400,6 +403,7 @@ export function WorkflowPage({
       {!filteredJobs.length && <div className="empty">Nessuna commessa trovata.</div>}
     </section>
 
+    {modal?.type === 'estimate-fast' && <FastEstimateEditor data={data} onCancel={() => setModal(null)} onDone={(next, confirmed) => { apply(next, confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.'); setModal(null) }} />}
     {modal?.type === 'estimate-create' && <EstimateEditor
       title="Nuovo preventivo"
       data={data}

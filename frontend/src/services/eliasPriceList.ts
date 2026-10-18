@@ -1,4 +1,4 @@
-import type { MinorDamageTimes, StandardWorkDefinition } from '../types'
+import type { MinorDamageTimes, PlannerSettings, StandardWorkDefinition } from '../types'
 
 export type EliasPanelKind = 'front-bumper' | 'rear-bumper' | 'hood' | 'wing' | 'wheel' | 'mirror' | 'door' | 'sill' | 'handle' | 'roof' | 'pillar' | 'spoiler' | 'arch' | 'tailgate' | 'bumper-trim' | 'whole' | 'headlight' | 'windshield'
 export interface EliasPriceEntry {
@@ -93,9 +93,9 @@ export function eliasPanelWorkName(entry: EliasPriceEntry, panel: { id?: string;
   if (entry.name.toLocaleLowerCase('it-IT').includes(name.toLocaleLowerCase('it-IT')) || panel.id === 'vettura-intera') return entry.name
   return `${entry.name} · ${name}`
 }
-export const eliasPricesForPanel = (id: string, panelName?: string) => ELIAS_PRICE_LIST
+export const eliasPricesForPanel = (id: string, panelName?: string, settings?: PlannerSettings) => ELIAS_PRICE_LIST
   .filter((entry) => entry.panels.includes(eliasPanelKind(id)!))
-  .map(entry => panelName ? { ...entry, name: eliasPanelWorkName(entry, {id,name:panelName}) } : entry)
+  .map(entry => configuredEliasEntry(panelName ? { ...entry, name: eliasPanelWorkName(entry, {id,name:panelName}) } : entry, settings, id))
 
 /** Old jobs retain their prices/timers; the tablet reads their saved physical panel. */
 export function panelTaskDescription(description: string, panel?: string): string {
@@ -136,4 +136,19 @@ export const ELIAS_MINOR_TIMES: Record<string, MinorDamageTimes> = {
 export const MINOR_TIME_LABELS: Record<keyof MinorDamageTimes, string> = {
   sr: 'Smontaggio / rimontaggio', is: 'Incartatura / scartatura',
   v: 'Verniciatura, carteggiatura e stuccatura', lc: 'Lucidatura', la: 'Lavaggio interni',
+}
+
+export function eliasCatalogOverride(settings: PlannerSettings | undefined, entryId: string, panelId?: string) {
+  return {...settings?.eliasPriceOverrides?.[entryId], ...settings?.eliasPriceOverrides?.[`${panelId}:${entryId}`]}
+}
+export function configuredEliasEntry(entry: EliasPriceEntry, settings?: PlannerSettings, panelId?: string): EliasPriceEntry {
+  const override = eliasCatalogOverride(settings, entry.id, panelId)
+  const prices = override.prices?.filter(price => Number.isFinite(price) && price > 0)
+  return {...entry, prices:prices?.length ? prices : entry.prices, manualPricing:override.manualPricing ?? entry.manualPricing}
+}
+export function configuredEliasTimes(entry: EliasPriceEntry, settings?: PlannerSettings, panelId?: string): MinorDamageTimes | undefined {
+  const override = eliasCatalogOverride(settings, entry.id, panelId)
+  const source = override.times ?? ELIAS_MINOR_TIMES[entry.timeSourceId ?? entry.id]
+  if (!source) return undefined
+  return Object.fromEntries(Object.entries(source).filter(([key,value]) => key in MINOR_TIME_LABELS && Number.isFinite(value) && Number(value)>=0).map(([key,value])=>[key,Math.round(value!)]))
 }
