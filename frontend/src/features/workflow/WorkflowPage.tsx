@@ -1,3 +1,4 @@
+import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices'
 import { WorkCycleFields } from '../../components/WorkCycleFields'
 import { cyclePhaseForLine } from '../../services/workCycle'
 import { PaymentTermsFields } from '../../components/PaymentTermsFields'
@@ -200,6 +201,7 @@ export function WorkflowPage({
   initialVehicleId,
   isOwner = false,
   onOwnerUnlock,
+  noticesConnection,
 }: {
   data: ErpData
   customerById: (id: string) => Customer | undefined
@@ -212,6 +214,7 @@ export function WorkflowPage({
   statusLabel: (status: string) => string
   initialVehicleId?: string
   isOwner?: boolean
+  noticesConnection?: NoticesConnection
   onOwnerUnlock?: (password: string) => Promise<void>
 }) {
   const [modal, setModal] = useState<WorkflowModal | null>(null)
@@ -472,7 +475,7 @@ export function WorkflowPage({
       }}
     />}
 
-    {modal?.type === 'job-edit' && <JobEditor
+    {modal?.type === 'job-edit' && <JobEditor noticesConnection={noticesConnection}
       data={data}
       customerById={customerById}
       job={jobs.find((job) => job.id === modal.jobId)}
@@ -1689,6 +1692,7 @@ function DirectJobEditor({
 }
 
 function JobEditor({
+  noticesConnection,
   data,
   customerById,
   job,
@@ -1699,6 +1703,7 @@ function JobEditor({
   onUpdatePhaseEstimatedMinutes,
   onToggleChecklist,
 }: {
+  noticesConnection?: NoticesConnection
   data: ErpData
   customerById: (id: string) => Customer | undefined
   job?: RepairJob
@@ -1815,6 +1820,8 @@ function JobEditor({
           {!job.qualityChecklist.length && <small>Nessun template configurato. Configura la checklist dalla pagina principale.</small>}
         </div>
       </div>
+
+      {noticesConnection && <PhaseNotices connection={noticesConnection} jobId={job.id} phases={job.phases} office closed={['Consegnata', 'Annullata'].includes(job.status)} />}
 
       <div className="full panel" style={{ margin: 0 }}>
         <div className="panel-head"><div><span className="eyebrow">COLLEGAMENTO ECONOMICO</span><h3>Separazione valore / incasso</h3></div></div>
