@@ -6,6 +6,15 @@ import { addWorkingMinutes, nextWorkingInstant } from './workCalendar'
 export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt: string }>(
   data: ErpData, job: RepairJob, phase: JobPhase, candidates: T[], minutes: number, floor: string, ready: string,
 ): { operators: T[]; reason: string } {
+  const support = candidates.find(c => c.operator.id === phase.supportOperatorId && c.operator.id !== phase.preferredOperatorId)
+  if (phase.supportOperatorId && !support) {
+    const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: undefined }, candidates, minutes, floor, ready)
+    return { operators: primary.operators.slice(0, 1), reason: `${primary.reason} · affiancamento non disponibile` }
+  }
+  if (support) {
+    const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: undefined }, candidates.filter(c => c.operator.id !== support.operator.id), minutes, floor, ready)
+    return { operators: primary.operators.length ? [...primary.operators.slice(0, 1), support] : [], reason: `${primary.reason} · secondo operatore scelto dall’ufficio` }
+  }
   if (phase.preferredOperatorId) return {
     operators: candidates.filter(c => c.operator.id === phase.preferredOperatorId), reason: 'Operatore scelto dall’ufficio',
   }

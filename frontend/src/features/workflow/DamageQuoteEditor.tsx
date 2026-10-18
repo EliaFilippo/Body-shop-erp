@@ -4,7 +4,7 @@ import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings 
 import { MoneyInput } from '../../components/MoneyInput'
 import { buildAcceptanceQuoteSummary } from '../../services/acceptance'
 import { chooseEliasPrice, damageQuoteError, makeDamageLine, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from '../../services/damageQuote'
-import { ELIAS_PRICE_LIST, eliasEntryForWork, eliasPricesForPanel } from '../../services/eliasPriceList'
+import { ELIAS_PRICE_LIST, MINOR_TIME_LABELS, eliasEntryForWork, eliasPricesForPanel } from '../../services/eliasPriceList'
 import { PANEL_CATALOG, QUOTE_PANELS, type VehicleViewId } from './vehiclePanels'
 import { calculateQuoteHourBudget } from '../../services/quoteHourBudget'
 import { QuoteHourBudget } from './QuoteHourBudget'
@@ -35,7 +35,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
   const error = damageQuoteError(lines)
 
   const commit = (nextLines: EstimateLine[], rate = quote.hourlyRate) => {
-    onChange({ ...quote, manualOnlyPricing: true, hourlyRate: rate, damageLines: nextLines })
+    onChange({ ...quote, manualOnlyPricing: true, hourlyRate: rate, damageLines: nextLines, selectedPhases: quote.selectedPhases ?? (nextLines.some(line => line.minorDamageTimes) ? [] : undefined) })
     setNotice('')
   }
   const selectPanel = (panelId: string) => {
@@ -54,19 +54,20 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
     setSeverity(next)
     // Il passaggio di gravità conserva le lavorazioni e i tempi già inseriti.
     commit(lines.map((line) => line.panelId !== activeId ? line : recalculateDamageLine({ ...line,
-      damageSeverity: next,
+      damageSeverity: next, minorDamageTimes: next === 'grave' ? undefined : line.minorDamageTimes,
     }, settings)))
   }
   const changeMinutes = (line: EstimateLine, hours: number) => {
+    if (line.minorDamageTimes) return
     const minutes = Math.round(Math.max(0, hours) * 60)
-    commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, estimatedMinutes: minutes,
+    commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, estimatedMinutes: minutes, minorDamageTimes: undefined,
       unitPrice: item.unitPrice,
     }, settings)))
   }
   const changeRate = (rate: number) => commit(lines, rate)
 
   return <section className="damage-quote" aria-label="Preventivo grafico">
-    <div className="panel-head"><div><span className="eyebrow">PREVENTIVO RAPIDO · LISTINO ELIAS</span><h3>Tocca la parte danneggiata</h3><p>Scegli il pannello e la voce del tuo listino. Prezzi IVA esclusa, materiali già compresi. Per il danno lieve puoi memorizzare le ore; per il grave inseriscile manualmente.</p></div></div>
+    <div className="panel-head"><div><span className="eyebrow">PREVENTIVO RAPIDO · LISTINO ELIAS</span><h3>Tocca la parte danneggiata</h3><p>Scegli il pannello e la voce del tuo listino. Prezzi IVA esclusa, materiali già compresi. Per i danni lievi il tempario è già compilato. S/R, I/S e verniciatura hanno ciascuno un tempo totale condiviso. La lattoneria si aggiunge manualmente; per i danni gravi inserisci tempi e prezzo.</p></div></div>
     <QuoteHourBudget quote={quote} settings={settings} activePanelId={activeId} onChange={onChange} />
     <div className="damage-quote-layout">
       <div className="damage-car-column">
@@ -109,14 +110,19 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
               const line = catalogLines.find((item) => eliasEntryForWork(item.standardWorkId)?.id === 'parabrezza')
               if (line) { const wasIncluded = Boolean(line.priceVariant?.includes('sensore pioggia')); commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, unitPrice: item.unitPrice + (checked ? 15 : 0) - (wasIncluded ? 15 : 0), priceVariant: checked ? 'sensore pioggia (+15 €)' : undefined }, settings))) }
             }} />Sensore pioggia: +15 € sul danno lieve</label>}
-            {eliasPricesForPanel(activeId).map((entry) => <div className="elias-price-choice" key={entry.id}><span>{entry.name}</span><div>{entry.prices.map((price) => <button type="button" key={price} className="secondary" aria-label={`${entry.name}: ${price} euro`} onClick={() => commit(chooseEliasPrice(settings, lines, active, entry, price, quote.appliedVatRate, severity, quote.hourlyRate, rainSensor))}>{money(price)}</button>)}</div></div>)}
+            {eliasPricesForPanel(activeId).map((entry) => <div className="elias-price-choice" key={entry.id}><span>{entry.name}</span><div>{entry.prices.map((price) => <button type="button" key={price} className="secondary" aria-label={entry.manualPricing ? `${entry.name}: inserimento manuale` : `${entry.name}: ${price} euro`} onClick={() => commit(chooseEliasPrice(settings, lines, active, entry, price, quote.appliedVatRate, severity, quote.hourlyRate, rainSensor))}>{entry.manualPricing ? 'Inserisci tempo e prezzo' : money(price)}</button>)}</div></div>)}
           </div>
           {severity === 'lieve' ? <p>Usa il listino del pannello oppure imposta le lavorazioni qui sotto e memorizzale per le prossime vetture. Prezzi IVA esclusa.</p>
             : <label>Tariffa vendita per danni gravi €/h<MoneyInput value={quote.hourlyRate} onValueChange={(value) => changeRate(value ?? 0)} /><small>Tariffa di riferimento: tempi e costi interni non modificano il prezzo.</small></label>}
           {!selected.length && <p className="damage-hint">Nessuna lavorazione inserita. Seleziona quelle necessarie e completa tempi e prezzi.</p>}
           <div className="damage-work-list">{catalogLines.map((line) => <div className="damage-work" key={line.id}>
             <strong>{line.standardWorkName}</strong><small className="elias-materials">Materiali inclusi{line.priceVariant?.includes('sensore pioggia') ? ' · sensore pioggia incluso' : ''}</small>
-            <div className="damage-work-values"><label>Ore {line.standardWorkName}<input type="number" inputMode="decimal" min="0" step="0.25" value={Number(((line.estimatedMinutes ?? 0) / 60).toFixed(4))} onChange={(event) => changeMinutes(line, Number(event.target.value))} /></label>
+            {line.minorDamageTimes && <div className="damage-work-values">{Object.entries(line.minorDamageTimes).map(([key, minutes]) => <label key={key}>{MINOR_TIME_LABELS[key as keyof typeof MINOR_TIME_LABELS]} · minuti totali<input type="number" min="0" step="1" value={minutes} onChange={event => {
+              const times = { ...line.minorDamageTimes, [key]: Math.max(0, Math.round(Number(event.target.value))) }
+              const total = Object.values(times).reduce((sum, value) => sum + (value ?? 0), 0)
+              commit(lines.map(item => item.id !== line.id ? item : recalculateDamageLine({ ...item, minorDamageTimes: times, estimatedMinutes: total }, settings)))
+            }} /></label>)}</div>}
+            <div className="damage-work-values"><label>Ore {line.standardWorkName}<input type="number" inputMode="decimal" min="0" step="0.25" readOnly={Boolean(line.minorDamageTimes)} value={Number(((line.estimatedMinutes ?? 0) / 60).toFixed(4))} onChange={(event) => changeMinutes(line, Number(event.target.value))} /></label>
               <label>Prezzo {line.standardWorkName} €<MoneyInput value={line.unitPrice} onValueChange={(value) => commit(lines.map((item) => item.id !== line.id ? item : recalculateDamageLine({ ...item, unitPrice: value ?? 0 }, settings)))} /></label>
             </div>
             {!line.estimatedMinutes && <p className="damage-incomplete">Le ore economiche disponibili sono calcolate sotto dal prezzo. Inserisci qui il tempo tecnico necessario per pianificare le fasi e la consegna.</p>}

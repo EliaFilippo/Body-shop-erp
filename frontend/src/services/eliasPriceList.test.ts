@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
-import { ELIAS_PRICE_LIST, eliasPricesForPanel } from './eliasPriceList'
+import { ELIAS_PRICE_LIST, ELIAS_MINOR_TIMES, eliasPricesForPanel } from './eliasPriceList'
 import { chooseEliasPrice, acceptanceEstimateLines, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from './damageQuote'
 import { buildAcceptanceQuoteSummary, createDefaultQuote, updateConsumptionLine } from './acceptance'
 import { defaultPlannerSettings, emptyData } from './erp'
@@ -21,7 +21,7 @@ describe('listino Elias dalla foto', () => {
       expect(part, item.name).toBeDefined()
       for (const price of item.prices) {
         const [line] = chooseEliasPrice(settings, [], part, item, price, 22, 'lieve', 60)
-        expect(line).toMatchObject({ unitPrice: price, estimatedMinutes: 0, materialsIncluded: true })
+        expect(line).toMatchObject({ unitPrice: item.manualPricing ? 0 : price, estimatedMinutes: Object.values(ELIAS_MINOR_TIMES[item.id] ?? {}).reduce((sum, minutes) => sum + (minutes ?? 0), 0), materialsIncluded: true })
       }
     }
     expect(entry('cofano').prices).toEqual([200, 250])
@@ -56,12 +56,12 @@ describe('listino Elias dalla foto', () => {
 
   it('salva e ricarica ore, prezzo e materiali inclusi del danno lieve', async () => {
     const [base] = chooseEliasPrice(settings, [], panel, entry('porta'), 150, 22, 'lieve', 60)
-    const line = recalculateDamageLine({ ...base, estimatedMinutes: 90 }, settings)
+    const line = recalculateDamageLine({ ...base, estimatedMinutes: 90, minorDamageTimes: undefined }, settings)
     const data = structuredClone(emptyData)
     data.plannerSettings.minorDamagePresets = [makeMinorDamagePreset(panel, [line])]
     await saveDatabase(data)
     const loaded = await loadDatabase()
     expect(minorDamageLines(loaded.plannerSettings, panel, 22)[0]).toMatchObject({ unitPrice: 150, estimatedMinutes: 90, materialsIncluded: true })
-    expect(() => acceptanceEstimateLines({ ...createDefaultQuote(settings, '2026-10'), damageLines: [base] })).toThrow('Completa tempo')
+    expect(() => acceptanceEstimateLines({ ...createDefaultQuote(settings, '2026-10'), damageLines: [{ ...base, estimatedMinutes: 0 }] })).toThrow('Completa tempo')
   })
 })

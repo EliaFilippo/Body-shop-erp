@@ -1,6 +1,6 @@
 import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices'
 import { WorkCycleFields } from '../../components/WorkCycleFields'
-import { cyclePhaseForLine } from '../../services/workCycle'
+import { cyclePhasesForLine } from '../../services/workCycle'
 import { PaymentTermsFields } from '../../components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent, type WheelEvent } from 'react'
 import { Modal } from '../../components/Modal'
@@ -615,6 +615,7 @@ function EstimateEditor({
       panelId: line.panelId,
       panelName: line.panelName,
       damageSeverity: line.damageSeverity,
+      minorDamageTimes: line.minorDamageTimes,
       materialsIncluded: line.materialsIncluded,
       priceVariant: line.priceVariant,
       budgetOperatorId: line.budgetOperatorId,
@@ -1441,7 +1442,7 @@ function EstimateEditor({
         </div>
       </section>}
 
-      {(step === 3 || step === 4) && <WorkCycleFields value={selectedPhases} included={lines.map(cyclePhaseForLine)} disabled={!!initial?.convertedJobId} onChange={setSelectedPhases}/>}
+      {(step === 3 || step === 4) && <WorkCycleFields value={selectedPhases} included={lines.flatMap(cyclePhasesForLine)} disabled={!!initial?.convertedJobId} onChange={setSelectedPhases}/>}
 
       {step === 4 && <section className="full panel estimate-step-panel" data-testid="estimate-confirm-step">
         <div className="panel-head"><div><span className="eyebrow">STEP 4</span><h3>Controlla e conferma</h3></div></div>
@@ -1719,7 +1720,7 @@ function JobEditor({
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(job?.expectedDeliveryDate ?? new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState(job?.notes ?? '')
   const [phaseMinutesDraft, setPhaseMinutesDraft] = useState<Record<string, number>>(() =>
-    Object.fromEntries((job?.phases ?? []).map((phase) => [phase.id, phase.estimatedMinutes])))
+    Object.fromEntries((job?.phases ?? []).map((phase) => [phase.id, phase.sharedTimeMinutes ?? phase.estimatedMinutes])))
   const [phaseReasonDraft, setPhaseReasonDraft] = useState<Record<string, string>>({})
 
   if (!job) return null
@@ -1801,9 +1802,9 @@ function JobEditor({
                 <label>Motivo blocco<input value={phase.blockedReason} onChange={(event) => onUpdatePhase(job.id, phase.id, { status: phase.status, notes: phase.notes, blockedReason: event.target.value, notRequired: phase.notRequired })} /></label>
               </div>
               <div className="job-phase-controls">
-                <label>Tempo preventivato (min)<input type="number" min="1" step="1" value={phaseMinutesDraft[phase.id] ?? phase.estimatedMinutes} onChange={(event) => setPhaseMinutesDraft((current) => ({ ...current, [phase.id]: Number(event.target.value) }))} /></label>
+                <label>{phase.sharedTimeKey ? 'Tempo complessivo del gruppo (min)' : 'Tempo preventivato (min)'}<input type="number" min="1" step="1" value={phaseMinutesDraft[phase.id] ?? phase.sharedTimeMinutes ?? phase.estimatedMinutes} onChange={(event) => setPhaseMinutesDraft((current) => ({ ...current, [phase.id]: Number(event.target.value) }))} /></label>
                 <label>Motivazione modifica tempo<input value={phaseReasonDraft[phase.id] ?? ''} onChange={(event) => setPhaseReasonDraft((current) => ({ ...current, [phase.id]: event.target.value }))} placeholder="Es. lavoro aggiuntivo emerso" /></label>
-                <button type="button" className="secondary" onClick={() => onUpdatePhaseEstimatedMinutes(job.id, phase.id, phaseMinutesDraft[phase.id] ?? phase.estimatedMinutes, phaseReasonDraft[phase.id] ?? '')}>Aggiorna tempo fase</button>
+                <button type="button" className="secondary" onClick={() => onUpdatePhaseEstimatedMinutes(job.id, phase.id, phaseMinutesDraft[phase.id] ?? phase.sharedTimeMinutes ?? phase.estimatedMinutes, phaseReasonDraft[phase.id] ?? '')}>Aggiorna tempo fase</button>
               </div>
               {!!(phase.timeAdjustments?.length) && <div className="job-phase-meta">{(phase.timeAdjustments ?? []).slice(0, 5).map((entry) => <small key={entry.id}>{dateTime(entry.at)} • {entry.fromMinutes}{' -> '}{entry.toMinutes} min • {entry.reason}</small>)}</div>}
               </>

@@ -168,12 +168,18 @@ export function LiveProductionPage() {
           const requiresPhase = (job.phases ?? []).some(p => !p.notRequired)
           const selectedPhase = availablePhases.find(p => p.id === selected)
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
+          const standardClock = selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
           const clock = selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
-          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && clock.warning ? 'live-warning' : ''}`}>
+          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && (clock.warning || standardClock?.warning) ? 'live-warning' : ''}`}>
             <h2>{job.plate}</h2><p>Commessa {job.number}</p>
             <p>{selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
             <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? clock.individualSeconds : clock.seconds)}</strong>
             {selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
+            {standardClock && <section aria-label="Tempo standard della lavorazione"><p>Tempo standard · {selectedPhase?.standardClock?.label}</p>
+              <strong>{stale ? 'Da aggiornare' : clockText(standardClock.individualSeconds)}</strong>
+              <p>Totale condiviso: {selectedPhase?.standardClock?.totalMinutes} min. Ogni minuto lavorato da ciascun operatore consuma questo tempo.</p>
+              {!stale && standardClock.warning && <p role="status">{standardClock.exhausted ? 'Tempo standard superato: segnala lo scostamento all’ufficio.' : 'Attenzione: rimane meno del 20% del tempo standard.'}</p>}
+            </section>}
             <p>Residuo complessivo vettura: {stale ? 'Da aggiornare' : clockText(totalClock.individualSeconds)}</p>
             {clock.seconds !== null && phaseActiveCount > 0 && feed.operatorName && <p>{`${selectedPhase?.clock ? 'Tempo residuo fase con' : 'Tempo residuo con'} ${phaseActiveCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}

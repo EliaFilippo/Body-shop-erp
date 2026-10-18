@@ -10,7 +10,7 @@ export interface LiveClock {
   phases?: LivePhase[];
   tasks?: { id: string; description: string; panel?: string; quantity: number }[];
 }
-export interface LivePhase { clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
+export interface LivePhase { standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
 export interface HoursDay { date: string; workedSeconds: number; plannedSeconds: number | null; ordinarySeconds: number | null; extraSeconds: number | null; running: boolean }
 export interface HoursReport {
   operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];

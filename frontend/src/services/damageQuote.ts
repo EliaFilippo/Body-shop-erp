@@ -1,7 +1,7 @@
 import { quoteCustomerLines } from './quotePricing'
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings, StandardWorkDefinition } from '../types'
 import { computeLineInternalEconomics, resolvePriceListItem, resolveStandardRuleForLine } from './workflow'
-import { eliasEntryForWork, eliasPricesForPanel, eliasWork, type EliasPriceEntry } from './eliasPriceList'
+import { eliasEntryForWork, eliasPricesForPanel, eliasWork, ELIAS_MINOR_TIMES, type EliasPriceEntry } from './eliasPriceList'
 import { budgetLineSnapshot } from './quoteHourBudget'
 
 const round = (value: number) => Math.round(value * 100) / 100
@@ -24,7 +24,7 @@ export function makeDamageLine(settings: PlannerSettings, panel: { id: string; n
   const listItem = resolvePriceListItem(settings.standardWorkPriceList ?? [], context)
   const minutes = preset?.minutes ?? resolved.standardMinutes
   return recalculateDamageLine({
-    ...context, id: crypto.randomUUID(), damageSeverity: severity,
+    ...context, id: crypto.randomUUID(), damageSeverity: severity, minorDamageTimes: preset?.minorDamageTimes,
     materialsIncluded: preset?.materialsIncluded ?? Boolean(eliasEntryForWork(work.id)), priceVariant: preset?.priceVariant,
     category: /verniciatura/i.test(work.categoryOrPhase ?? '') ? 'verniciatura' : 'carrozzeria',
     panelSide: /-(sx|left)$/.test(panel.id) ? 'sx' : /-(dx|right)$/.test(panel.id) ? 'dx' : 'center',
@@ -63,7 +63,7 @@ export function makeMinorDamagePreset(panel: { id: string; name: string }, lines
   if (error) throw new Error(error)
   return { panelId: panel.id, panelName: panel.name, updatedAt: new Date().toISOString(),
     lines: selected.map((line) => ({ workId: line.standardWorkId!, minutes: line.estimatedMinutes!, price: line.unitPrice,
-      materialsIncluded: line.materialsIncluded, priceVariant: line.priceVariant })) }
+      materialsIncluded: line.materialsIncluded, priceVariant: line.priceVariant, minorDamageTimes: line.minorDamageTimes })) }
 }
 
 export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[], panel: { id: string; name: string }, entry: EliasPriceEntry,
@@ -74,9 +74,11 @@ export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[
   const existing = lines.find((line) => line.panelId === panel.id && line.standardWorkId === work.id)
   const preset = settings.minorDamagePresets?.find((item) => item.panelId === panel.id)?.lines.find((line) => line.workId === work.id)
   const hasSensor = entry.id === 'parabrezza' && rainSensor
+  const times = severity === 'lieve' ? (existing ? existing.minorDamageTimes : preset ? preset.minorDamageTimes : ELIAS_MINOR_TIMES[entry.id]) : undefined
   const next = makeDamageLine(settings, panel, work, severity, vatRate, hourlyRate, {
-    workId: work.id, minutes: existing?.estimatedMinutes ?? preset?.minutes ?? 0,
-    price: price + (hasSensor ? 15 : 0), materialsIncluded: true,
+    workId: work.id, minutes: existing?.estimatedMinutes ?? preset?.minutes ?? (times ? Object.values(times).reduce((a, b) => a + (b ?? 0), 0) : 0),
+    minorDamageTimes: times,
+    price: (entry.manualPricing ? 0 : price) + (hasSensor ? 15 : 0), materialsIncluded: true,
     priceVariant: hasSensor ? 'sensore pioggia (+15 €)' : undefined,
   })
   // Le alternative della stessa famiglia sostituiscono la voce, evitando doppi addebiti.
