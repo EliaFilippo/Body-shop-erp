@@ -1,10 +1,10 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
-import { ELIAS_PRICE_LIST, ELIAS_MINOR_TIMES, eliasPricesForPanel } from './eliasPriceList'
+import { ELIAS_PRICE_LIST, ELIAS_MINOR_TIMES, panelTaskDescription, eliasPricesForPanel } from './eliasPriceList'
 import { chooseEliasPrice, acceptanceEstimateLines, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from './damageQuote'
 import { buildAcceptanceQuoteSummary, createDefaultQuote, updateConsumptionLine } from './acceptance'
 import { defaultPlannerSettings, emptyData } from './erp'
-import { createEstimate } from './workflow'
+import { approveEstimateAndCreateJob, createEstimate } from './workflow'
 import { createQuoteDocument } from './documents'
 import { loadDatabase, saveDatabase } from './database'
 import { QUOTE_PANELS } from '../features/workflow/vehiclePanels'
@@ -14,14 +14,14 @@ const panel = { id: 'porta-ant-sx', name: 'Porta anteriore SX' }
 const entry = (id: string) => ELIAS_PRICE_LIST.find((item) => item.id === id)!
 
 describe('listino Elias dalla foto', () => {
-  it('rende raggiungibili tutte le 28 voci dai pannelli, con alternative e senza tempi inventati', () => {
-    expect(ELIAS_PRICE_LIST).toHaveLength(28)
+  it('rende raggiungibili tutte le voci singole dai pannelli, con alternative e senza tempi inventati', () => {
+    expect(ELIAS_PRICE_LIST).toHaveLength(30)
     for (const item of ELIAS_PRICE_LIST) {
       const part = QUOTE_PANELS.find((candidate) => eliasPricesForPanel(candidate.id).some((price) => price.id === item.id))!
       expect(part, item.name).toBeDefined()
       for (const price of item.prices) {
         const [line] = chooseEliasPrice(settings, [], part, item, price, 22, 'lieve', 60)
-        expect(line).toMatchObject({ unitPrice: item.manualPricing ? 0 : price, estimatedMinutes: Object.values(ELIAS_MINOR_TIMES[item.id] ?? {}).reduce((sum, minutes) => sum + (minutes ?? 0), 0), materialsIncluded: true })
+        expect(line).toMatchObject({ unitPrice: item.manualPricing ? 0 : price, estimatedMinutes: Object.values(ELIAS_MINOR_TIMES[item.timeSourceId ?? item.id] ?? {}).reduce((sum, minutes) => sum + (minutes ?? 0), 0), materialsIncluded: true })
       }
     }
     expect(entry('cofano').prices).toEqual([200, 250])
@@ -64,4 +64,39 @@ describe('listino Elias dalla foto', () => {
     expect(minorDamageLines(loaded.plannerSettings, panel, 22)[0]).toMatchObject({ unitPrice: 150, estimatedMinutes: 90, materialsIncluded: true })
     expect(() => acceptanceEstimateLines({ ...createDefaultQuote(settings, '2026-10'), damageLines: [{ ...base, estimatedMinutes: 0 }] })).toThrow('Completa tempo')
   })
+})
+
+it('separa anteriore/posteriore e applica il tempario soltanto ai singoli pannelli scelti', () => {
+ const front={id:'paraurti-anteriore',name:'Paraurti anteriore'}
+ const rear={id:'paraurti-posteriore',name:'Paraurti posteriore'}
+ let lines=chooseEliasPrice(settings,[],front,entry('mezzo-paraurti'),80,22,'lieve',60)
+ expect(lines).toHaveLength(1)
+ expect(lines[0]).toMatchObject({standardWorkName:'½ paraurti anteriore',estimatedMinutes:90,unitPrice:80,quantity:1})
+ lines=chooseEliasPrice(settings,lines,rear,entry('mezzo-paraurti'),80,22,'lieve',60)
+ expect(lines.map(l=>l.standardWorkName)).toEqual(['½ paraurti anteriore','½ paraurti posteriore'])
+ expect(lines.map(l=>l.estimatedMinutes)).toEqual([90,90])
+ const quote={...createDefaultQuote(settings,'2026-10'),damageLines:lines}
+ const estimated=createEstimate(structuredClone(emptyData),{customerId:'c',plate:'PANEL01',companyName:'',contactName:'',date:'2026-10-18',notes:'',lines:acceptanceEstimateLines(quote)})
+ const job=approveEstimateAndCreateJob(estimated,estimated.estimates![0].id).jobs![0]
+ expect(job.taxableAmount).toBe(160)
+ expect(job.phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(180)
+ const left={id:'parafango-ant-sx',name:'Parafango anteriore SX'}
+ const right={id:'rear-fender-right',name:'Parafango posteriore DX'}
+ expect(chooseEliasPrice(settings,[],left,entry('parafango'),150,22,'lieve',60)[0]).toMatchObject({standardWorkName:left.name,estimatedMinutes:175})
+ expect(chooseEliasPrice(settings,[],right,entry('parafango'),150,22,'lieve',60)[0]).toMatchObject({standardWorkName:right.name,estimatedMinutes:175})
+})
+it('normalizza il pannello delle vecchie descrizioni sul tablet senza inventare un lato o modificare il dato originale', () => {
+ const old='½ paraurti anteriore/posteriore · Paraurti posteriore (lieve) · materiali inclusi'
+ expect(panelTaskDescription(old,'Paraurti posteriore')).toBe('½ paraurti posteriore (lieve) · materiali inclusi')
+ expect(panelTaskDescription('Parafango anteriore/posteriore · Parafango anteriore SX (lieve)','Parafango anteriore SX')).toBe('Parafango anteriore SX (lieve)')
+ expect(panelTaskDescription(old)).toBe(old)
+})
+it('rende profilo e maniglia due alternative individuali con il tempo del singolo pezzo', () => {
+ const panel={id:'maniglia-ant-sx',name:'Profilo/maniglia porta anteriore SX'}
+ const options=eliasPricesForPanel(panel.id,panel.name)
+ expect(options.map(o=>o.name)).toEqual(['Maniglia porta anteriore SX','Profilo porta anteriore SX'])
+ let lines=chooseEliasPrice(settings,[],panel,options[0],35,22,'lieve',60)
+ lines=chooseEliasPrice(settings,lines,panel,options[1],35,22,'lieve',60)
+ expect(lines).toHaveLength(1)
+ expect(lines[0]).toMatchObject({standardWorkName:'Profilo porta anteriore SX',estimatedMinutes:30,unitPrice:35})
 })

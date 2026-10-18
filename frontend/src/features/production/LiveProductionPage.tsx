@@ -1,3 +1,4 @@
+import { panelTaskDescription } from '../../services/eliasPriceList'
 import { PhaseNotices } from './PhaseNotices'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
@@ -195,7 +196,7 @@ export function LiveProductionPage() {
               onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'start', p_phase_id: selected || null })}>{job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
-            {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{task.description}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}
+            {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{panelTaskDescription(task.description, task.panel)}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}
             {!!job.phases?.length && <section className="live-phases" aria-label={`Fasi di ${job.plate}`}><h3>Avanzamento fasi</h3>
               <p>{availablePhases[0] ? `Prossima fase da completare: ${availablePhases[0].name}` : 'Nessuna fase aperta e disponibile'}</p>
               <ol>{job.phases.filter(p => !p.notRequired).map(phase => <li key={phase.id}>

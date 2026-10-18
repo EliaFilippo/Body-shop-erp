@@ -134,3 +134,19 @@ it('shows the remaining washing standard on a paused legacy job without blaming 
  expect(screen.queryByText(/costo operatore mancante/)).not.toBeInTheDocument()
  expect(screen.getByRole('button',{name:'Riprendi'})).toBeEnabled()
 })
+
+it('shows the selected front and rear bumper as individual work items on legacy jobs', async () => {
+ mocked.rpc.mockImplementation(async (name:string)=> {
+  if(name==='production_phase_notices_action')return []
+  return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
+   jobId:'j1',plate:'PANEL01',number:'1',remainingSeconds:3600,remainingPercent:100,activeCount:0,ownStatus:null,operators:[],
+   tasks:[{id:'f',description:'½ paraurti anteriore/posteriore · Paraurti anteriore (lieve)',panel:'Paraurti anteriore',quantity:1},
+          {id:'r',description:'½ paraurti anteriore/posteriore · Paraurti posteriore (lieve)',panel:'Paraurti posteriore',quantity:1}],
+  }]}
+ })
+ render(<LiveProductionPage />)
+ await screen.findByText('PANEL01')
+ expect(screen.getByText('½ paraurti anteriore (lieve)')).toBeInTheDocument()
+ expect(screen.getByText('½ paraurti posteriore (lieve)')).toBeInTheDocument()
+ expect(screen.queryByText(/½ paraurti anteriore\/posteriore/)).not.toBeInTheDocument()
+})
