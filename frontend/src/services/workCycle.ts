@@ -1,11 +1,13 @@
 import type { EstimateLine, JobPhase, MinorDamageTimes } from '../types'
 export const WORK_CYCLE = ['Lavaggio esterno','Smontaggio','Riparazione grandine','Lattoneria','Stuccatura','Incartatura','Verniciatura','Scartatura','Rimontaggio','Meccanica / gommista','Lucidatura','Lavaggio interni','Ritocchi','Consegna'] as const
+export const phaseDisplayName = (name: string) => name === 'Verniciatura' ? 'Verniciatura, carteggiatura e stuccatura' : name
 const normal=(s:string)=>s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 export function cyclePhaseForLine(line:Partial<EstimateLine>) {
  const name=normal(line.standardWorkName || line.categoryOrPhase || '')
+ if(name==='stuccatura'||name==='preparazione')return 'Verniciatura'
  const exact=WORK_CYCLE.find(phase=>normal(phase)===name); if(exact)return exact
  if(name==='incartare')return 'Incartatura';if(name==='scartare')return 'Scartatura'
- if(name==='preparazione')return 'Stuccatura';if(name==='lavaggio')return 'Lavaggio esterno';if(name==='controllo qualita')return 'Ritocchi'
+ if(name==='lavaggio')return 'Lavaggio esterno';if(name==='controllo qualita')return 'Ritocchi'
  if(name.includes('vernici')||line.category==='verniciatura')return 'Verniciatura'
  if(name.includes('grandine'))return 'Riparazione grandine'
  if(name.includes('meccanica')||name.includes('gommista')||line.category==='meccanica')return 'Meccanica / gommista'
@@ -14,7 +16,7 @@ export function cyclePhaseForLine(line:Partial<EstimateLine>) {
 }
 export const SHARED_TIME_PHASES: Record<keyof MinorDamageTimes, string[]> = {
  sr: ['Smontaggio', 'Rimontaggio'], is: ['Incartatura', 'Scartatura'],
- v: ['Stuccatura', 'Verniciatura'], lc: ['Lucidatura'], la: ['Lavaggio interni'],
+ v: ['Verniciatura'], lc: ['Lucidatura'], la: ['Lavaggio interni'],
 }
 export function cyclePhasesForLine(line: Partial<EstimateLine>): string[] {
  if (line.minorDamageTimes) return Object.entries(line.minorDamageTimes)
@@ -24,7 +26,7 @@ export function cyclePhasesForLine(line: Partial<EstimateLine>): string[] {
 }
 export function buildSelectedWorkCycle(lines:EstimateLine[], selected:string[], exteriorWashMinutes = 25): JobPhase[] {
  if(selected.some(name=>!WORK_CYCLE.includes(name as typeof WORK_CYCLE[number])))throw new Error('Fase di lavorazione non valida.')
- const requested=new Set([...selected,...lines.flatMap(cyclePhasesForLine),'Consegna'])
+ const requested=new Set([...selected.map(name=>name==='Stuccatura'?'Verniciatura':name),...lines.flatMap(cyclePhasesForLine),'Consegna'])
  const grouped = new Map<string, {key: string; minutes: number; names: string[]}>()
  for (const [key, names] of Object.entries(SHARED_TIME_PHASES)) {
   const total = lines.reduce((sum, line) => sum + Math.max(0, line.minorDamageTimes?.[key as keyof MinorDamageTimes] ?? 0) * (line.calculationType === 'per-panel' ? line.quantity : 1), 0)

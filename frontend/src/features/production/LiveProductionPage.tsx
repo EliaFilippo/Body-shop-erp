@@ -1,3 +1,4 @@
+import { phaseDisplayName } from '../../services/workCycle'
 import { panelTaskDescription } from '../../services/eliasPriceList'
 import { PhaseNotices } from './PhaseNotices'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -153,7 +154,7 @@ export function LiveProductionPage() {
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
       {feed.operatorName && <section className="live-day-hours"><h2>I miei lavori assegnati</h2>
-        {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.plate} · {task.phaseName}</strong>
+        {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
           <p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
           {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}>Apri vettura e fase</a>
@@ -191,22 +192,22 @@ export function LiveProductionPage() {
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy || job.ownStatus === 'running'}
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
-              {availablePhases.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>}
+              {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}</option>)}</select></label>}
             <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected) || !!(ownRunning && ownRunning.jobId !== job.jobId)}
               onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'start', p_phase_id: selected || null })}>{job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
             {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{panelTaskDescription(task.description, task.panel)}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}
             {!!job.phases?.length && <section className="live-phases" aria-label={`Fasi di ${job.plate}`}><h3>Avanzamento fasi</h3>
-              <p>{availablePhases[0] ? `Prossima fase da completare: ${availablePhases[0].name}` : 'Nessuna fase aperta e disponibile'}</p>
+              <p>{availablePhases[0] ? `Prossima fase da completare: ${phaseDisplayName(availablePhases[0].name)}` : 'Nessuna fase aperta e disponibile'}</p>
               <ol>{job.phases.filter(p => !p.notRequired).map(phase => <li key={phase.id}>
-                <strong>{phase.status === 'Completata' ? '✓ ' : ''}{phase.name}</strong>
-                {phase.clock && <p>{phase.standardClock ? 'Tempo standard residuo' : 'Tempo residuo per te'}: {stale ? 'Da aggiornare' : clockText(liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds)}</p>}
+                <strong>{phase.status === 'Completata' ? '✓ ' : ''}{phaseDisplayName(phase.name)}</strong>
+                {phase.clock && phase.name !== 'Consegna' && <p>{phase.standardClock ? 'Tempo standard residuo' : 'Tempo residuo per te'}: {stale ? 'Da aggiornare' : (liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds === null ? 'Da configurare' : clockText(liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds))}</p>}
                 {phase.checkedBy && phase.checkedAt ? <p>Visto di {phase.checkedBy} · {new Date(phase.checkedAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
                   : <p>{phase.status === 'Completata' ? 'Completata nel gestionale · visto non registrato' : phase.status}</p>}
                 {phase.blockedReason && phase.status === 'Bloccata' && <p>{phase.blockedReason}</p>}
                 {!['Completata', 'Bloccata'].includes(phase.status) && <button disabled={busy || stale || !phase.canComplete}
-                  onClick={() => void act('production_complete_phase', { p_job_id: job.jobId, p_phase_id: phase.id })}>✓ Completa {phase.name}</button>}
+                  onClick={() => void act('production_complete_phase', { p_job_id: job.jobId, p_phase_id: phase.id })}>✓ Completa {phaseDisplayName(phase.name)}</button>}
               </li>)}</ol><p>Il visto registra chi ha completato la fase e ferma il suo timer su quella fase. Gli altri operatori devono prima mettere in pausa o terminare il lavoro sulla stessa fase.</p>
             </section>}
             <PhaseNotices connection={{ companyId, session, config: config! }} jobId={job.jobId} phases={job.phases ?? []} office={['owner', 'office'].includes(feed.role)} />
