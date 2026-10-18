@@ -1,11 +1,11 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
-import { calculateQuoteHourBudget, quoteStructureRate } from './quoteHourBudget'
+import { budgetLineSnapshot, calculateQuoteHourBudget, quoteStructureRate } from './quoteHourBudget'
 import { buildAcceptanceQuoteSummary, createAcceptanceDraft, createDefaultQuote } from './acceptance'
 import { chooseEliasPrice, acceptanceEstimateLines, recalculateDamageLine } from './damageQuote'
 import { ELIAS_PRICE_LIST } from './eliasPriceList'
 import { defaultPlannerSettings, emptyData } from './erp'
-import { createEstimate } from './workflow'
+import { approveEstimateAndCreateJob, createEstimate } from './workflow'
 import { loadDatabase, saveDatabase } from './database'
 
 function fixture() {
@@ -139,4 +139,20 @@ describe('ore economiche a disposizione', () => {
     const converted = createEstimate(loaded, { customerId: 'c', vehicleId: 'v', plate: 'TEST001', companyName: '', contactName: '', date: '2026-10-03', notes: '', lines: acceptanceEstimateLines(quote, settings) })
     expect(converted.estimates![0].lines[0]).toMatchObject({ budgetOperatorId: 'a', budgetStructureRate: 30, budgetOperatorRate: 20, budgetMaterialsCost: 30, internalCostAmount: 120, theoreticalMarginAmount: 30 })
   })
+})
+
+it('le cinque ore coperte dal prezzo non allungano le due ore del tempario e la differenza resta margine', () => {
+  const { settings, quote, line } = fixture()
+  const timed = recalculateDamageLine({ ...line, unitPrice:312.5, estimatedMinutes:120, minorDamageTimes:{v:120} }, settings)
+  const input = { ...quote, manualOnlyPricing:true, damageLines:[timed] }
+  const before = JSON.stringify(input)
+  const result = calculateQuoteHourBudget(input,settings)
+  expect(result).toMatchObject({maxMinutes:300,plannedMinutes:120,freedCapacityMinutes:180,margin:150,revenue:312.5,materialsCost:62.5,costLive:162.5})
+  const saved = budgetLineSnapshot(timed,input,settings)
+  expect(saved).toMatchObject({estimatedMinutes:120,unitPrice:312.5,internalCostAmount:162.5,theoreticalMarginAmount:150})
+  expect(JSON.stringify(input)).toBe(before)
+  const estimated = createEstimate({...structuredClone(emptyData),plannerSettings:settings}, {customerId:'c',plate:'MARGINE',companyName:'',contactName:'',date:'2026-10-18',notes:'',lines:acceptanceEstimateLines(input,settings)})
+  const job=approveEstimateAndCreateJob(estimated,estimated.estimates![0].id).jobs![0]
+  expect(job.phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(120)
+  expect(job.lines[0].theoreticalMarginAmount).toBe(150)
 })

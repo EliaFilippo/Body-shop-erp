@@ -1,7 +1,6 @@
 import { quoteCustomerLines } from '../../services/quotePricing'
 import type { AcceptanceQuote, PlannerSettings } from '../../types'
 import { calculateQuoteHourBudget, quoteOperatorRate } from '../../services/quoteHourBudget'
-import { recalculateDamageLine } from '../../services/damageQuote'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const time = (minutes: number | null) => minutes === null ? 'Da configurare' : `${Math.floor(minutes / 60)} h ${minutes % 60} min`
@@ -16,7 +15,7 @@ export function QuoteHourBudget({ quote, settings, activePanelId, onChange }: {
   const basePanelMinutes = budget.structure.allInRate > 0 && rows.length ? Math.max(0, Math.floor(rows.reduce((sum, row) => sum + row.revenue - row.materialsCost, 0) / budget.structure.allInRate * 60 + 1e-8)) : null
   const choices = settings.operators.filter((operator) => operator.active)
   return <section className="quote-hour-budget" aria-label="Ore a disposizione">
-    <h3>Ore a disposizione su questo preventivo</h3>
+    <h3>Tempo tecnico e margine del preventivo</h3>
     <p>Il prezzo senza IVA, meno il {budget.materialPercent}% di materiali e gli altri costi diretti, determina il budget di lavoro. La tariffa interna complessiva è la somma delle spese mensili divisa per le ore lavorabili del mese.</p>
     <div className="quote-budget-grid">
       <div><span>Spese mensili complessive</span><strong>{money(budget.structure.totalMonthlyCosts)}</strong></div>
@@ -37,11 +36,12 @@ export function QuoteHourBudget({ quote, settings, activePanelId, onChange }: {
       <div><span>Costo struttura, personale separato</span><strong>{money(budget.structure.rate)}/h</strong></div>
       <div><span>Ore massime con operatore a pareggio</span><strong>{time(budget.maxMinutes)}</strong></div>
       <div><span>Ore con operatore e margine {budget.marginPercent}%</span><strong>{time(budget.targetMinutes)}</strong></div>
-      <div><span>Ore attualmente previste</span><strong>{time(Math.round(budget.plannedMinutes))}</strong></div>
+      <div><span>Tempo tecnico da assegnare</span><strong>{time(Math.round(budget.plannedMinutes))}</strong></div>
     </div>
     {budget.error && <p role="alert" className="damage-incomplete">{budget.error}</p>}
     {!budget.error && budget.maxMinutes !== null && budget.plannedMinutes > budget.maxMinutes && <p role="alert" className="damage-incomplete">Le ore previste superano il budget a pareggio. Riduci il tempo o rivedi il prezzo.</p>}
     {!budget.error && budget.targetMinutes !== null && budget.maxMinutes !== null && budget.plannedMinutes > budget.targetMinutes && budget.plannedMinutes <= budget.maxMinutes && <p className="damage-incomplete">Le ore previste lasciano un margine inferiore all’obiettivo impostato.</p>}
+    {budget.freedCapacityMinutes !== null && <p>Capacità libera rispetto al limite economico: <strong>{time(Math.round(budget.freedCapacityMinutes))}</strong>. Queste ore non vengono assegnate né aggiunte alle fasi: restano disponibili per altri lavori.</p>}
     {!budget.error && budget.fullyTimed && <p>Margine previsto dopo tutti i costi: <strong>{money(budget.margin)}</strong>.</p>}
     {quoteCustomerLines(quote).some((line) => line.kind === 'labor' && line.quantity > 0) && <p className="damage-incomplete">Sono presenti ore aggiuntive oltre ai pannelli. Se erano un valore iniziale e non rappresentano altri lavori, azzerale negli importi aggiuntivi.</p>}
     <small>Il limite economico non è una stima tecnica del danno né la disponibilità del calendario. Le ore con margine mantengono la percentuale impostata in Costi e tariffe interne.</small>
@@ -50,7 +50,7 @@ export function QuoteHourBudget({ quote, settings, activePanelId, onChange }: {
       <p>Ore del pannello con tariffa interna complessiva: <strong>{time(basePanelMinutes)}</strong> (prima degli altri costi diretti).</p>
       <p>Ore del pannello con operatore: <strong>{time(panelMinutes)}</strong>{budget.directCosts > 0 ? ' (prima degli altri costi diretti)' : ''}.</p>
       {rows.map((row) => <small key={row.lineId}>{row.operatorName || 'Operatore da scegliere'}: struttura {money(row.structureRate)}/h + operatore {money(row.operatorRate)}/h = {money(row.combinedRate)}/h.</small>)}
-      <button type="button" className="secondary" disabled={Boolean(budget.error) || budget.directCosts > 0 || lines.some(line => Boolean(line.minorDamageTimes)) || lines.some((line) => line.damageSeverity === 'grave') || rows.some((row) => !row.targetMinutes)} onClick={() => onChange({ ...quote, damageLines: (quote.damageLines ?? []).map((line) => { const row = rows.find((item) => item.lineId === line.id); return row && row.targetMinutes !== null ? recalculateDamageLine({ ...line, estimatedMinutes: row.targetMinutes }, settings) : line }) })}>Usa le ore con margine su questo pannello</button>
+      <p>Il tempario determina i tempi di lavorazione. Il prezzo e il limite economico non allungano le fasi. Il margine è previsto: verrà confrontato con i tempi e i costi effettivi.</p>
     </div>}
     <details className="damage-extra-details"><summary>Confronta le ore con gli altri operatori</summary><div className="elias-price-table"><table><thead><tr><th>Operatore</th><th>Costo operatore/h</th><th>Costo totale/h</th><th>Ore a pareggio</th></tr></thead><tbody>{budget.comparisons.map((operator) => <tr key={operator.id}><td>{operator.name}</td><td>{money(operator.operatorRate)}</td><td>{money(operator.combinedRate)}</td><td>{time(operator.maxMinutes)}</td></tr>)}</tbody></table></div></details>
   </section>

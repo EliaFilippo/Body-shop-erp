@@ -170,18 +170,21 @@ export function LiveProductionPage() {
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
           const standardClock = selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
           const clock = selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
-          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && (clock.warning || standardClock?.warning) ? 'live-warning' : ''}`}>
+          const workClock = standardClock ?? clock
+          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && (workClock.warning || clock.warning) ? 'live-warning' : ''}`}>
             <h2>{job.plate}</h2><p>Commessa {job.number}</p>
-            <p>{selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
-            <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? clock.individualSeconds : clock.seconds)}</strong>
+            <p>{standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
+            <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
             {selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
             {standardClock && <section aria-label="Tempo standard della lavorazione"><p>Tempo standard · {selectedPhase?.standardClock?.label}</p>
-              <strong>{stale ? 'Da aggiornare' : clockText(standardClock.individualSeconds)}</strong>
               <p>Totale condiviso: {selectedPhase?.standardClock?.totalMinutes} min. Ogni minuto lavorato da ciascun operatore consuma questo tempo.</p>
               {!stale && standardClock.warning && <p role="status">{standardClock.exhausted ? 'Tempo standard superato: segnala lo scostamento all’ufficio.' : 'Attenzione: rimane meno del 20% del tempo standard.'}</p>}
             </section>}
+            <details><summary>Limite economico · non aumenta il tempo di lavorazione</summary>
+              <p>Residuo economico della fase: {stale ? 'Da aggiornare' : clockText(clock.individualSeconds)}</p>
             <p>Residuo complessivo vettura: {stale ? 'Da aggiornare' : clockText(totalClock.individualSeconds)}</p>
             {clock.seconds !== null && phaseActiveCount > 0 && feed.operatorName && <p>{`${selectedPhase?.clock ? 'Tempo residuo fase con' : 'Tempo residuo con'} ${phaseActiveCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
+            </details>
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy || job.ownStatus === 'running'}
@@ -197,7 +200,7 @@ export function LiveProductionPage() {
               <p>{availablePhases[0] ? `Prossima fase da completare: ${availablePhases[0].name}` : 'Nessuna fase aperta e disponibile'}</p>
               <ol>{job.phases.filter(p => !p.notRequired).map(phase => <li key={phase.id}>
                 <strong>{phase.status === 'Completata' ? '✓ ' : ''}{phase.name}</strong>
-                {phase.clock && <p>Tempo residuo per te: {stale ? 'Da aggiornare' : clockText(liveCountdown({ ...job, ...phase.clock }, (performance.now() - lastSample.current) / 1000).individualSeconds)}</p>}
+                {phase.clock && <p>{phase.standardClock ? 'Tempo standard residuo' : 'Tempo residuo per te'}: {stale ? 'Da aggiornare' : clockText(liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds)}</p>}
                 {phase.checkedBy && phase.checkedAt ? <p>Visto di {phase.checkedBy} · {new Date(phase.checkedAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
                   : <p>{phase.status === 'Completata' ? 'Completata nel gestionale · visto non registrato' : phase.status}</p>}
                 {phase.blockedReason && phase.status === 'Bloccata' && <p>{phase.blockedReason}</p>}

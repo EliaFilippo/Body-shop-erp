@@ -21,13 +21,10 @@ function Harness() {
 describe('budget ore nel preventivo', () => {
   it('mostra i minuti economici senza sovrascrivere il tempario tecnico confermato', () => {
     render(<Harness />)
-    const button = screen.getByRole('button', { name: 'Usa le ore con margine su questo pannello' })
-    expect(button).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Usa le ore con margine su questo pannello' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Operatore di riferimento del preventivo'), { target: { value: 'a' } })
     expect(screen.getAllByText('2 h 24 min').length).toBeGreaterThan(0)
     expect(screen.getByText('1 h 48 min')).toBeInTheDocument()
-    expect(button).toBeDisabled()
-    fireEvent.click(button)
     expect(latest.damageLines![0]).toMatchObject({ estimatedMinutes: 180, unitPrice: 150, materialsIncluded: true })
     expect(latest.budgetOperatorId).toBe('a')
   })
