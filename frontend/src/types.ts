@@ -483,7 +483,7 @@ export interface MinorDamagePreset {
   panelId: string
   panelName: string
   updatedAt: string
-  lines: Array<{ workId: string; minutes: number; price: number; priceVariant?: string; materialsIncluded?: boolean; minorDamageTimes?: MinorDamageTimes }>
+  lines: Array<{ workId: string; minutes: number; price: number; priceVariant?: string; materialsIncluded?: boolean; minorDamageTimes?: MinorDamageTimes; optionalPanelTimes?: Pick<MinorDamageTimes, 'sr' | 'lc'> }>
 }
 
 export type InternalMonthlyCostCategory =
@@ -986,6 +986,7 @@ export type WorkCategory = 'carrozzeria' | 'verniciatura' | 'ricambi' | 'materia
 export type MinorDamageTimes = Partial<Record<'sr' | 'is' | 'v' | 'lc' | 'la', number>>
 
 export interface EstimateLine {
+  optionalPanelTimes?: Pick<MinorDamageTimes, 'sr' | 'lc'>
   minorDamageTimes?: MinorDamageTimes
   id: string
   /** Purchase/direct cost per unit, excluding labour, frozen from acceptance. */
