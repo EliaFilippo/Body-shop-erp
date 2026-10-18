@@ -229,6 +229,13 @@ export function WorkflowPage({
   const [unlockNow, setUnlockNow] = useState(Date.now())
   useEffect(() => { const timer = window.setInterval(() => setUnlockNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   const ownerUnlocked = isOwner && unlockUntil > unlockNow
+  useEffect(() => {
+    if (!ownerUnlocked && modal?.type === 'estimate-edit') {
+      const estimate = (data.estimates ?? []).find(item => item.id === modal.estimateId)
+      if (estimate && (estimate.status === 'Approvato' || estimate.convertedJobId)) setModal(null)
+    }
+  }, [ownerUnlocked, modal, data.estimates])
+  useEffect(() => { const hide = () => { if (document.hidden) { setUnlockUntil(0); setUnlockPassword('') } }; document.addEventListener('visibilitychange',hide); return()=>document.removeEventListener('visibilitychange',hide) }, [])
 
   const [estimateStatusFilter, setEstimateStatusFilter] = useState<'Tutti' | EstimateStatus>('Tutti')
   const [jobStatusFilter, setJobStatusFilter] = useState<'Tutti' | JobStatus>('Tutti')

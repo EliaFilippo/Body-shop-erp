@@ -49,6 +49,8 @@ jobs:
         run: psql -f supabase/tests/production_overruns.sql
       - name: Duty visibility, legacy phase authorization and phase review
         run: psql -f supabase/tests/operator_duties_report.sql
+      - name: Owner password for staff hours and productivity, expiry and self-access
+        run: psql -f supabase/tests/private_employee_reports.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
