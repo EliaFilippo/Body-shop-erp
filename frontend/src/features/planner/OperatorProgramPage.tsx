@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { isVehicleWaitingForCone } from '../../services/erp'
-import { recalculateOperatorPrograms, todayKey } from '../../services/planner'
+import { recalculateOperatorPrograms, selectSchedulablePhase, todayKey } from '../../services/planner'
+import { supportsOperatorDuty } from '../../services/operatorSkills'
 import type { ErpData } from '../../types'
 
 const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(iso))
@@ -27,6 +28,33 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
       <div className="planner-actions">
         <button className="primary" onClick={() => onChange(recalculateOperatorPrograms(data, date, 'Ricalcolo piano manuale'))}>Ricalcola piano</button>
       </div>
+    </section>
+
+    <section className="panel table-panel">
+      <h3>Assegna il prossimo lavoro</h3>
+      <p>Scegli un operatore per la fase, oppure lascia Automatico. Il prezzo del preventivo resta invariato.</p>
+      {(data.jobs ?? []).filter(job => !['Consegnata', 'Annullata'].includes(job.status)).map(job => {
+        const phase = selectSchedulablePhase(job)?.phase
+        if (!phase) return null
+        const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))
+        return <label key={job.id}>{job.plate} · {phase.name}
+          <select aria-label={`Assegnazione ${job.plate}`} value={phase.preferredOperatorId ?? ''} disabled={phase.status === 'In lavorazione'} onChange={event => {
+            const operatorId = event.target.value
+            const operator = operators.find(o => o.id === operatorId)
+            const next = { ...data, jobs: (data.jobs ?? []).map(j => j.id !== job.id ? j : { ...j,
+              phases: j.phases.map(p => p.id === phase.id ? { ...p, preferredOperatorId: operatorId || undefined } : p),
+              updatedAt: new Date().toISOString(), history: [{ id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'Ufficio', message: `${phase.name}: ${operator ? `operatore scelto ${operator.name}` : 'assegnazione automatica per margine'}` }, ...j.history],
+            }) }
+            onChange(recalculateOperatorPrograms(next, date, 'Scelta operatore aggiornata'))
+          }}>
+            <option value="">Automatico · in base al margine</option>
+            {phase.preferredOperatorId && !operators.some(o => o.id === phase.preferredOperatorId) && <option value={phase.preferredOperatorId}>Operatore non disponibile: modifica la scelta</option>}
+            {operators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <small>{phase.status === 'In lavorazione' ? 'Fase già in corso: assegnazione conservata fino alla conclusione.' : 'Solo operatori attivi e abilitati alla mansione. La scelta manuale resta nei ricalcoli.'}</small>
+        </label>
+      })}
+      {!(data.jobs ?? []).some(job => !['Consegnata', 'Annullata'].includes(job.status)) && <p>Conferma un preventivo per assegnare la prima commessa.</p>}
     </section>
 
     <section className="panel table-panel">
