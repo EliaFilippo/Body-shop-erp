@@ -8,7 +8,7 @@ do $$begin
   exception when raise_exception then if sqlerrm not like 'Solo il titolare%' then raise;end if;end;
 end $$;
 reset role;
-update production_live_sessions set status='running' where user_id='00000000-0000-0000-0000-000000000002';
+update production_live_sessions set status='running' where id=(select id from production_live_sessions where user_id='00000000-0000-0000-0000-000000000002' limit 1);
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 set role authenticated;
 do $$begin
@@ -28,3 +28,4 @@ do $$declare segments_before bigint; members_before bigint;begin
   exception when raise_exception then if sqlerrm not like 'Solo il titolare%' then raise;end if;end;
 end $$;
 rollback;
+
