@@ -36,8 +36,8 @@ describe('tempario lieve condiviso', () => {
   expect(job.phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(225)
   expect(job.phases.find(p=>p.name==='Smontaggio')).toMatchObject({ estimatedMinutes:90, sharedTimeMinutes:90, sharedTimeKey:'sr' })
   expect(job.phases.find(p=>p.name==='Rimontaggio')).toMatchObject({ estimatedMinutes:0, sharedTimeMinutes:90, sharedTimeKey:'sr', notRequired:false })
-  expect(job.phases.find(p=>p.name==='Stuccatura')).toMatchObject({ estimatedMinutes:75, sharedTimeKey:'v' })
-  expect(job.phases.find(p=>p.name==='Verniciatura')).toMatchObject({ estimatedMinutes:0, sharedTimeMinutes:75, technicalWaitMinutes:60, notRequired:false })
+  expect(job.phases.find(p=>p.name==='Stuccatura')).toMatchObject({ estimatedMinutes:0, notRequired:true })
+  expect(job.phases.find(p=>p.name==='Verniciatura')).toMatchObject({ estimatedMinutes:75, sharedTimeMinutes:75, technicalWaitMinutes:60, notRequired:false })
   expect(job.phases.find(p=>p.name==='Lattoneria')?.notRequired).toBe(true)
  })
  it('mantiene manuali danni gravi e lavaggio con sedili; non applica il tempario a preventivi esistenti', () => {
@@ -63,4 +63,11 @@ it('usa 25 minuti di lavaggio esterno per vettura, anche con più pannelli, cons
  expect(job.phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(205)
  const manual=buildSelectedWorkCycle([{...job.lines[0],standardWorkName:'Lavaggio esterno',estimatedMinutes:40,lineTotalMinutes:40}],['Lavaggio esterno'])
  expect(manual.find(p=>p.name==='Lavaggio esterno')!.estimatedMinutes).toBe(40)
+})
+
+it('riunisce anche la vecchia selezione e i minuti manuali di stuccatura nella sola verniciatura',()=>{
+ const source=buildSelectedWorkCycle([{id:'s',description:'Stuccatura',standardWorkName:'Stuccatura',category:'carrozzeria',quantity:1,unitPrice:100,discount:0,vatRate:22,estimatedMinutes:20,lineTotalMinutes:20,taxableAmount:100,vatAmount:22,total:122},
+ {id:'v',description:'Verniciatura',standardWorkName:'Verniciatura',category:'verniciatura',quantity:1,unitPrice:100,discount:0,vatRate:22,estimatedMinutes:40,lineTotalMinutes:40,taxableAmount:100,vatAmount:22,total:122}],['Stuccatura'])
+ expect(source.filter(p=>!p.notRequired).map(p=>p.name)).toEqual(['Verniciatura','Consegna'])
+ expect(source.find(p=>p.name==='Verniciatura')).toMatchObject({estimatedMinutes:60,technicalWaitMinutes:60})
 })
