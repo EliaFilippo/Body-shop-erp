@@ -1,3 +1,5 @@
+import { JobMaterialCosts } from './JobMaterialCosts'
+import { setJobMaterialActualCost } from '../../services/jobMaterialCosts'
 import { FastEstimateEditor } from './FastEstimateEditor'
 import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices'
 import { WorkCycleFields } from '../../components/WorkCycleFields'
@@ -480,6 +482,7 @@ export function WorkflowPage({
     />}
 
     {modal?.type === 'job-edit' && <JobEditor noticesConnection={noticesConnection}
+      onSaveMaterialCost={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Costo reale materiali salvato e margine aggiornato.')}
       data={data}
       customerById={customerById}
       job={jobs.find((job) => job.id === modal.jobId)}
@@ -1698,6 +1701,7 @@ function DirectJobEditor({
 
 function JobEditor({
   noticesConnection,
+  onSaveMaterialCost,
   data,
   customerById,
   job,
@@ -1708,6 +1712,7 @@ function JobEditor({
   onUpdatePhaseEstimatedMinutes,
   onToggleChecklist,
 }: {
+  onSaveMaterialCost: (jobId:string,amount:number,note:string)=>void
   noticesConnection?: NoticesConnection
   data: ErpData
   customerById: (id: string) => Customer | undefined
@@ -1740,6 +1745,7 @@ function JobEditor({
   const totalPlannedMinutes = job.phases.filter((phase) => !phase.notRequired).reduce((sum, phase) => sum + Math.max(0, phase.estimatedMinutes), 0)
 
   return <Modal title={`Scheda commessa ${job.number}`} onClose={onCancel}>
+    <JobMaterialCosts job={job} onSave={(amount,note)=>onSaveMaterialCost(job.id,amount,note)}/>
     <form className="form-grid" onSubmit={(event) => {
       event.preventDefault()
       onSubmit(job.id, { expectedDeliveryDate, priority, responsible, notes })
