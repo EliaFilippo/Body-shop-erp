@@ -39,6 +39,8 @@ jobs:
         run: psql -f supabase/tests/phase_notices.sql
       - name: Owner unbind, running-work guard and preserved history
         run: psql -f supabase/tests/unbind_profile.sql
+      - name: Per-phase budget, preserved global cap and tenant permissions
+        run: psql -f supabase/tests/phase_budgets.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

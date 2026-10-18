@@ -1,3 +1,4 @@
+import { publishProductionJobs } from './services/liveProduction'
 import { quoteCustomerLines } from './services/quotePricing'
 import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
 import { WorkCycleFields } from './components/WorkCycleFields'
@@ -853,6 +854,10 @@ function App() {
             if (expectedRevision === null) return
             const saved = await updateCloudSnapshot(cloudMembership.companyId, expectedRevision, snapshot, cloudSession, cloudConfig)
             cloudRevisionRef.current = saved.revision
+            try {
+              const warnings = await publishProductionJobs(saved.payload, cloudMembership.companyId, saved.revision, cloudSession, cloudConfig)
+              if (warnings.length) setNotice(`Dati salvati. Lavori da completare per i tablet: ${warnings.join(' · ')}`)
+            } catch (problem) { setNotice(`Dati salvati. Pubblicazione lavori sui tablet da riprovare: ${problem instanceof Error ? problem.message : 'collegamento non disponibile'}`) }
           }
           // Un errore temporaneo non deve avvelenare tutti i salvataggi futuri.
           cloudSyncQueueRef.current = cloudSyncQueueRef.current.then(pushSnapshot, pushSnapshot)
