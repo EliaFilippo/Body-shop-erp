@@ -35,7 +35,8 @@ export function buildSelectedWorkCycle(lines:EstimateLine[], selected:string[]):
   .reduce((sum,line)=>sum+Math.max(0,Number(line.lineTotalMinutes ?? ((line.estimatedMinutes ?? line.standardMinutes ?? 0)*(line.calculationType==='per-panel'?line.quantity:1)))),0)
  return WORK_CYCLE.map((name,index)=>{
   const group = grouped.get(name)
-  const allowance = group ? group.minutes + group.names.reduce((sum, stage) => sum + manual(stage), 0) : manual(name)
+  const allowance = group ? group.minutes + group.names.reduce((sum, stage) => sum + manual(stage), 0)
+   : manual(name) || (name === 'Lavaggio esterno' && requested.has(name) ? 25 : 0)
   const countedHere = !group || name === group.names[0]
   return {id:crypto.randomUUID(),name,status:requested.has(name)?'Da fare':'Completata',notRequired:!requested.has(name),cycleOrder:index+1,requiredSkill:name,operatorName:'',
    estimatedMinutes: countedHere ? Math.round(allowance) : 0,
