@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
 import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../services/cloudAuth'
 import { loadCloudSnapshot, type CloudSnapshot } from '../../services/cloudSync'
-import { liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
+import { liveTimeAlert, liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
 import './liveProduction.css'
 import { EmployeeHours, HoursTotals } from './EmployeeHours'
 import { OperatorPinAdmin, OperatorPinLogin } from './OperatorPinAccess'
@@ -133,7 +133,11 @@ export function LiveProductionPage() {
   const stale = performance.now() - lastSample.current > 8000
   const ownRunning = feed?.jobs.find(j => j.ownStatus === 'running')
 
-  return <main className="live-production">
+  const timeAlert = liveTimeAlert(feed, (performance.now() - lastSample.current) / 1000, stale)
+
+  return <main className={`live-production ${timeAlert ? 'live-time-alert-screen' : ''}`}>
+    {timeAlert && <aside className="live-time-alert-banner" role="alert"><strong>{timeAlert.exhausted ? 'TEMPO DELLA FASE ESAURITO' : 'ATTENZIONE: TEMPO RESIDUO AL 20% O MENO'}</strong>
+      <span>{timeAlert.plate} · {timeAlert.phase} · {clockText(timeAlert.seconds)}</span></aside>}
     <header><div><p>ELIAS · BODY SHOP ERP</p><h1>{feed && ['owner', 'office'].includes(feed.role) ? 'Produzione e monte ore' : 'Il mio lavoro'}</h1></div>
       <div>{feed?.operatorName && <strong>{feed.operatorName}</strong>} {session && <button disabled={busy} onClick={() => void logout()}>Esci dal profilo</button>}
         {feed && ['owner','office'].includes(feed.role) && <a href={import.meta.env.BASE_URL}>Gestionale</a>}</div></header>
@@ -173,7 +177,7 @@ export function LiveProductionPage() {
           const standardClock = selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
           const clock = selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
           const workClock = standardClock ?? clock
-          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && (workClock.warning || clock.warning) ? 'live-warning' : ''}`}>
+          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && workClock.warning ? 'live-warning' : ''}`}>
             <h2>{job.plate}</h2><p>Commessa {job.number}</p>
             <p>{standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
             <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>

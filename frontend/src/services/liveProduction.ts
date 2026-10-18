@@ -74,6 +74,20 @@ export function liveCountdown(clock: LiveClock, elapsedSeconds: number) {
   return { seconds, individualSeconds, percent, warning: percent <= 20, exhausted: percent <= 0 }
 }
 
+/** Full-screen warnings belong to the logged-in employee's running technical phase. */
+export function liveTimeAlert(feed: LiveFeed | null, elapsedSeconds: number, stale = false) {
+ if (!feed || stale) return null
+ const job = feed.jobs.find(item => item.ownStatus === 'running')
+ if (!job) return null
+ const phase = job.phases?.find(item => item.id === job.ownPhaseId)
+ if (job.phases?.length && !phase) return null
+ const source = phase?.standardClock ?? phase?.clock ?? job
+ const countdown = liveCountdown({ ...job, ...source }, elapsedSeconds)
+ if (countdown.individualSeconds === null || !countdown.warning) return null
+ return { jobId: job.jobId, plate: job.plate, phase: phase?.standardClock?.label || phase?.name || 'Lavorazione',
+  seconds: countdown.individualSeconds, exhausted: countdown.exhausted }
+}
+
 /** Productive time only: one running segment per operator, pauses excluded. */
 export function interpolateHours(report: HoursReport, elapsedSeconds: number) {
   const elapsed = Math.max(0, elapsedSeconds)
