@@ -21,6 +21,7 @@ describe('profilo tablet', () => {
   it('shows tasks, personal hours and the identity of the phase signer before advancing to the next phase', async () => {
     let checked = false
     mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
       if (name === 'production_phase_notices_action') return []
       if (name === 'production_complete_phase') { checked = true; return null }
       return { companyId: 'c1', role: 'production', operatorName: 'Mario', serverNow: new Date().toISOString(), members: [],
@@ -47,6 +48,7 @@ describe('profilo tablet', () => {
   it('shows a shared low-budget clock and pauses only the authenticated operator', async () => {
     let paused = false
     mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
       if (name === 'production_phase_notices_action') return []
       if (name === 'production_timer_action') { paused = true; return null }
       return { companyId: 'c1', role: 'production', operatorName: 'Mario', serverNow: new Date().toISOString(), members: [], jobs: [{
@@ -70,6 +72,7 @@ it('allows the owner to clear the operator binding and displays the saved result
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ company_id: 'c1', role: 'owner' }]))))
   let bound = true
   mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
     if (name === 'production_unbind_profile') { bound = false; return null }
     return { companyId: 'c1', role: 'owner', operatorName: null, serverNow: new Date().toISOString(), jobs: [], members: [{ userId: 'u1', name: 'Filippo Elia', operatorId: bound ? 's' : null }], staff: [] }
   })
@@ -83,6 +86,7 @@ it('allows the owner to clear the operator binding and displays the saved result
 
 it('shows the selected phase countdown separately from the whole vehicle', async () => {
   mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
     if (name === 'production_phase_notices_action') return []
     return { companyId: 'c1', role: 'production', operatorName: 'Mario', serverNow: new Date().toISOString(), members: [], jobs: [{
       jobId: 'j1', plate: 'PHASE123', number: '1', remainingSeconds: 1800, ownRemainingSeconds: 1800, ownBurnFactor: 0, remainingPercent: 100, activeCount: 0, ownStatus: null, operators: [],
@@ -100,6 +104,7 @@ it('shows the selected phase countdown separately from the whole vehicle', async
 
 it('keeps the shared standard allowance distinct from the economic countdown with two colleagues', async () => {
   mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
     if(name==='production_phase_notices_action')return []
     return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
       jobId:'j1',plate:'SHARED01',number:'1',remainingSeconds:3600,remainingPercent:100,activeCount:2,ownStatus:'running',ownPhaseId:'s',operators:[{name:'Stefania',status:'running'},{name:'Martin',status:'running'}],
@@ -119,6 +124,7 @@ it('keeps the shared standard allowance distinct from the economic countdown wit
 
 it('shows the remaining washing standard on a paused legacy job without blaming a missing rate', async () => {
  mocked.rpc.mockImplementation(async (name:string)=> {
+ if(name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
   if(name==='production_phase_notices_action')return []
   return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
    jobId:'j1',plate:'HFIEJI',number:'COMM-00001',remainingSeconds:3600,remainingPercent:100,activeCount:0,ownStatus:'paused',ownPhaseId:'wash',operators:[{name:'Stefania',status:'paused'}],
@@ -137,6 +143,7 @@ it('shows the remaining washing standard on a paused legacy job without blaming 
 
 it('shows the selected front and rear bumper as individual work items on legacy jobs', async () => {
  mocked.rpc.mockImplementation(async (name:string)=> {
+ if(name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
   if(name==='production_phase_notices_action')return []
   return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
    jobId:'j1',plate:'PANEL01',number:'1',remainingSeconds:3600,remainingPercent:100,activeCount:0,ownStatus:null,operators:[],
@@ -154,6 +161,7 @@ it('shows the selected front and rear bumper as individual work items on legacy 
 it('colora l’intera pagina al 20% della fase attiva e spegne l’avviso quando Stefania mette in pausa',async()=>{
  let paused=false
  mocked.rpc.mockImplementation(async(name:string)=>{
+ if(name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
   if(name==='production_phase_notices_action')return []
   if(name==='production_timer_action'){paused=true;return null}
   return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{

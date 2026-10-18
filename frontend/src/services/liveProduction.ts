@@ -6,11 +6,11 @@ export interface LiveClock {
   jobId: string; plate: string; number: string; remainingSeconds: number | null;
   remainingPercent: number; activeCount: number; ownStatus: 'running' | 'paused' | 'finished' | null;
   operators: { name: string; status: string }[];
-  ownRemainingSeconds?: number | null; ownBurnFactor?: number; ownPhaseId?: string | null;
+  overrunSeconds?: number; ownRemainingSeconds?: number | null; ownBurnFactor?: number; ownPhaseId?: string | null;
   phases?: LivePhase[];
   tasks?: { id: string; description: string; panel?: string; quantity: number }[];
 }
-export interface LivePhase { standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
+export interface LivePhase { standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
 export interface HoursDay { date: string; workedSeconds: number; plannedSeconds: number | null; ordinarySeconds: number | null; extraSeconds: number | null; running: boolean }
 export interface HoursReport {
   operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];
@@ -71,7 +71,11 @@ export function liveCountdown(clock: LiveClock, elapsedSeconds: number) {
     ? Math.max(0, clock.remainingPercent * (seconds ?? 0) / clock.remainingSeconds) : clock.remainingPercent
   const individualSeconds = clock.ownRemainingSeconds === undefined ? seconds : clock.ownRemainingSeconds === null ? null
     : Math.max(0, clock.ownRemainingSeconds - elapsed * (clock.ownBurnFactor ?? 0))
-  return { seconds, individualSeconds, percent, warning: percent <= 20, exhausted: percent <= 0 }
+  // The server keeps productive segments running after zero. Extrapolate person-time only.
+  const burn = clock.ownBurnFactor ?? (clock.activeCount > 0 ? 1 : 0)
+  const base = clock.ownRemainingSeconds === undefined ? clock.remainingSeconds : clock.ownRemainingSeconds
+  const overrunSeconds = base === null ? 0 : (clock.overrunSeconds ?? 0) + Math.max(0, elapsed * burn - base)
+  return { seconds, individualSeconds, overrunSeconds, percent, warning: percent <= 20, exhausted: percent <= 0 }
 }
 
 /** Full-screen warnings belong to the logged-in employee's running technical phase. */
@@ -85,7 +89,7 @@ export function liveTimeAlert(feed: LiveFeed | null, elapsedSeconds: number, sta
  const countdown = liveCountdown({ ...job, ...source }, elapsedSeconds)
  if (countdown.individualSeconds === null || !countdown.warning) return null
  return { jobId: job.jobId, plate: job.plate, phase: phase?.standardClock?.label || phase?.name || 'Lavorazione',
-  seconds: countdown.individualSeconds, exhausted: countdown.exhausted }
+  seconds: countdown.individualSeconds, overrunSeconds: countdown.overrunSeconds, exhausted: countdown.exhausted }
 }
 
 /** Productive time only: one running segment per operator, pauses excluded. */
