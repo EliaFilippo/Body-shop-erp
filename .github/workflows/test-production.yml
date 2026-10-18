@@ -41,6 +41,8 @@ jobs:
         run: psql -f supabase/tests/unbind_profile.sql
       - name: Per-phase budget, preserved global cap and tenant permissions
         run: psql -f supabase/tests/phase_budgets.sql
+      - name: Legacy exterior washing, elapsed time and unchanged budgets
+        run: psql -f supabase/tests/exterior_wash_missing_time.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
