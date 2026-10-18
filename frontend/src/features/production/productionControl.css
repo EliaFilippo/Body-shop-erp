@@ -1,0 +1,9 @@
+.production-control { margin-bottom: 1rem; }
+.production-control details { padding: .8rem; border: 1px solid #857657; border-radius: .75rem; }
+.production-control summary { cursor: pointer; font-weight: 700; }
+.production-overruns { border: 2px solid #ee5a50; background: #521b23; color: #fff; border-radius: .75rem; padding: 1rem; margin-bottom: .7rem; }
+.production-overruns article { border-top: 1px solid #bc7373; padding: .75rem 0; }
+.production-overruns button { background: #fff0ce; color: #32200a; }
+.production-score-table { overflow-x: auto; }
+.production-score-table table { width: 100%; border-collapse: collapse; }
+.production-score-table td, .production-score-table th { padding: .65rem; border-bottom: 1px solid #887d6a; text-align: left; }

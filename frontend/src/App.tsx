@@ -1,3 +1,4 @@
+import { ProductionControlPanel } from './features/production/ProductionControlPanel'
 import { EliasCatalogSettings } from './features/catalog/EliasCatalogSettings'
 import { publishProductionJobs } from './services/liveProduction'
 import { quoteCustomerLines } from './services/quotePricing'
@@ -1022,6 +1023,7 @@ function App() {
       {error && <div className="toast error"><span>{error}</span>{duplicateVehicle && <button onClick={() => { setView('vehicles'); setQuery(normalizePlate(duplicateVehicle.plate)); setModal({ type: 'vehicle', item: duplicateVehicle }); setDuplicateVehicleId(null); setError('') }}>Apri vettura</button>}<button onClick={() => { setDuplicateVehicleId(null); setError('') }}>×</button></div>}
       {notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
       <div className="content">
+            {cloudConfig && cloudSession && cloudMembership && cloudMembership.role !== 'production' && <ProductionControlPanel connection={{ config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId }} />}
         {view === 'dashboard' && <Dashboard data={data} setView={setView} onNewVehicle={() => {
           if (data.customers.length) setModal({ type: 'vehicle' })
           else {

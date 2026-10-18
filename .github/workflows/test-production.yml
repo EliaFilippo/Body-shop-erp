@@ -45,6 +45,8 @@ jobs:
         run: psql -f supabase/tests/exterior_wash_missing_time.sql
       - name: Legacy demo technical allowances, merged preparation and preserved worked time
         run: psql -f supabase/tests/demo_technical_times.sql
+      - name: Phase overruns, office alerts and fair productivity
+        run: psql -f supabase/tests/production_overruns.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
