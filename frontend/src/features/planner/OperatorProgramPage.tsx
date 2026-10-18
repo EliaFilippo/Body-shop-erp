@@ -38,7 +38,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
         if (!phase) return null
         const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))
         return <label key={job.id}>{job.plate} · {phase.name}
-          <select aria-label={`Assegnazione ${job.plate}`} value={phase.preferredOperatorId ?? ''} disabled={phase.status === 'In lavorazione'} onChange={event => {
+          <select aria-label={`Assegnazione ${job.plate}`} value={phase.preferredOperatorId ?? ''} onChange={event => {
             const operatorId = event.target.value
             const operator = operators.find(o => o.id === operatorId)
             const next = { ...data, jobs: (data.jobs ?? []).map(j => j.id !== job.id ? j : { ...j,
@@ -51,7 +51,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
             {phase.preferredOperatorId && !operators.some(o => o.id === phase.preferredOperatorId) && <option value={phase.preferredOperatorId}>Operatore non disponibile: modifica la scelta</option>}
             {operators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
-          <small>{phase.status === 'In lavorazione' ? 'Fase già in corso: assegnazione conservata fino alla conclusione.' : 'Solo operatori attivi e abilitati alla mansione. La scelta manuale resta nei ricalcoli.'}</small>
+          <small>{'Automatico è la scelta iniziale. Puoi cambiare operatore anche a fase iniziata. Per il passaggio effettivo, il precedente operatore preme Pausa e il nuovo preme Start: le ore restano ai rispettivi profili.'}</small>
         </label>
       })}
       {!(data.jobs ?? []).some(job => !['Consegnata', 'Annullata'].includes(job.status)) && <p>Conferma un preventivo per assegnare la prima commessa.</p>}
