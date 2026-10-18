@@ -80,3 +80,39 @@ it('allows the owner to clear the operator binding and displays the saved result
   await waitFor(() => expect(select).toHaveValue(''))
   expect(mocked.rpc).toHaveBeenCalledWith('production_unbind_profile', { p_company_id: 'c1', p_user_id: 'u1' }, expect.anything(), expect.anything())
 })
+
+it('shows the selected phase countdown separately from the whole vehicle', async () => {
+  mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_phase_notices_action') return []
+    return { companyId: 'c1', role: 'production', operatorName: 'Mario', serverNow: new Date().toISOString(), members: [], jobs: [{
+      jobId: 'j1', plate: 'PHASE123', number: '1', remainingSeconds: 1800, ownRemainingSeconds: 1800, ownBurnFactor: 0, remainingPercent: 100, activeCount: 0, ownStatus: null, operators: [],
+      phases: [300, 1200].map((seconds, i) => ({ id: `p${i}`, name: i ? 'Verniciatura' : 'Preparazione', notRequired: false, status: 'Da fare', canComplete: false, checkedBy: null, checkedAt: null,
+        clock: { remainingSeconds: seconds, ownRemainingSeconds: seconds, ownBurnFactor: 0, remainingPercent: 100, activeCount: 0 } })),
+    }] }
+  })
+  render(<LiveProductionPage />)
+  await screen.findByText('PHASE123')
+  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:05:00')
+  expect(screen.getByText('Residuo complessivo vettura: 0:30:00')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Fase da lavorare su PHASE123'), { target: { value: 'p1' } })
+  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:20:00')
+})
+
+it('keeps the shared standard allowance distinct from the economic countdown with two colleagues', async () => {
+  mocked.rpc.mockImplementation(async (name: string) => {
+    if(name==='production_phase_notices_action')return []
+    return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{
+      jobId:'j1',plate:'SHARED01',number:'1',remainingSeconds:3600,remainingPercent:100,activeCount:2,ownStatus:'running',ownPhaseId:'s',operators:[{name:'Stefania',status:'running'},{name:'Martin',status:'running'}],
+      phases:[{id:'s',name:'Smontaggio',status:'Da fare',notRequired:false,canComplete:false,checkedBy:null,checkedAt:null,
+        clock:{remainingSeconds:1800,ownRemainingSeconds:2400,ownBurnFactor:0,remainingPercent:80,activeCount:2},
+        standardClock:{label:'Smontaggio / rimontaggio',totalMinutes:90,remainingSeconds:600,ownRemainingSeconds:1200,ownBurnFactor:0,remainingPercent:22,activeCount:2}}],
+    }]}
+  })
+  render(<LiveProductionPage />)
+  const standard=await screen.findByLabelText('Tempo standard della lavorazione')
+  expect(standard).toHaveTextContent('Smontaggio / rimontaggio')
+  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:20:00')
+  expect(standard).toHaveTextContent('Totale condiviso: 90 min')
+  expect(screen.getByText('Residuo economico della fase: 0:40:00')).toBeInTheDocument()
+  expect(screen.getByText(/Stefania: al lavoro · Martin: al lavoro/)).toBeInTheDocument()
+})

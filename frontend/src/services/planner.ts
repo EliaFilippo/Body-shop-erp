@@ -517,7 +517,11 @@ function phaseManWorkedMinutes(phase: JobPhase, atIso: string) {
   }, 0)
 }
 
-function phaseResidualMinutes(phase: JobPhase, atIso: string) {
+function phaseResidualMinutes(phase: JobPhase, atIso: string, job?: RepairJob) {
+  if (phase.sharedTimeKey && phase.sharedTimeMinutes !== undefined && job) {
+    const worked = job.phases.filter(p => p.sharedTimeKey === phase.sharedTimeKey).reduce((sum, p) => sum + Math.max(p.tabletWorkedSeconds ? p.tabletWorkedSeconds / 60 : 0, p.actualMinutes || 0, phaseManWorkedMinutes(p, atIso)), 0)
+    return Math.max(1, Math.ceil(phase.sharedTimeMinutes - worked))
+  }
   const estimated = Math.max(15, phase.estimatedMinutes || 15)
   const worked = phaseManWorkedMinutes(phase, atIso)
   const activeCount = Math.max(1, (phase.operatorAssignments ?? []).filter((item) => item.activityStatus === 'Attivo' && !item.endedAt).length)
@@ -880,7 +884,7 @@ export function selectSchedulablePhase(job: RepairJob) {
   const active = job.phases.find((phase) => phase.status === 'In lavorazione')
   if (active) return { phase: active, readyAt: completedAtForPhase(active) || `${job.entryDate || todayKey()}T00:00:00.000Z` }
   const todo = job.phases
-    .filter((phase) => phase.status === 'Da fare' && !phase.notRequired && (job.workflowCycle !== 'elias-v1' || (phase.name !== 'Consegna' && phase.estimatedMinutes > 0)))
+    .filter((phase) => phase.status === 'Da fare' && !phase.notRequired && (job.workflowCycle !== 'elias-v1' || (phase.name !== 'Consegna' && (phase.estimatedMinutes > 0 || (phase.sharedTimeMinutes ?? 0) > 0))))
     .map((phase) => ({ phase, readyAt: phaseReadyAt(job, phase) }))
     .filter((entry) => Boolean(entry.readyAt))
     .sort((a, b) => a.readyAt.localeCompare(b.readyAt) || phaseTemplateIndex(a.phase.name) - phaseTemplateIndex(b.phase.name))
@@ -978,8 +982,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   for (const item of candidates) {
     if (item.blocked) continue
     const activeAssignments = (item.phase.operatorAssignments ?? []).filter((entry) => entry.activityStatus === 'Attivo' && !entry.endedAt)
-    const residual = phaseResidualMinutes(item.phase, now)
-    const desiredOperators = item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
+    const residual = phaseResidualMinutes(item.phase, now, item.job)
+    const desiredOperators = item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
 
     const ranking = rankPhaseOperators(data, item.job, item.phase, Array.from(operatorState.values())
       .filter((state) => operatorCompatible(state.operator, item.phase)), residual, schedulingFloor, item.readyAt)
@@ -993,7 +997,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     if (sharedStartAt.slice(0, 10) > horizonEndDate) continue
     const availableToday = selected.map((state) => remainingWorkingMinutesToday(sharedStartAt, data.plannerSettings, state.operator))
     const sustainableByOperator = selected.map((state) => calculateOperatorSustainableMinutes(state.operator.name, residual, data.plannerSettings).sustainableMinutes)
-    const duration = Math.max(15, Math.min(residual, ...availableToday, ...sustainableByOperator))
+    const personMinutes = item.phase.sharedTimeKey ? Math.ceil(residual / selected.length) : residual
+    const duration = Math.max(item.phase.sharedTimeKey ? 1 : 15, Math.min(personMinutes, ...availableToday, ...sustainableByOperator))
     if (duration <= 0) continue
 
     const startAt = sharedStartAt
@@ -1177,10 +1182,11 @@ export function simulateEstimateProductionForecast(
   }
 
   const phasePlans: SimulatedPhaseForecast[] = []
-  const phaseSequence = input.selectedPhases === undefined ? estimatedPhaseSequence(input.lines)
-    : buildSelectedWorkCycle(input.lines, input.selectedPhases).filter(phase => !phase.notRequired && phase.name !== 'Consegna')
-      .map(phase => ({phaseName: phase.name, plannedMinutes: phase.estimatedMinutes, requiredSkill: phase.name, technicalWaitMinutes: phase.technicalWaitMinutes ?? 0, technicalWaitBlocksPhaseNames: phase.technicalWaitBlocksPhaseNames ?? []}))
-  const blockingReasons = phaseSequence.filter(phase => phase.plannedMinutes <= 0).map(phase => `Tempo da configurare: ${phase.phaseName}.`)
+  const usesMinorTimes = input.lines.some(line => line.minorDamageTimes)
+  const phaseSequence = input.selectedPhases === undefined && !usesMinorTimes ? estimatedPhaseSequence(input.lines)
+    : buildSelectedWorkCycle(input.lines, input.selectedPhases ?? []).filter(phase => !phase.notRequired && phase.name !== 'Consegna')
+      .map(phase => ({phaseName: phase.name, plannedMinutes: phase.estimatedMinutes, sharedTimeKey: phase.sharedTimeKey, requiredSkill: phase.name, technicalWaitMinutes: phase.technicalWaitMinutes ?? 0, technicalWaitBlocksPhaseNames: phase.technicalWaitBlocksPhaseNames ?? []}))
+  const blockingReasons = phaseSequence.filter(phase => phase.plannedMinutes <= 0 && !('sharedTimeKey' in phase && phase.sharedTimeKey)).map(phase => `Tempo da configurare: ${phase.phaseName}.`)
   if (!phaseSequence.length || productiveDurationMinutes <= 0) blockingReasons.push('Inserisci i tempi delle lavorazioni per calcolare la consegna.')
   const activeOperators = data.plannerSettings.operators.filter((operator) => operator.active)
   let dependencyCursor = nextWorkingInstant(`${firstAvailabilityDate}T00:00:00.000Z`, data.plannerSettings)

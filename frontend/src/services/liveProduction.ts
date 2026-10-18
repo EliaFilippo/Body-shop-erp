@@ -10,7 +10,7 @@ export interface LiveClock {
   phases?: LivePhase[];
   tasks?: { id: string; description: string; panel?: string; quantity: number }[];
 }
-export interface LivePhase { id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
+export interface LivePhase { standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
 export interface HoursDay { date: string; workedSeconds: number; plannedSeconds: number | null; ordinarySeconds: number | null; extraSeconds: number | null; running: boolean }
 export interface HoursReport {
   operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];
@@ -123,4 +123,21 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
     throw new Error(payload?.message || 'Collegamento non riuscito. Il timer sul server continua finché non viene messo in pausa.')
   }
   return payload as T
+}
+
+/** Runs only after a successful cloud save; timers still require the employee's Start. */
+export async function publishProductionJobs(data: ErpData, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
+  const warnings: string[] = []
+  const feed = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config)
+  if (!['owner', 'office'].includes(feed.role)) return warnings
+  const published = new Set(feed.jobs.map(job => job.jobId))
+  for (const job of data.jobs ?? []) {
+    if (published.has(job.id) || ['Consegnata', 'Annullata'].includes(job.status)) continue
+    try {
+      if (!job.phases.some(phase => !phase.notRequired && phase.name !== 'Consegna' && phase.estimatedMinutes > 0)) throw new Error('Inserisci i tempi delle fasi prima di pubblicare il lavoro.')
+      const budget = prepareLiveJob(data, job)
+      await productionRpc('production_prepare_job', { p_company_id: companyId, p_job_id: job.id, p_revision: revision, p_budget: budget.budget, p_rates: budget.operators }, session, config)
+    } catch (error) { warnings.push(`${job.number}: ${error instanceof Error ? error.message : 'Pubblicazione sul tablet non riuscita.'}`) }
+  }
+  return warnings
 }

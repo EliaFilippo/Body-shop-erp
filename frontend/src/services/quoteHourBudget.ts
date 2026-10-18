@@ -79,10 +79,13 @@ export function calculateQuoteHourBudget(quote: AcceptanceQuote, settings: Plann
   }
   const baseMaxMinutes = structure.allInRate > 0 && !missingDirectCost ? Math.max(0, Math.floor(available / structure.allInRate * 60 + 1e-8)) : null
   const baseTargetMinutes = structure.allInRate > 0 && !missingDirectCost ? Math.max(0, Math.floor((available - revenue * marginPercent / 100) / structure.allInRate * 60 + 1e-8)) : null
-  return { baseMaxMinutes, baseTargetMinutes, structure, materialPercent, marginPercent, revenue, materialsCost, directCosts, available, plannedMinutes, costLive, margin,
-    error: finalError, rows, maxMinutes: operators.size <= 1 ? cap(available) : multipleCap(false),
+  const maxMinutes = operators.size <= 1 ? cap(available) : multipleCap(false)
+  const fullyTimed = rawRows.length > 0 && rawRows.every((row) => row.minutes > 0)
+  const freedCapacityMinutes = fullyTimed && maxMinutes !== null ? Math.max(0, maxMinutes - plannedMinutes) : null
+  return { freedCapacityMinutes, baseMaxMinutes, baseTargetMinutes, structure, materialPercent, marginPercent, revenue, materialsCost, directCosts, available, plannedMinutes, costLive, margin,
+    error: finalError, rows, maxMinutes,
     targetMinutes: operators.size <= 1 ? cap(available - revenue * marginPercent / 100) : multipleCap(true),
-    fullyTimed: rawRows.every((row) => row.minutes > 0),
+    fullyTimed,
     comparisons: settings.operators.filter((operator) => operator.active).map((operator) => {
       const cost = quoteOperatorRate(settings, operator.id)
       const combined = structure.rate + cost.rate

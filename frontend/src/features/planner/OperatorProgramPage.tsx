@@ -37,12 +37,12 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
         const phase = selectSchedulablePhase(job)?.phase
         if (!phase) return null
         const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))
-        return <label key={job.id}>{job.plate} · {phase.name}
+        return <div key={job.id}>{job.plate} · {phase.name}
           <select aria-label={`Assegnazione ${job.plate}`} value={phase.preferredOperatorId ?? ''} onChange={event => {
             const operatorId = event.target.value
             const operator = operators.find(o => o.id === operatorId)
             const next = { ...data, jobs: (data.jobs ?? []).map(j => j.id !== job.id ? j : { ...j,
-              phases: j.phases.map(p => p.id === phase.id ? { ...p, preferredOperatorId: operatorId || undefined } : p),
+              phases: j.phases.map(p => p.id === phase.id ? { ...p, preferredOperatorId: operatorId || undefined, supportOperatorId: p.supportOperatorId === operatorId ? undefined : p.supportOperatorId } : p),
               updatedAt: new Date().toISOString(), history: [{ id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'Ufficio', message: `${phase.name}: ${operator ? `operatore scelto ${operator.name}` : 'assegnazione automatica per margine'}` }, ...j.history],
             }) }
             onChange(recalculateOperatorPrograms(next, date, 'Scelta operatore aggiornata'))
@@ -51,8 +51,25 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
             {phase.preferredOperatorId && !operators.some(o => o.id === phase.preferredOperatorId) && <option value={phase.preferredOperatorId}>Operatore non disponibile: modifica la scelta</option>}
             {operators.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
+          <label>Secondo operatore sulla stessa fase
+            <select aria-label={`Secondo operatore ${job.plate}`} value={phase.supportOperatorId ?? ''} onChange={event => {
+              const supportOperatorId = event.target.value || undefined
+              const operator = operators.find(o => o.id === supportOperatorId)
+              const stamp = new Date().toISOString()
+              const next = { ...data, jobs: (data.jobs ?? []).map(j => j.id !== job.id ? j : { ...j,
+                phases: j.phases.map(p => p.id === phase.id ? { ...p, supportOperatorId } : p), updatedAt: stamp,
+                history: [{ id: crypto.randomUUID(), at: stamp, actor: 'Ufficio', message: `${phase.name}: ${operator ? `affiancamento di ${operator.name}` : 'affiancamento rimosso'}` }, ...j.history],
+              }) }
+              onChange(recalculateOperatorPrograms(next, date, 'Affiancamento aggiornato'))
+            }}>
+              <option value="">Nessun affiancamento manuale</option>
+              {phase.supportOperatorId && !operators.some(o => o.id === phase.supportOperatorId) && <option value={phase.supportOperatorId}>Operatore non disponibile</option>}
+              {operators.filter(o => o.id !== phase.preferredOperatorId).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </label>
+          <small>Entrambi premono Start dal proprio tablet. Pausa e Fine agiscono soltanto sul singolo operatore; il tempo della fase è condiviso.</small>
           <small>{'Automatico è la scelta iniziale. Puoi cambiare operatore anche a fase iniziata. Per il passaggio effettivo, il precedente operatore preme Pausa e il nuovo preme Start: le ore restano ai rispettivi profili.'}</small>
-        </label>
+        </div>
       })}
       {!(data.jobs ?? []).some(job => !['Consegnata', 'Annullata'].includes(job.status)) && <p>Conferma un preventivo per assegnare la prima commessa.</p>}
     </section>

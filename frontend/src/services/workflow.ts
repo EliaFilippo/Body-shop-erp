@@ -629,6 +629,7 @@ function sanitizeLine(
 		description: line.description.trim(),
 		panelId: String(line.panelId ?? '').trim(),
 		panelName: (line.panelName || '').trim(),
+		minorDamageTimes: line.minorDamageTimes,
 		damageSeverity: line.damageSeverity === 'grave' ? 'grave' : line.damageSeverity === 'lieve' ? 'lieve' : undefined,
 		materialsIncluded: line.materialsIncluded === true,
 		priceVariant: line.priceVariant,
@@ -1197,13 +1198,14 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 	const nextCounter = Number(data.workflowCounters?.job ?? 0) + 1
 	const timestamp = now()
 	const checklist = qualityChecklistFromTemplates(data.qualityChecklistTemplates ?? [])
-	const phases = estimate.selectedPhases === undefined ? buildPhases(estimate.lines) : buildSelectedWorkCycle(estimate.lines,estimate.selectedPhases)
+	const usesMinorTimes = estimate.lines.some(line => line.minorDamageTimes)
+	const phases = estimate.selectedPhases === undefined && !usesMinorTimes ? buildPhases(estimate.lines) : buildSelectedWorkCycle(estimate.lines,estimate.selectedPhases ?? [])
 	const vehicle = data.vehicles.find(v => v.id === estimate.vehicleId)
 	return {
 		id: id(),
 		number: jobNumber(nextCounter),
 		estimateId: estimate.id,
-		workflowCycle: estimate.selectedPhases === undefined ? undefined : 'elias-v1',
+		workflowCycle: estimate.selectedPhases === undefined && !usesMinorTimes ? undefined : 'elias-v1',
 		customerId: estimate.customerId,
 		vehicleId: estimate.vehicleId,
 		plate: estimate.plate,
@@ -1608,20 +1610,22 @@ export function updateJobPhaseEstimatedMinutes(data: ErpData, jobId: string, pha
 	const phase = current.phases.find((item) => item.id === phaseId)
 	if (!phase) throw new Error('Fase non trovata.')
 	const nextMinutes = Math.max(1, Math.round(estimatedMinutes))
-	if (nextMinutes === phase.estimatedMinutes) return data
+	if (nextMinutes === (phase.sharedTimeMinutes ?? phase.estimatedMinutes)) return data
 	const timestamp = now()
 	const note = reason.trim() || 'Adeguamento tempi fase'
 	const adjustment: JobPhaseTimeAdjustment = {
 		id: id(),
 		at: timestamp,
 		reason: note,
-		fromMinutes: phase.estimatedMinutes,
+		fromMinutes: phase.sharedTimeMinutes ?? phase.estimatedMinutes,
 		toMinutes: nextMinutes,
 	}
-	const nextPhases = current.phases.map((item) => item.id === phaseId
+	const firstGroupId = phase.sharedTimeKey ? current.phases.find(p => p.sharedTimeKey === phase.sharedTimeKey)?.id : phaseId
+	const nextPhases = current.phases.map((item) => (phase.sharedTimeKey ? item.sharedTimeKey === phase.sharedTimeKey : item.id === phaseId)
 		? {
 			...item,
-			estimatedMinutes: nextMinutes,
+			estimatedMinutes: item.id === firstGroupId ? nextMinutes : 0,
+			sharedTimeMinutes: phase.sharedTimeKey ? nextMinutes : item.sharedTimeMinutes,
 			timeAdjustments: [adjustment, ...(item.timeAdjustments ?? [])],
 		}
 		: item)

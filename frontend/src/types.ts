@@ -483,7 +483,7 @@ export interface MinorDamagePreset {
   panelId: string
   panelName: string
   updatedAt: string
-  lines: Array<{ workId: string; minutes: number; price: number; priceVariant?: string; materialsIncluded?: boolean }>
+  lines: Array<{ workId: string; minutes: number; price: number; priceVariant?: string; materialsIncluded?: boolean; minorDamageTimes?: MinorDamageTimes }>
 }
 
 export type InternalMonthlyCostCategory =
@@ -975,7 +975,10 @@ export type JobPhaseStatus = 'Da fare' | 'In lavorazione' | 'Completata' | 'Bloc
 export type JobPriority = 'Normale' | 'Alta' | 'Urgente'
 export type WorkCategory = 'carrozzeria' | 'verniciatura' | 'ricambi' | 'materiali' | 'meccanica' | 'servizi esterni' | 'altre'
 
+export type MinorDamageTimes = Partial<Record<'sr' | 'is' | 'v' | 'lc' | 'la', number>>
+
 export interface EstimateLine {
+  minorDamageTimes?: MinorDamageTimes
   id: string
   /** Purchase/direct cost per unit, excluding labour, frozen from acceptance. */
   budgetDirectUnitCost?: number
@@ -1076,6 +1079,10 @@ export interface EstimateDocument {
 export interface JobPhase {
   /** Empty selects automatic scheduling; an ID pins this phase to one operator. */
   preferredOperatorId?: string
+  supportOperatorId?: string
+  /** One allowance shared across these cycle stages; estimatedMinutes counts it only once. */
+  sharedTimeKey?: string
+  sharedTimeMinutes?: number
   id: string
   name: string
   completedByName?: string

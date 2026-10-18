@@ -1,7 +1,8 @@
+import { publishProductionJobs } from './services/liveProduction'
 import { quoteCustomerLines } from './services/quotePricing'
 import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
 import { WorkCycleFields } from './components/WorkCycleFields'
-import { cyclePhaseForLine } from './services/workCycle'
+import { cyclePhasesForLine } from './services/workCycle'
 import { TreasuryPanel } from './features/finance/TreasuryPanel'
 import { PaymentTermsFields } from './components/PaymentTermsFields'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -853,6 +854,10 @@ function App() {
             if (expectedRevision === null) return
             const saved = await updateCloudSnapshot(cloudMembership.companyId, expectedRevision, snapshot, cloudSession, cloudConfig)
             cloudRevisionRef.current = saved.revision
+            try {
+              const warnings = await publishProductionJobs(saved.payload, cloudMembership.companyId, saved.revision, cloudSession, cloudConfig)
+              if (warnings.length) setNotice(`Dati salvati. Lavori da completare per i tablet: ${warnings.join(' · ')}`)
+            } catch (problem) { setNotice(`Dati salvati. Pubblicazione lavori sui tablet da riprovare: ${problem instanceof Error ? problem.message : 'collegamento non disponibile'}`) }
           }
           // Un errore temporaneo non deve avvelenare tutti i salvataggi futuri.
           cloudSyncQueueRef.current = cloudSyncQueueRef.current.then(pushSnapshot, pushSnapshot)
@@ -2962,7 +2967,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
           <div className="summary-card"><span>Margine previsto</span><strong>{quoteBudget.error || !quoteBudget.fullyTimed ? 'Da verificare: completa costi, operatore e tempi' : `${money(quoteSummary.marginEuro)} · ${quoteSummary.marginPercent}%`}</strong></div>
         </div>
         </details>
-        <WorkCycleFields value={acceptance.quote.selectedPhases} included={(acceptance.quote.damageLines??[]).map(cyclePhaseForLine)} onChange={selectedPhases=>saveAcceptance({...latestAcceptanceRef.current,quote:{...latestAcceptanceRef.current.quote,selectedPhases}})} />
+        <WorkCycleFields value={acceptance.quote.selectedPhases} included={(acceptance.quote.damageLines??[]).flatMap(cyclePhasesForLine)} onChange={selectedPhases=>saveAcceptance({...latestAcceptanceRef.current,quote:{...latestAcceptanceRef.current.quote,selectedPhases}})} />
         <DeliveryForecastPanel data={data} vehicleId={acceptance.vehicleId} quote={acceptance.quote} />
         <PaymentTermsFields value={acceptance.quote.paymentTerms ?? { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? 30, endOfMonth: customer?.endOfMonth ?? false, expectedInvoiceDate: '' }} onChange={paymentTerms => saveAcceptance({ ...latestAcceptanceRef.current, quote: { ...latestAcceptanceRef.current.quote, paymentTerms } })} />
         <div className="form-actions"><button type="button" className="secondary" onClick={() => { persistQuote(); setQuoteOpen(true) }}>Salva bozza</button><button type="button" className="primary" disabled={!onCreateEstimate || Boolean(damageQuoteError(acceptance.quote.damageLines ?? [])) || quoteSummary.taxableAmount <= 0} onClick={() => onCreateEstimate?.(latestAcceptanceRef.current)}>Crea preventivo numerato</button></div>

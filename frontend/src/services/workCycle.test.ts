@@ -1,6 +1,9 @@
 import { describe,it,expect } from 'vitest'
 import { emptyData } from './erp'
 import { createEstimate, approveEstimateAndCreateJob } from './workflow'
+import { chooseEliasPrice, acceptanceEstimateLines } from './damageQuote'
+import { ELIAS_PRICE_LIST } from './eliasPriceList'
+import { createDefaultQuote } from './acceptance'
 import { WORK_CYCLE, buildSelectedWorkCycle } from './workCycle'
 const input={customerId:'c1',plate:'AA123BB',companyName:'',contactName:'',date:'2026-10-04',notes:'',selectedPhases:['Incartatura','Scartatura','Lavaggio interni'],lines:[{description:'Porta',category:'verniciatura' as const,quantity:1,unitPrice:150,discount:0,vatRate:22,standardWorkName:'Verniciatura',estimatedMinutes:90,lineTotalMinutes:90}]}
 describe('ciclo richiesto carrozzeria',()=>{
@@ -16,5 +19,39 @@ describe('ciclo richiesto carrozzeria',()=>{
   const data=createEstimate(structuredClone(emptyData),{...input,selectedPhases:undefined});const job=approveEstimateAndCreateJob(data,data.estimates![0].id).jobs![0]
   expect(job.workflowCycle).toBeUndefined();expect(job.phases.some(p=>p.name==='Preparazione')).toBe(true)
   expect(()=>buildSelectedWorkCycle([],['inventata'])).toThrow('non valida')
+ })
+})
+
+describe('tempario lieve condiviso', () => {
+ it('porta il tempario dalla scelta del prezzo fino alla commessa senza moltiplicare tempi o prezzi', () => {
+  const data = structuredClone(emptyData)
+  const bumper = { id: 'paraurti-anteriore', name: 'Paraurti anteriore' }
+  const entry = ELIAS_PRICE_LIST.find(e => e.id === bumper.id)!
+  const lines = chooseEliasPrice(data.plannerSettings, [], bumper, entry, 185, 22, 'lieve', 60)
+  const quote = { ...createDefaultQuote(data.plannerSettings, '2026-10'), damageLines: lines }
+  const estimated = createEstimate(data, { ...input, selectedPhases: undefined, lines: acceptanceEstimateLines(quote) })
+  const job = approveEstimateAndCreateJob(estimated, estimated.estimates![0].id).jobs![0]
+  expect(job.workflowCycle).toBe('elias-v1')
+  expect(job.taxableAmount).toBe(185)
+  expect(job.phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(225)
+  expect(job.phases.find(p=>p.name==='Smontaggio')).toMatchObject({ estimatedMinutes:90, sharedTimeMinutes:90, sharedTimeKey:'sr' })
+  expect(job.phases.find(p=>p.name==='Rimontaggio')).toMatchObject({ estimatedMinutes:0, sharedTimeMinutes:90, sharedTimeKey:'sr', notRequired:false })
+  expect(job.phases.find(p=>p.name==='Stuccatura')).toMatchObject({ estimatedMinutes:75, sharedTimeKey:'v' })
+  expect(job.phases.find(p=>p.name==='Verniciatura')).toMatchObject({ estimatedMinutes:0, sharedTimeMinutes:75, technicalWaitMinutes:60, notRequired:false })
+  expect(job.phases.find(p=>p.name==='Lattoneria')?.notRequired).toBe(true)
+ })
+ it('mantiene manuali danni gravi e lavaggio con sedili; non applica il tempario a preventivi esistenti', () => {
+  const settings = structuredClone(emptyData.plannerSettings)
+  const panel = {id:'vettura-intera',name:'Vettura intera'}
+  const manual = ELIAS_PRICE_LIST.find(e=>e.id==='interni-smontaggio')!
+  const [line] = chooseEliasPrice(settings,[],panel,manual,100,22,'lieve',60)
+  expect(line).toMatchObject({unitPrice:0,estimatedMinutes:0})
+  const wash = ELIAS_PRICE_LIST.find(e=>e.id==='interni')!
+  const [washing] = chooseEliasPrice(settings,[],panel,wash,50,22,'lieve',60)
+  expect(washing).toMatchObject({estimatedMinutes:120,minorDamageTimes:{la:120}})
+  const [grave] = chooseEliasPrice(settings,[],panel,wash,50,22,'grave',60)
+  expect(grave.estimatedMinutes).toBe(0); expect(grave.minorDamageTimes).toBeUndefined()
+  const [old] = chooseEliasPrice(settings,[{...washing,estimatedMinutes:45,minorDamageTimes:undefined}],panel,wash,50,22,'lieve',60)
+  expect(old.estimatedMinutes).toBe(45);expect(old.minorDamageTimes).toBeUndefined()
  })
 })

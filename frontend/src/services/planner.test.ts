@@ -1459,4 +1459,22 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(JSON.stringify(phase.operatorAssignments)).toBe(history)
   })
 
+  it('affianca due operatori sulla stessa fase senza riscrivere le ore precedenti', () => {
+    const data = setup(); const phase = data.jobs![0].phases[0]
+    phase.preferredOperatorId = 'op-1'; phase.supportOperatorId = 'op-2'
+    const before = JSON.stringify(data.jobs)
+    expect(assigned(data)).toEqual(['op-1','op-2'])
+    expect(JSON.stringify(data.jobs)).toBe(before)
+  })
+  it('pianifica il rimontaggio usando solo il residuo condiviso dopo lo smontaggio', () => {
+    const data=setup(); const job=data.jobs![0]; job.workflowCycle='elias-v1'
+    const phase=job.phases[0]
+    job.phases=[{...phase,id:'smont',name:'Smontaggio',status:'Completata',endedAt:'2026-07-27T07:00:00.000Z',estimatedMinutes:60,tabletWorkedSeconds:2400,sharedTimeKey:'sr',sharedTimeMinutes:60},
+      {...phase,id:'rimont',name:'Rimontaggio',status:'Da fare',requiredSkill:'Rimontaggio',estimatedMinutes:0,sharedTimeKey:'sr',sharedTimeMinutes:60}]
+    data.plannerSettings.operators.forEach(o=>o.skills=['Rimontaggio'])
+    const plan=generateOperatorPrograms(data,'2026-07-27','Test','2026-07-27T07:00:00.000Z')
+    const tasks=plan.programs.flatMap(p=>p.tasks)
+    expect(tasks).toHaveLength(1);expect(tasks[0].phaseName).toBe('Rimontaggio');expect(tasks[0].plannedMinutes).toBe(20)
+  })
+
 })

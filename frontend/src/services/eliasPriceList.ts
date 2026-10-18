@@ -1,4 +1,4 @@
-import type { StandardWorkDefinition } from '../types'
+import type { MinorDamageTimes, StandardWorkDefinition } from '../types'
 
 export type EliasPanelKind = 'front-bumper' | 'rear-bumper' | 'hood' | 'wing' | 'wheel' | 'mirror' | 'door' | 'sill' | 'handle' | 'roof' | 'pillar' | 'spoiler' | 'arch' | 'tailgate' | 'bumper-trim' | 'whole' | 'headlight' | 'windshield'
 export interface EliasPriceEntry {
@@ -8,10 +8,11 @@ export interface EliasPriceEntry {
   prices: number[]
   family: string
   phase: string
+  manualPricing?: boolean
 }
 
 // Trascrizione del listino fornito dal titolare il 03/10/2026.
-// Confermato: IVA esclusa, materiali inclusi. Nessun tempo è indicato nel foglio.
+// IVA esclusa e materiali inclusi. Tempi confermati dal titolare il 18/10/2026.
 export const ELIAS_PRICE_LIST: EliasPriceEntry[] = [
   { id: 'paraurti-anteriore', name: 'Paraurti anteriore', panels: ['front-bumper'], prices: [185], family: 'finitura', phase: 'Verniciatura' },
   { id: 'mezzo-paraurti', name: '½ paraurti anteriore/posteriore', panels: ['front-bumper', 'rear-bumper'], prices: [80], family: 'finitura', phase: 'Verniciatura' },
@@ -39,7 +40,7 @@ export const ELIAS_PRICE_LIST: EliasPriceEntry[] = [
   { id: 'lucidatura-faro', name: 'Lucidatura faro', panels: ['headlight'], prices: [35], family: 'lucidatura', phase: 'Lucidatura' },
   { id: 'sfumatura', name: 'Sfumatura porta/parafango', panels: ['door', 'wing'], prices: [120], family: 'finitura', phase: 'Verniciatura' },
   { id: 'parabrezza', name: 'Sostituzione parabrezza', panels: ['windshield'], prices: [150, 170], family: 'vetri', phase: 'Sostituzione vetri' },
-  { id: 'interni-smontaggio', name: 'Lavaggio interni (con smontaggio sedili)', panels: ['whole'], prices: [100], family: 'lavaggio', phase: 'Lavaggio' },
+  { id: 'interni-smontaggio', name: 'Lavaggio interni (con smontaggio sedili)', panels: ['whole'], prices: [100], manualPricing: true, family: 'lavaggio', phase: 'Lavaggio' },
   { id: 'interni', name: 'Lavaggio interni (senza smontaggio sedili)', panels: ['whole'], prices: [50], family: 'lavaggio', phase: 'Lavaggio' },
 ]
 
@@ -70,4 +71,26 @@ export const eliasEntryForWork = (workId?: string) => ELIAS_PRICE_LIST.find((ent
 export function eliasWork(entry: EliasPriceEntry): StandardWorkDefinition {
   return { id: `elias-listino:${entry.id}`, name: entry.name, calculationType: entry.panels[0] === 'whole' ? 'per-vehicle' : 'per-panel',
     standardMinutes: 0, active: true, categoryOrPhase: entry.phase, cycleOrder: entry.phase === 'Lavaggio' ? 80 : entry.phase === 'Lucidatura' ? 70 : 50 }
+}
+
+/** Minutes of labour, shared across grouped activities, never split or charged twice. */
+export const ELIAS_MINOR_TIMES: Record<string, MinorDamageTimes> = {
+  'paraurti-anteriore': { sr: 90, is: 60, v: 75 },
+  'mezzo-paraurti': { is: 45, v: 45 },
+  cofano: { sr: 45, is: 30, v: 120, lc: 30 },
+  parafango: { sr: 60, is: 40, v: 60, lc: 15 },
+  'coppa-ruota': { v: 30 }, 'cerchio-ferro': { v: 15 },
+  'cerchio-esterno': { sr: 15, is: 20, v: 30 }, 'cerchio-completo': { sr: 60, v: 60 },
+  'cerchio-diamantato': { is: 20, v: 45 }, specchio: { is: 10, v: 15 },
+  porta: { sr: 60, is: 30, v: 60, lc: 30 }, sottoporta: { is: 30, v: 90 },
+  maniglia: { is: 15, v: 15 }, tetto: { is: 40, v: 150 }, montante: { is: 40, v: 60 },
+  'spoiler-tetto': { is: 30, v: 30 }, codolino: { is: 10, v: 30 },
+  portellone: { is: 30, v: 60 }, 'profili-paraurti': { is: 15, v: 30 },
+  'paraurti-posteriore': { is: 30, v: 60 }, 'lucidatura-totale': { lc: 120 },
+  'lucidatura-fiancate': { lc: 60 }, ritocchi: { lc: 15 }, 'lucidatura-faro': { lc: 30 },
+  sfumatura: { is: 30, v: 30 }, parabrezza: { sr: 120 }, interni: { la: 120 },
+}
+export const MINOR_TIME_LABELS: Record<keyof MinorDamageTimes, string> = {
+  sr: 'Smontaggio / rimontaggio', is: 'Incartatura / scartatura',
+  v: 'Verniciatura, carteggiatura e stuccatura', lc: 'Lucidatura', la: 'Lavaggio interni',
 }

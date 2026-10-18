@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
+import { publishProductionJobs, applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
 import { emptyData } from './erp'
 import type { RepairJob } from '../types'
 import { createDefaultQuote } from './acceptance'
@@ -84,5 +84,39 @@ describe('tablet budget clock', () => {
   it('does not fabricate an offline success and reports a missing backend clearly', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: 'PGRST202' }), { status: 404 }))
     await expect(productionRpc('production_live_feed', {}, { accessToken: 'token' } as never, { url: 'https://example.test', anonKey: 'public' }, fetcher)).rejects.toThrow('attivata su Supabase')
+  })
+})
+
+
+describe('pubblicazione automatica dopo conferma', () => {
+  const dataForPublish = () => {
+    const data = structuredClone(emptyData)
+    data.plannerSettings.internalCostSettings = { internalHourlyRate: 0, minimumMarginPercent: 0, budgetUseManualStructureRate: true, budgetManualStructureRate: 30 }
+    data.plannerSettings.operators = [{ id: 'a', name: 'A', active: true, dailyHours: 8, hourlyCost: 20 }]
+    data.jobs = [{ id: 'auto-job', number: 'AUTO', status: 'Da pianificare', taxableAmount: 150, lines: [], phases: [{ name: 'Verniciatura', estimatedMinutes: 60 }] } as unknown as RepairJob]
+    return data
+  }
+  const session = { email: 'owner@example.invalid', userId: 'owner', accessToken: 'test', refreshToken: 'test', expiresIn: 3600 }
+  const config = { url: 'https://example.invalid', anonKey: 'test' }
+  it('pubblica una nuova commessa senza avviare timer e senza cambiare i prezzi', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] }))).mockResolvedValueOnce(new Response('null'))
+    try {
+      const data = dataForPublish(); const before = JSON.stringify(data)
+      expect(await publishProductionJobs(data, 'company', 12, session, config)).toEqual([])
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(String(fetchMock.mock.calls[1][0])).toContain('production_prepare_job')
+      expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ p_job_id: 'auto-job', p_revision: 12, p_budget: 150 })
+      expect(JSON.stringify(data)).toBe(before)
+    } finally { fetchMock.mockRestore() }
+  })
+  it('non ripubblica i lavori già disponibili e segnala dati mancanti', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [{ jobId: 'auto-job' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] })))
+    try {
+      const data = dataForPublish()
+      expect(await publishProductionJobs(data, 'company', 12, session, config)).toEqual([])
+      data.plannerSettings.operators[0].hourlyCost = 0
+      expect((await publishProductionJobs(data, 'company', 12, session, config))[0]).toContain('costo orario')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally { fetchMock.mockRestore() }
   })
 })
