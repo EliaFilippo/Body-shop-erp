@@ -4,7 +4,7 @@ begin;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
 set role authenticated;
 do $$begin
-  begin perform production_unbind_profile('10000000-0000-0000-0000-000000000001',auth.uid());raise exception 'Worker unbound profile';
+  begin perform production_unbind_profile('10000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002');raise exception 'Worker unbound profile';
   exception when raise_exception then if sqlerrm not like 'Solo il titolare%' then raise;end if;end;
 end $$;
 reset role;
