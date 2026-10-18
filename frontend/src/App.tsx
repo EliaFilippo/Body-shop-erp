@@ -1,3 +1,4 @@
+import { EliasCatalogSettings } from './features/catalog/EliasCatalogSettings'
 import { publishProductionJobs } from './services/liveProduction'
 import { quoteCustomerLines } from './services/quotePricing'
 import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
@@ -1142,7 +1143,7 @@ function App() {
           skipNextHeavySyncRef.current = true
           setData(reloaded)
         }} setNotice={setNotice} setError={setError} />}
-        {view === 'price-list' && <PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} />}
+        {view === 'price-list' && <><EliasCatalogSettings settings={data.plannerSettings} onSave={plannerSettings => { setData({ ...data, plannerSettings }); setNotice('Tempi e prezzi preimpostati salvati.'); setError('') }} /><details className="panel"><summary>Listino avanzato e altre lavorazioni</summary><PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} /></details></>}
         {view === 'finance' && <FinancePage data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
         {view === 'estimates-jobs' && <WorkflowPage noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')

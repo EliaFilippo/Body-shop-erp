@@ -22,7 +22,7 @@ export function cyclePhasesForLine(line: Partial<EstimateLine>): string[] {
  const phase = cyclePhaseForLine(line)
  return phase ? [phase] : []
 }
-export function buildSelectedWorkCycle(lines:EstimateLine[], selected:string[]): JobPhase[] {
+export function buildSelectedWorkCycle(lines:EstimateLine[], selected:string[], exteriorWashMinutes = 25): JobPhase[] {
  if(selected.some(name=>!WORK_CYCLE.includes(name as typeof WORK_CYCLE[number])))throw new Error('Fase di lavorazione non valida.')
  const requested=new Set([...selected,...lines.flatMap(cyclePhasesForLine),'Consegna'])
  const grouped = new Map<string, {key: string; minutes: number; names: string[]}>()
@@ -36,7 +36,7 @@ export function buildSelectedWorkCycle(lines:EstimateLine[], selected:string[]):
  return WORK_CYCLE.map((name,index)=>{
   const group = grouped.get(name)
   const allowance = group ? group.minutes + group.names.reduce((sum, stage) => sum + manual(stage), 0)
-   : manual(name) || (name === 'Lavaggio esterno' && requested.has(name) ? 25 : 0)
+   : manual(name) || (name === 'Lavaggio esterno' && requested.has(name) ? Math.max(1, Math.round(exteriorWashMinutes)) : 0)
   const countedHere = !group || name === group.names[0]
   return {id:crypto.randomUUID(),name,status:requested.has(name)?'Da fare':'Completata',notRequired:!requested.has(name),cycleOrder:index+1,requiredSkill:name,operatorName:'',
    estimatedMinutes: countedHere ? Math.round(allowance) : 0,

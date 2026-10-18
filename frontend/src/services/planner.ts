@@ -1184,7 +1184,7 @@ export function simulateEstimateProductionForecast(
   const phasePlans: SimulatedPhaseForecast[] = []
   const usesMinorTimes = input.lines.some(line => line.minorDamageTimes)
   const phaseSequence = input.selectedPhases === undefined && !usesMinorTimes ? estimatedPhaseSequence(input.lines)
-    : buildSelectedWorkCycle(input.lines, input.selectedPhases ?? []).filter(phase => !phase.notRequired && phase.name !== 'Consegna')
+    : buildSelectedWorkCycle(input.lines, input.selectedPhases ?? [],data.plannerSettings.eliasExteriorWashMinutes).filter(phase => !phase.notRequired && phase.name !== 'Consegna')
       .map(phase => ({phaseName: phase.name, plannedMinutes: phase.estimatedMinutes, sharedTimeKey: phase.sharedTimeKey, requiredSkill: phase.name, technicalWaitMinutes: phase.technicalWaitMinutes ?? 0, technicalWaitBlocksPhaseNames: phase.technicalWaitBlocksPhaseNames ?? []}))
   const blockingReasons = phaseSequence.filter(phase => phase.plannedMinutes <= 0 && !('sharedTimeKey' in phase && phase.sharedTimeKey)).map(phase => `Tempo da configurare: ${phase.phaseName}.`)
   if (!phaseSequence.length || productiveDurationMinutes <= 0) blockingReasons.push('Inserisci i tempi delle lavorazioni per calcolare la consegna.')

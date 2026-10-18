@@ -1,7 +1,7 @@
 import { quoteCustomerLines } from './quotePricing'
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings, StandardWorkDefinition } from '../types'
 import { computeLineInternalEconomics, resolvePriceListItem, resolveStandardRuleForLine } from './workflow'
-import { eliasEntryForWork, eliasPricesForPanel, eliasWork, ELIAS_MINOR_TIMES, type EliasPriceEntry } from './eliasPriceList'
+import { eliasEntryForWork, eliasPricesForPanel, eliasWork, configuredEliasEntry, configuredEliasTimes, eliasCatalogOverride, type EliasPriceEntry } from './eliasPriceList'
 import { budgetLineSnapshot } from './quoteHourBudget'
 
 const round = (value: number) => Math.round(value * 100) / 100
@@ -41,7 +41,15 @@ export function minorDamageLines(settings: PlannerSettings, panel: { id: string;
   const preset = settings.minorDamagePresets?.find((item) => item.panelId === panel.id)
   const catalogWorks = (preset?.lines ?? []).flatMap((line) => { const entry = eliasEntryForWork(line.workId); return entry && eliasPricesForPanel(panel.id).some(option => option.id === entry.id) ? [eliasWork(entry, panel)] : [] })
   return [...(settings.standardWorks ?? []), ...catalogWorks].filter((work) => work.active).flatMap((work) => {
-    const saved = preset?.lines.find((line) => line.workId === work.id)
+    let saved = preset?.lines.find((line) => line.workId === work.id)
+    const entry = eliasEntryForWork(work.id)
+    const override = entry ? eliasCatalogOverride(settings,entry.id,panel.id) : undefined
+    if (saved && entry && (override?.times || override?.prices || override?.manualPricing !== undefined)) {
+      const configured = configuredEliasEntry(entry,settings,panel.id)
+      if (override.prices && configured.prices.length !== 1) return []
+      const times = override.times ? configuredEliasTimes(entry,settings,panel.id) : saved.minorDamageTimes
+      saved = {...saved, price:configured.manualPricing ? 0 : override.prices ? configured.prices[0] : saved.price, minorDamageTimes:times, minutes:override.times && times ? Object.values(times).reduce((sum,n)=>sum+(n??0),0) : saved.minutes}
+    }
     if (preset && !saved) return []
     if (!preset && !resolvePriceListItem(settings.standardWorkPriceList ?? [], {
       panelName: panel.name, standardWorkId: work.id, standardWorkName: work.name, description: work.name,
@@ -68,15 +76,16 @@ export function makeMinorDamagePreset(panel: { id: string; name: string }, lines
 
 export function chooseEliasPrice(settings: PlannerSettings, lines: EstimateLine[], panel: { id: string; name: string }, entry: EliasPriceEntry,
   price: number, vatRate: number, severity: 'lieve' | 'grave', hourlyRate: number, rainSensor = false): EstimateLine[] {
+  entry = configuredEliasEntry(entry, settings, panel.id)
   if (!entry.prices.includes(price)) throw new Error('Prezzo non presente nel listino Elias.')
   if (!eliasPricesForPanel(panel.id).some((item) => item.id === entry.id)) throw new Error('Lavorazione non disponibile per questo pannello.')
   const work = eliasWork(entry, panel)
   const existing = lines.find((line) => line.panelId === panel.id && line.standardWorkId === work.id)
   const preset = settings.minorDamagePresets?.find((item) => item.panelId === panel.id)?.lines.find((line) => line.workId === work.id)
   const hasSensor = entry.id === 'parabrezza' && rainSensor
-  const times = severity === 'lieve' ? (existing ? existing.minorDamageTimes : preset ? preset.minorDamageTimes : ELIAS_MINOR_TIMES[entry.timeSourceId ?? entry.id]) : undefined
+  const times = severity === 'lieve' ? (existing ? existing.minorDamageTimes : eliasCatalogOverride(settings,entry.id,panel.id).times ? configuredEliasTimes(entry,settings,panel.id) : preset ? preset.minorDamageTimes : configuredEliasTimes(entry,settings,panel.id)) : undefined
   const next = makeDamageLine(settings, panel, work, severity, vatRate, hourlyRate, {
-    workId: work.id, minutes: existing?.estimatedMinutes ?? preset?.minutes ?? (times ? Object.values(times).reduce((a, b) => a + (b ?? 0), 0) : 0),
+    workId: work.id, minutes: existing?.estimatedMinutes ?? (eliasCatalogOverride(settings,entry.id,panel.id).times ? Object.values(times ?? {}).reduce((a,b)=>a+(b??0),0) : preset?.minutes ?? Object.values(times ?? {}).reduce((a,b)=>a+(b??0),0)),
     minorDamageTimes: times,
     price: (entry.manualPricing ? 0 : price) + (hasSensor ? 15 : 0), materialsIncluded: true,
     priceVariant: hasSensor ? 'sensore pioggia (+15 €)' : undefined,

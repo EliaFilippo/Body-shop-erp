@@ -589,7 +589,15 @@ export interface MonthlyGoalRecord {
   updatedAt: string
 }
 
+export interface EliasCatalogOverride {
+  prices?: number[]
+  times?: MinorDamageTimes
+  manualPricing?: boolean
+}
 export interface PlannerSettings {
+  eliasPriceOverrides?: Record<string, EliasCatalogOverride>
+  eliasExteriorWashMinutes?: number
+  eliasPriceHistory?: Array<{at:string;key:string;before?:EliasCatalogOverride;after:EliasCatalogOverride}>
   operators: PlannerOperator[]
   standardWorks?: StandardWorkDefinition[]
   standardWorkRuleHistory?: StandardWorkRuleHistoryEntry[]
