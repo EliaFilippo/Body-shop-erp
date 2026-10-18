@@ -55,3 +55,12 @@ describe('tempario lieve condiviso', () => {
   expect(old.estimatedMinutes).toBe(45);expect(old.minorDamageTimes).toBeUndefined()
  })
 })
+
+it('usa 25 minuti di lavaggio esterno per vettura, anche con più pannelli, conservando un tempo manuale esplicito', () => {
+ const estimated=createEstimate(structuredClone(emptyData),{...input,selectedPhases:['Lavaggio esterno'],lines:[...input.lines,{...input.lines[0],description:'Cofano'}]})
+ const job=approveEstimateAndCreateJob(estimated,estimated.estimates![0].id).jobs![0]
+ expect(job.phases.find(p=>p.name==='Lavaggio esterno')).toMatchObject({estimatedMinutes:25,notRequired:false,notes:''})
+ expect(job.phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(205)
+ const manual=buildSelectedWorkCycle([{...job.lines[0],standardWorkName:'Lavaggio esterno',estimatedMinutes:40,lineTotalMinutes:40}],['Lavaggio esterno'])
+ expect(manual.find(p=>p.name==='Lavaggio esterno')!.estimatedMinutes).toBe(40)
+})
