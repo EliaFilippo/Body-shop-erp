@@ -51,9 +51,11 @@ describe('lavorazioni facoltative per singolo pezzo',()=>{
   const {data,line}=setup()
   const without=setOptionalPanelPhase(setOptionalPanelPhase(line,'sr',false,data.plannerSettings),'lc',false,data.plannerSettings)
   data.plannerSettings.minorDamagePresets=[makeMinorDamagePreset(panel,[without])]
+  data.plannerSettings.eliasPriceOverrides={parafango:{prices:[150],times:{sr:60,is:40,v:60,lc:15}}}
   await saveDatabase(data);const loaded=await loadDatabase()
   const [restored]=minorDamageLines(loaded.plannerSettings,panel,22)
   expect(restored.estimatedMinutes).toBe(100)
+  expect(chooseEliasPrice(loaded.plannerSettings,[],panel,entry('parafango'),150,22,'lieve',60)[0].estimatedMinutes).toBe(100)
   const withSr=setOptionalPanelPhase(restored,'sr',true,loaded.plannerSettings)
   expect(setOptionalPanelPhase(withSr,'lc',true,loaded.plannerSettings)).toMatchObject({estimatedMinutes:175,unitPrice:150})
  })
