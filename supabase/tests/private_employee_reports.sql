@@ -9,6 +9,7 @@ do $$declare feed jsonb; report jsonb;begin
  feed:=production_live_feed('10000000-0000-0000-0000-000000000001');
  if jsonb_array_length(feed->'staff')<>0 then raise exception 'Staff hours preloaded without password';end if;
  report:=production_control_report('10000000-0000-0000-0000-000000000001',current_date-1,current_date+1);
+ if exists(select 1 from jsonb_array_elements(report->'alerts') a,jsonb_array_elements(a->'operators') o where o ? 'seconds') then raise exception 'Individual hours leaked through operational alerts';end if;
  if jsonb_array_length(report->'operators')<>0 or jsonb_array_length(report->'teams')<>0 then raise exception 'Productivity leaked in ordinary report';end if;
  begin perform production_staff_hours('10000000-0000-0000-0000-000000000001');raise exception 'Staff hours without password';exception when insufficient_privilege then null;end;
  begin perform production_hours_report('10000000-0000-0000-0000-000000000001','a',current_date,current_date);raise exception 'Employee monthly hours without password';exception when insufficient_privilege then null;end;

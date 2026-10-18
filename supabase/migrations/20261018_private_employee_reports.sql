@@ -47,9 +47,13 @@ revoke all on function public.production_staff_hours(uuid) from public,anon;
 grant execute on function public.production_staff_hours(uuid) to authenticated;
 create or replace function public.production_control_report(p_company_id uuid,p_from date,p_to date,p_ack_id bigint default null)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
+declare result jsonb; alerts jsonb;
 begin
- return production_control_report_before_report_password(p_company_id,p_from,p_to,p_ack_id)
-  ||jsonb_build_object('operators','[]'::jsonb,'teams','[]'::jsonb);
+ result:=production_control_report_before_report_password(p_company_id,p_from,p_to,p_ack_id);
+ select coalesce(jsonb_agg(a||jsonb_build_object('operators',coalesce((select jsonb_agg(o-'seconds')
+  from jsonb_array_elements(coalesce(a->'operators','[]')) o),'[]'))),'[]') into alerts
+  from jsonb_array_elements(coalesce(result->'alerts','[]')) a;
+ return result||jsonb_build_object('alerts',alerts,'operators','[]'::jsonb,'teams','[]'::jsonb);
 end $$;
 revoke all on function public.production_control_report(uuid,date,date,bigint) from public,anon;
 grant execute on function public.production_control_report(uuid,date,date,bigint) to authenticated;
