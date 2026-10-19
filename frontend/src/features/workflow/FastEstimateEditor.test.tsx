@@ -30,4 +30,38 @@ describe('percorso fast in ufficio',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Conferma e crea commessa'}))
   expect(done.mock.calls[0][0].jobs).toHaveLength(1)
  })
+ it('apre WhatsApp Web al cliente senza approvare automaticamente il preventivo',()=>{
+  const data=structuredClone(emptyData)
+  data.customers=[{id:'c',name:'Mario Rossi',phone:'3331234567',type:'Privato',email:'',taxId:'',address:'',createdAt:''}]
+  const chat={opener:{},location:{href:''},close:vi.fn()}
+  const open=vi.spyOn(window,'open').mockReturnValue(chat as unknown as Window)
+  const done=vi.fn();render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
+  fireEvent.change(screen.getByLabelText('Targa'),{target:{value:'AB123CD'}})
+  fireEvent.change(screen.getByLabelText('Cliente'),{target:{value:'c'}})
+  fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
+  fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
+  fireEvent.click(screen.getByRole('button',{name:'Salva e invia su WhatsApp'}))
+  expect(done).toHaveBeenCalledOnce()
+  expect(done.mock.calls[0][1]).toBe(false)
+  expect(done.mock.calls[0][0].estimates[0].status).toBe('Bozza')
+  const url=new URL(chat.location.href)
+  expect(url.hostname).toBe('web.whatsapp.com')
+  expect(url.searchParams.get('phone')).toBe('393331234567')
+  expect(url.searchParams.get('text')).toContain('Totale IVA inclusa:')
+  expect(url.searchParams.get('text')).not.toContain('margine')
+  open.mockRestore()
+ })
+ it('numero mancante impedisce apertura e salvataggio parziale',()=>{
+  const data=structuredClone(emptyData)
+  data.customers=[{id:'c',name:'Mario Rossi',phone:'',type:'Privato',email:'',taxId:'',address:'',createdAt:''}]
+  const done=vi.fn();render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
+  fireEvent.change(screen.getByLabelText('Targa'),{target:{value:'AB123CD'}})
+  fireEvent.change(screen.getByLabelText('Cliente'),{target:{value:'c'}})
+  fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
+  fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
+  fireEvent.click(screen.getByRole('button',{name:'Salva e invia su WhatsApp'}))
+  expect(done).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert')).toHaveTextContent('numero WhatsApp valido')
+ })
+
 })
