@@ -88,3 +88,25 @@ it('un lavoro disponibile in futuro non lascia inutilizzato il turno di oggi',()
  expect(first.jobId).toBe(available.id)
  expect(first.startAt.slice(0,10)).toBe('2026-10-26')
 })
+
+it('a parità di disponibilità rispetta consegna, margine e anzianità dalla conferma',()=>{
+ const data=fixture(3)
+ data.plannerSettings.operators=data.plannerSettings.operators.filter(op=>op.id==='wash')
+ const [due,rich,old]=data.jobs!
+ for(const job of data.jobs!){
+  job.phases=job.phases.filter(p=>p.name==='Lavaggio esterno')
+  job.expectedDeliveryDate='2026-11-10'
+  job.createdAt='2026-10-25T08:00:00Z'
+  job.taxableAmount=500
+ }
+ due.expectedDeliveryDate='2026-10-27';due.agreedDeliveryDate='2026-10-27';due.taxableAmount=100
+ rich.taxableAmount=900
+ old.createdAt='2026-10-19T08:00:00Z'
+ const order=()=>generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z').programs.flatMap(p=>p.tasks).sort((a,b)=>a.startAt.localeCompare(b.startAt)).map(t=>t.jobId)
+ expect(order()).toEqual([due.id,rich.id,old.id])
+ due.expectedDeliveryDate='2026-11-10';due.agreedDeliveryDate='2026-11-10';due.taxableAmount=900
+ rich.createdAt='2026-10-19T08:00:00Z'
+ // An old vehicle record must not count as an old repair confirmation.
+ data.vehicles.find(v=>v.id===due.vehicleId)!.createdAt='2020-01-01T08:00:00Z'
+ expect(order().slice(0,2)).toEqual([rich.id,due.id])
+})

@@ -1,3 +1,4 @@
+import { phaseDisplayName } from '../../services/workCycle'
 import { monthlyTargetRate } from '../../services/monthlyTargetRate'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
@@ -290,7 +291,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
         }
         current.plannedMinutes += Math.max(0, Number(task.plannedMinutes ?? 0))
         current.operatorNames.push(task.operatorName)
-        current.timeSlots.push(`${task.startAt.slice(11, 16)}-${task.endAt.slice(11, 16)}`)
+        current.timeSlots.push(`${task.startAt.slice(11, 16)}–${task.endAt.slice(11, 16)} · ${phaseDisplayName(task.phaseName)} · ${task.operatorName}`)
         aggregate.set(key, current)
       }
     }
@@ -404,7 +405,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
       <div>
         <span className="eyebrow">PIANIFICAZIONE REALE</span>
         <h2>Planner intelligente</h2>
-        <p>Capacita protetta, saturazione e consegne vengono ricalcolate dopo ogni modifica.</p>
+        <p>Priorità: 1. Consegna concordata · 2. Margine totale più alto · 3. Confermata da oltre 4 giorni. Sempre nel rispetto di mansioni, disponibilità e sequenza delle fasi.</p>
       </div>
       <div className="planner-actions">
         <button className="secondary" onClick={() => setWeek(addDays(week, -7))}>← Settimana</button>
@@ -442,8 +443,8 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
             vehicleId: assignment.vehicleId,
             hours: assignment.protectedHours,
             fromProgram: false,
-            operatorNames: [] as string[],
-            timeSlots: [] as string[],
+            operatorNames: programAssignments.find(item=>item.date===date&&item.vehicleId===assignment.vehicleId)?.operatorNames ?? [],
+            timeSlots: programAssignments.find(item=>item.date===date&&item.vehicleId===assignment.vehicleId)?.timeSlots ?? [],
           })),
           ...fallbackAssignments.map((assignment) => ({
             vehicleId: assignment.vehicleId,
@@ -495,7 +496,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
                 {linkedJob && <small>{linkedJob.number} · fase {workflow?.currentPhase}</small>}
                 <small>{coneLabel(vehicle)}</small>
                 {assignment.fromProgram && <small>Da Programma operatori</small>}
-                {assignment.timeSlots.length ? <small>Orari: {assignment.timeSlots.join(', ')}</small> : null}
+                {assignment.timeSlots.length ? assignment.timeSlots.sort().map(slot=><small key={slot}>{slot}</small>) : <small>Orari e operatori da assegnare: ricalcola il piano.</small>}
                 {assignment.operatorNames.length ? <small>Operatori: {assignment.operatorNames.join(', ')}</small> : null}
                 {workflow?.activeOperators?.length ? <small>Operatori attivi: {workflow.activeOperators.join(', ')}</small> : null}
                 <TrafficLight status={plan?.status ?? 'neutral'} />
@@ -518,6 +519,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
           <thead>
             <tr>
               <th>Vettura</th>
+              <th>Inizio previsto / operatore</th>
               <th>Ore</th>
               <th>Cono</th>
                 <th>Stato vettura</th>
@@ -545,6 +547,15 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
                   <small>{plan?.blocked ? `Bloccata: ${vehicle.blockReason || 'ricambi mancanti'}` : `${vehicle.make} ${vehicle.model}`}</small>
                   {linkedJob && <small>{linkedJob.number} · fase {workflow?.currentPhase}</small>}
                 </td>
+                <td>{(()=>{
+                  const tasks=(data.operatorPrograms??[]).flatMap(program=>program.tasks??[])
+                    .filter(task=>task.vehicleId===vehicle.id&&task.startAt.slice(0,10)>=todayKey())
+                    .sort((a,b)=>a.startAt.localeCompare(b.startAt))
+                  const first=tasks[0]
+                  if(!first)return <small>Da assegnare</small>
+                  const firstCrew=tasks.filter(task=>task.startAt===first.startAt&&task.phaseId===first.phaseId)
+                  return <><strong>{shortDateTime(first.startAt)}</strong><small>{phaseDisplayName(first.phaseName)} · {unique(firstCrew.map(task=>task.operatorName)).join(', ')}</small></>
+                })()}</td>
                 <td>{remaining} h</td>
                 <td>{coneLabel(vehicle)}</td>
                 <td><select value={vehicle.status} onChange={(event) => onUpdateVehicleStatus(vehicle.id, event.target.value)}>{(statusOptions.some((status) => status.id === vehicle.status) ? statusOptions : [...statusOptions, { id: vehicle.status, label: statusLabel(vehicle.status) }]).map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select></td>
