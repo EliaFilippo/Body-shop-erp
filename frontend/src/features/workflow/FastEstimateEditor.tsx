@@ -1,3 +1,4 @@
+import { DeliveryForecastPanel } from '../../components/DeliveryForecastPanel'
 import { QuoteEconomicsPreview } from './QuoteEconomicsPreview'
 import { FastPaymentTerms } from './FastPaymentTerms'
 import { OptionalPanelPhases } from './OptionalPanelPhases'
@@ -90,6 +91,7 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <details><summary>Consegna concordata e note</summary><label>Data consegna concordata<input type="date" value={delivery} onChange={e=>setDelivery(e.target.value)}/></label><label>Note<input value={notes} onChange={e=>setNotes(e.target.value)}/></label></details>
    <FastPaymentTerms value={terms} delivery={delivery} onChange={setTermsOverride}/>
    <section className="panel" aria-label="Riepilogo preventivo fast"><h3>{euro(taxable)} + IVA · {euro(lines.reduce((sum,l)=>sum+l.total,0))} totale</h3><p>Tempo tecnico: {minutes} min. I prezzi non allungano il tempario.</p><p>Condizioni di pagamento del cliente precompilate. Alla conferma: commessa, cono, pianificazione e pubblicazione sui tablet automatiche, con mansioni e disponibilità degli operatori.</p></section>
+   <DeliveryForecastPanel data={data} vehicleId={existing?.id} plate={plate} quote={quote} requestedDeliveryDate={delivery}/>
    <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings}/>
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
    <label>Numero WhatsApp del cliente<input type="tel" value={targetPhone} placeholder="+39 333 1234567" onChange={e=>setWhatsappPhone(e.target.value)}/></label>
