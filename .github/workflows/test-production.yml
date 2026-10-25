@@ -55,6 +55,8 @@ jobs:
         run: psql -f supabase/tests/separate_private_password.sql
       - name: Remove only the identified demo, keep recovery copy and guard invoices
         run: psql -f supabase/tests/remove_known_demo.sql
+      - name: Three paint stations, paused vehicles, support and drying
+        run: psql -f supabase/tests/paint_station_capacity.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

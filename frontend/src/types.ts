@@ -987,6 +987,7 @@ export type WorkCategory = 'carrozzeria' | 'verniciatura' | 'ricambi' | 'materia
 export type MinorDamageTimes = Partial<Record<'sr' | 'is' | 'v' | 'lc' | 'la', number>>
 
 export interface EstimateLine {
+  manualPhaseTimes?: Array<{phase: string; minutes: number}>
   /** Customer-facing wording override; phase and catalogue identifiers stay independent. */
   customerDescription?: string
   manualFastLine?: boolean

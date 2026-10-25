@@ -1478,3 +1478,18 @@ describe('assegnazione manuale e automatica per margine', () => {
   })
 
 })
+
+it('programma al massimo tre vetture in verniciatura e riserva l’ora di asciugatura',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings={...settings,operators:[1,2,3,4].map(n=>({id:`paint-op-${n}`,name:`Paint ${n}`,dailyHours:8,active:true,skills:['verniciatura']}))}
+ data.vehicles=[1,2,3,4].map(n=>({...vehicle(String(n),1,'2026-07-28'),id:`paint-car-${n}`}))
+ data.jobs=data.vehicles.map((car,index)=>{
+  const job=baseJob(`paint-job-${index}`,`COMM-${index}`,car.id,car.plate,'Normale','2026-07-28')
+  return {...job,workflowCycle:'elias-v1',phases:[{...job.phases[0],id:`paint-${index}`,name:'Verniciatura',status:'Da fare',notRequired:false,estimatedMinutes:30,actualMinutes:0,technicalWaitMinutes:60,preferredOperatorId:`paint-op-${index+1}`}]}
+ })
+ const result=generateOperatorPrograms(data,'2026-07-27','Test','2026-07-27T05:00:00.000Z')
+ const tasks=result.programs.flatMap(program=>program.tasks).sort((a,b)=>a.startAt.localeCompare(b.startAt))
+ expect(tasks).toHaveLength(4)
+ expect(tasks[0].startAt).toBe(tasks[2].startAt)
+ expect(Date.parse(tasks[3].startAt)).toBeGreaterThanOrEqual(Date.parse(tasks[0].endAt)+60*60000)
+})

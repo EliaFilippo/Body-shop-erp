@@ -19,6 +19,7 @@ export const SHARED_TIME_PHASES: Record<keyof MinorDamageTimes, string[]> = {
  v: ['Verniciatura'], lc: ['Lucidatura'], la: ['Lavaggio interni'],
 }
 export function cyclePhasesForLine(line: Partial<EstimateLine>): string[] {
+ if (line.manualPhaseTimes) return line.manualPhaseTimes.filter(item=>item.minutes>0).map(item=>item.phase)
  if (line.minorDamageTimes) return Object.entries(line.minorDamageTimes)
   .filter(([, minutes]) => Number(minutes) > 0).flatMap(([key]) => SHARED_TIME_PHASES[key as keyof MinorDamageTimes])
  const phase = cyclePhaseForLine(line)
@@ -33,8 +34,10 @@ export function buildSelectedWorkCycle(lines:EstimateLine[], selected:string[], 
   if (total > 0) for (const name of names) grouped.set(name, {key, minutes: total, names})
  }
  // Explicit manual work on a grouped stage adds to the same allowance, without duplication.
- const manual = (name: string) => lines.filter(line => !line.minorDamageTimes && cyclePhaseForLine(line) === name)
-  .reduce((sum,line)=>sum+Math.max(0,Number(line.lineTotalMinutes ?? ((line.estimatedMinutes ?? line.standardMinutes ?? 0)*(line.calculationType==='per-panel'?line.quantity:1)))),0)
+ const manual = (name: string) => lines.filter(line => !line.minorDamageTimes)
+  .reduce((sum,line)=>sum+(line.manualPhaseTimes
+    ? line.manualPhaseTimes.filter(item=>item.phase===name).reduce((minutes,item)=>minutes+Math.max(0,item.minutes),0)
+    : cyclePhaseForLine(line)===name ? Math.max(0,Number(line.lineTotalMinutes ?? ((line.estimatedMinutes ?? line.standardMinutes ?? 0)*(line.calculationType==='per-panel'?line.quantity:1)))) : 0),0)
  return WORK_CYCLE.map((name,index)=>{
   const group = grouped.get(name)
   const allowance = group ? group.minutes + group.names.reduce((sum, stage) => sum + manual(stage), 0)

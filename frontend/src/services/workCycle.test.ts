@@ -71,3 +71,13 @@ it('riunisce anche la vecchia selezione e i minuti manuali di stuccatura nella s
  expect(source.filter(p=>!p.notRequired).map(p=>p.name)).toEqual(['Verniciatura','Consegna'])
  expect(source.find(p=>p.name==='Verniciatura')).toMatchObject({estimatedMinutes:60,technicalWaitMinutes:60})
 })
+
+it('ripartisce i tempi manuali della singola riga senza moltiplicare il prezzo',()=>{
+ const data=createEstimate(structuredClone(emptyData),{...input,selectedPhases:[],lines:[{
+  description:'Paraurti manuale',category:'verniciatura',quantity:1,unitPrice:185,discount:0,vatRate:22,
+  estimatedMinutes:90,manualPhaseTimes:[{phase:'Incartatura',minutes:20},{phase:'Verniciatura',minutes:60},{phase:'Scartatura',minutes:10}]
+ }]})
+ const job=approveEstimateAndCreateJob(data,data.estimates![0].id).jobs![0]
+ expect(job.taxableAmount).toBe(185)
+ expect(job.phases.filter(phase=>!phase.notRequired).map(phase=>[phase.name,phase.estimatedMinutes])).toEqual([['Incartatura',20],['Verniciatura',60],['Scartatura',10],['Consegna',0]])
+})
