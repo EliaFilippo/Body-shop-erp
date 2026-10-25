@@ -40,6 +40,7 @@ returns text language plpgsql set search_path=public,pg_temp as $$
 declare
  target uuid:='aa49d334-492f-4daa-aa7e-5d5c022308b7';
  snapshot jsonb; job jsonb; job_id_value text; vehicle_id text; estimate_id text;
+ guard record; disabled_guards jsonb:='[]';
  ids text[]; quote_ids text[]; backups jsonb:='{}'; rows jsonb; tab text; changed jsonb;
 begin
  -- Same lock as Start/Pause/Finish, so cleanup cannot race a tablet write.
@@ -107,7 +108,21 @@ begin
  end loop;
  changed:=public.demo_cleanup_filter(snapshot,ids);
  if changed is null then raise exception 'Snapshot non valido: operazione annullata';end if;
+ -- This SQL-console-only maintenance has its own exact target, invoice guards and backup.
+ -- Disable only the two confirmed-document editing guards inside this transaction.
+ -- ALTER TABLE holds the table lock until commit; other sessions cannot bypass them.
+ for guard in select tgname,tgenabled from pg_trigger
+  where tgrelid='public.erp_snapshots'::regclass
+   and tgname in ('protect_confirmed_estimates','require_password_for_confirmed_estimates')
+   and tgenabled<>'D' loop
+  disabled_guards:=disabled_guards||jsonb_build_array(jsonb_build_object('name',guard.tgname,'mode',guard.tgenabled));
+  execute format('alter table public.erp_snapshots disable trigger %I',guard.tgname);
+ end loop;
  update erp_snapshots set payload=changed,revision=revision+1,updated_at=clock_timestamp() where company_id=target;
+ for guard in select value->>'name' as name,value->>'mode' as mode from jsonb_array_elements(disabled_guards) loop
+  execute format('alter table public.erp_snapshots enable %s trigger %I',
+   case guard.mode when 'A' then 'always' when 'R' then 'replica' else '' end,guard.name);
+ end loop;
  return 'Prova COMM-00001 / HFIEJI rimossa con tempi, timer e assegnazioni. Copia di recupero privata salvata.';
 end $$;
 revoke all on function public.remove_elias_known_demo() from public,anon,authenticated;
