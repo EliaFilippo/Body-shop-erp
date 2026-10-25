@@ -10,7 +10,7 @@ create or replace function public.production_split_preparation(job jsonb,advance
 returns jsonb language plpgsql set search_path=public,pg_temp as $$
 declare prep jsonb; paint jsonb; ph jsonb; phases jsonb:='[]'; total numeric; ordinal int:=0; skip_prep boolean;
 begin
- if job->>'workflowCycle'<>'elias-v1' or job->>'status' in ('Consegnata','Annullata')
+ if job->>'workflowCycle' is distinct from 'elias-v1' or job->>'status' in ('Consegnata','Annullata')
   or coalesce((job->>'sharedPreparationCycle')::boolean,false) then return job;end if;
  select value into paint from jsonb_array_elements(coalesce(job->'phases','[]')) where value->>'name'='Verniciatura';
  if paint is null or coalesce((paint->>'notRequired')::boolean,false) then return job;end if;
