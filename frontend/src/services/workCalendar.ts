@@ -168,7 +168,11 @@ export function getOperatorWorkingIntervals(date: string, settings: PlannerSetti
     : Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)))
   const absence = (settings.absences ?? []).find((entry: PlannerAbsence) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate)
   const availableMinutes = Math.max(0, nominalMinutes - Math.round((absence?.hoursPerDay ?? 0) * 60))
-  return trimIntervalsToMinutes(companyIntervals, availableMinutes)
+  const ordinary=trimIntervalsToMinutes(companyIntervals, availableMinutes)
+  const extra=(settings.operatorDayExtensions??[]).filter(entry=>entry.operatorId===targetOperator.id&&entry.date===date)
+    .map(entry=>({startMinute:Math.max(0,entry.startMinute),endMinute:Math.min(1439,entry.endMinute)}))
+    .filter(entry=>entry.endMinute>entry.startMinute)
+  return mergeIntervals([...ordinary,...extra])
 }
 
 export function isWorkingDate(date: string, settings: PlannerSettings) {
@@ -243,4 +247,17 @@ export function calendarMinutesBetween(startIso: string, endIso: string) {
 
 export function intervalsToText(intervals: WorkDayInterval[]) {
   return intervals.map((interval) => `${interval.startTime}-${interval.endTime}`).join(' / ')
+}
+
+/** Extra capacity only; overlapping/retried extensions never multiply minutes. */
+export function extraWorkingMinutesForMonth(settings:PlannerSettings,month:string) {
+ const ordinary={...settings,operatorDayExtensions:[]}
+ const keys=new Set((settings.operatorDayExtensions??[]).filter(e=>e.date.startsWith(month+'-')).map(e=>e.operatorId+'|'+e.date))
+ let total=0
+ for(const key of keys){
+  const [id,date]=key.split('|')
+  const operator=settings.operators.find(o=>o.id===id&&o.active)
+  if(operator)total+=Math.max(0,workingMinutesForDate(date,settings,operator)-workingMinutesForDate(date,ordinary,operator))
+ }
+ return total
 }

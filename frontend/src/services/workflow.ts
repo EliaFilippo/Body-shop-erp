@@ -1,4 +1,4 @@
-import { workingMinutesForDate } from './workCalendar'
+import { extraWorkingMinutesForMonth, workingMinutesForDate } from './workCalendar'
 import { buildSelectedWorkCycle } from './workCycle'
 import type {
 	ErpData,
@@ -185,7 +185,8 @@ export function calculateInternalProductiveCapacity(plannerSettings: PlannerSett
 	const hoursPerOperatorPerDay = Math.max(0, Number(capacity?.hoursPerOperatorPerDay ?? 0))
 	const workingDaysPerMonth = Math.max(0, Number(capacity?.workingDaysPerMonth ?? 0))
 	const efficiencyPercent = Math.max(0, Number(capacity?.efficiencyPercent ?? plannerSettings.efficiencyPercent ?? 0))
-	const theoreticalHours = productiveOperators * hoursPerOperatorPerDay * workingDaysPerMonth
+	const capacityMonth=monthKey || new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date())
+	const theoreticalHours = productiveOperators * hoursPerOperatorPerDay * workingDaysPerMonth + extraWorkingMinutesForMonth(plannerSettings,capacityMonth)/60
 	const productiveHours = theoreticalHours * (efficiencyPercent / 100)
 	return {
 		source: 'manual' as const,
