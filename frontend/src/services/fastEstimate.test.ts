@@ -68,3 +68,10 @@ describe('preventivo fast',()=>{
   expect(other).toMatchObject({unitPrice:300,estimatedMinutes:120})
  })
 })
+
+describe('validazione testo manuale',()=>{
+ it('rifiuta una descrizione vuota anche quando prezzo e tempo sono compilati',()=>{
+  const {data,quote}=setup()
+  expect(()=>createFastEstimate(data,{...input,quote:{...quote,damageLines:[{...quote.damageLines[0],customerDescription:'  '}]}})).toThrow('descrizione')
+ })
+})

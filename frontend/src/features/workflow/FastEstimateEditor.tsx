@@ -4,11 +4,12 @@ import type { ErpData, EstimateLine } from '../../types'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
 import { createDefaultQuote } from '../../services/acceptance'
-import { chooseEliasPrice, recalculateDamageLine, damageQuoteError } from '../../services/damageQuote'
+import { chooseEliasPrice, recalculateDamageLine, damageQuoteError, damageLineDescription } from '../../services/damageQuote'
 import { eliasPricesForPanel, eliasEntryForWork } from '../../services/eliasPriceList'
 import { createFastEstimate } from '../../services/fastEstimate'
 import { fastEstimateWhatsAppLink } from '../../services/fastEstimateWhatsApp'
 import { normalizePlate } from '../../services/erp'
+import { WORK_CYCLE, phaseDisplayName } from '../../services/workCycle'
 import { QUOTE_PANELS } from './vehiclePanels'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 
@@ -33,6 +34,14 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
  const panel=QUOTE_PANELS.find(p=>p.id===panelId)
  const choices=panel?eliasPricesForPanel(panel.id,panel.name,data.plannerSettings):[]
  const quote=useMemo(()=>({...createDefaultQuote(data.plannerSettings,new Date().toISOString().slice(0,7)),manualOnlyPricing:true,damageLines:lines,selectedPhases:wash?['Lavaggio esterno']:[]}),[data.plannerSettings,lines,wash])
+ const lineError=damageQuoteError(lines)
+ const addManualLine=()=>setLines(current=>[...current,recalculateDamageLine({
+  id:crypto.randomUUID(),manualFastLine:true,customerDescription:'',description:'',
+  standardWorkId:`manual-fast:${crypto.randomUUID()}`,standardWorkName:'',categoryOrPhase:'',
+  panelName:'Lavorazione manuale',category:'altre',calculationType:'per-vehicle',
+  quantity:1,discount:0,vatRate:quote.appliedVatRate,unitPrice:0,estimatedMinutes:0,
+  taxableAmount:0,vatAmount:0,total:0,materialsIncluded:true,
+ },data.plannerSettings)])
  const taxable=lines.reduce((sum,line)=>sum+line.unitPrice,0)
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
  return <Modal title="Preventivo fast" onClose={onCancel}>
@@ -55,9 +64,12 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <section className="panel"><h3>Aggiungi un pannello</h3><label>Pannello<select value={panelId} onChange={e=>setPanelId(e.target.value)}><option value="">Scegli il pezzo preciso</option>{QUOTE_PANELS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     <div className="planner-actions">{choices.flatMap(entry=>entry.prices.map(price=><button type="button" className="secondary" key={`${entry.id}:${price}`} onClick={()=>{if(!panel)return;setLines(chooseEliasPrice(data.plannerSettings,lines,panel,entry,price,quote.appliedVatRate,'lieve',quote.hourlyRate));setError('')}}>{entry.name} · {entry.manualPricing?'Inserisci tempo e prezzo':euro(price)}</button>))}</div>
    </section>
-   {lines.map(line=><section className="panel" key={line.id}><strong>{line.standardWorkName}</strong><p>{line.estimatedMinutes||0} min · {euro(line.unitPrice)} IVA esclusa</p>
-    <OptionalPanelPhases line={line} settings={data.plannerSettings} onChange={updated=>setLines(lines.map(item=>item.id===line.id?updated:item))}/><details><summary>Modifica questa riga</summary><label>Prezzo {line.standardWorkName} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
-    {(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing)&&<label>Minuti {line.standardWorkName}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
+   <button type="button" className="secondary" onClick={addManualLine}>+ Aggiungi lavorazione manuale</button>
+   {lines.map((line,index)=><section className="panel" key={line.id}><strong>{line.manualFastLine?'Lavorazione manuale':line.standardWorkName}</strong><p>{line.estimatedMinutes||0} min · {euro(line.unitPrice)} IVA esclusa</p>
+    <label>Descrizione riga {index+1}<input required value={damageLineDescription(line)} onChange={e=>setLines(lines.map(item=>item.id===line.id?{...item,customerDescription:e.target.value}:item))}/></label>
+    {line.manualFastLine&&<label>Fase riga {index+1}<select required value={line.categoryOrPhase||''} onChange={e=>{const phase=e.target.value;setLines(lines.map(item=>item.id!==line.id?item:recalculateDamageLine({...item,standardWorkName:phase,categoryOrPhase:phase,requiredSkill:phase,category:phase==='Verniciatura'?'verniciatura':phase==='Meccanica / gommista'?'meccanica':'carrozzeria'},data.plannerSettings)))}}><option value="">Scegli fase</option>{WORK_CYCLE.filter(phase=>phase!=='Stuccatura'&&phase!=='Consegna').map(phase=><option key={phase} value={phase}>{phaseDisplayName(phase)}</option>)}</select></label>}
+    <OptionalPanelPhases line={line} settings={data.plannerSettings} onChange={updated=>setLines(lines.map(item=>item.id===line.id?updated:item))}/><details open={line.manualFastLine||undefined}><summary>Modifica prezzo e tempi</summary><label>Prezzo riga {index+1} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
+    {(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing)&&<label>Minuti riga {index+1}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
    </section>)}
    <label><input type="checkbox" checked={wash} onChange={e=>setWash(e.target.checked)}/>Includi lavaggio esterno · {data.plannerSettings.eliasExteriorWashMinutes??25} min</label>
@@ -66,8 +78,9 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
    <label>Numero WhatsApp del cliente<input type="tel" value={targetPhone} placeholder="+39 333 1234567" onChange={e=>setWhatsappPhone(e.target.value)}/></label>
    <p>WhatsApp apre il riepilogo con lavorazioni, IVA e totale. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>
+   {lineError&&<p role="status">{lineError}</p>}
    {error&&<p role="alert">{error}</p>}
-   <div className="planner-actions"><button type="button" className="secondary" onClick={onCancel}>Annulla</button><button type="submit" className="primary" disabled={!lines.length||Boolean(damageQuoteError(lines))}>{confirmed?'Conferma e crea commessa':'Salva preventivo fast'}</button><button type="submit" value="whatsapp" className="primary" disabled={!lines.length||Boolean(damageQuoteError(lines))}>Salva e invia su WhatsApp</button></div>
+   <div className="planner-actions"><button type="button" className="secondary" onClick={onCancel}>Annulla</button><button type="submit" className="primary" disabled={!lines.length||Boolean(lineError)}>{confirmed?'Conferma e crea commessa':'Salva preventivo fast'}</button><button type="submit" value="whatsapp" className="primary" disabled={!lines.length||Boolean(lineError)}>Salva e invia su WhatsApp</button></div>
   </form>
  </Modal>
 }
