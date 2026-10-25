@@ -1,3 +1,4 @@
+import { monthlyTargetRate } from '../../services/monthlyTargetRate'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
 import { CapacityBar } from '../../components/CapacityBar'
@@ -250,6 +251,10 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
 
+  const targetMonth=todayKey().slice(0,7)
+  const targetRate=useMemo(()=>monthlyTargetRate(data.plannerSettings,targetMonth),[data.plannerSettings,targetMonth])
+  const targetMonthLabel=new Intl.DateTimeFormat('it-IT',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(`${targetMonth}-01T12:00:00Z`))
+  const money=(amount:number)=>amount.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
   const result = useMemo(() => calculatePlanner(data.vehicles, data.plannerSettings), [data.vehicles, data.plannerSettings])
   const queue = useMemo(() => buildPlannerQueue(data, todayKey()), [data])
   const days = Array.from({ length: 7 }, (_, index) => addDays(week, index))
@@ -407,6 +412,19 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
         <button className="secondary" onClick={() => setWeek(addDays(week, 7))}>Settimana →</button>
         <button className="primary" onClick={onOpenSettings}>Impostazioni</button>
       </div>
+    </section>
+
+    <section className="panel" aria-label="Tariffa oraria obiettivo mensile">
+      <div className="panel-head"><div><span className="eyebrow">{targetMonthLabel}</span><h3>Tariffa oraria per raggiungere l’obiettivo mensile</h3></div></div>
+      <div className="planner-detail-summary-grid">
+        <article className="planner-detail-card"><span>Tariffa obiettivo</span><strong>{targetRate.hourlyRate===null?'Da configurare':`${money(targetRate.hourlyRate)}/h`}</strong></article>
+        <article className="planner-detail-card"><span>Obiettivo fatturato mensile</span><strong>{money(targetRate.goal)}</strong></article>
+        <article className="planner-detail-card"><span>Ore produttive del mese</span><strong>{formatHours(targetRate.hours)}</strong></article>
+      </div>
+      <p>Obiettivo fatturato del mese ÷ ore produttive disponibili. È il fatturato medio da raggiungere per ora produttiva, non l’utile netto.</p>
+      <small>{targetRate.capacitySource==='planner'?'Ore calcolate con orari degli operatori, assenze, chiusure ed efficienza.':'Ore calcolate dalla capacità produttiva mensile configurata, con l’efficienza impostata.'} Il valore si aggiorna quando cambi obiettivo o capacità; non dipende dal costo orario manuale.</small>
+      {targetRate.hourlyRate===null&&<p role="status">{targetRate.goal<=0?'Imposta l’obiettivo fatturato mensile nelle impostazioni.':'Configura ore produttive maggiori di zero nelle impostazioni.'}</p>}
+      <button type="button" className="secondary" onClick={onOpenSettings}>Modifica obiettivo e ore</button>
     </section>
 
     {!data.plannerSettings.operators.length && <div className="toast warning">Configura almeno un operatore: senza ore lavorabili non e possibile calcolare una consegna.</div>}

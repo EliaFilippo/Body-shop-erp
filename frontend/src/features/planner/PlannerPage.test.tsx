@@ -210,3 +210,17 @@ describe('PlannerPage regressione visibilita commessa pianificata', () => {
 
   })
 })
+
+it('mostra la tariffa obiettivo con fatturato mensile e capacità produttiva',()=>{
+ const data=makeData()
+ data.plannerSettings.monthlyRevenueGoal=30000
+ data.plannerSettings.internalCostSettings={...data.plannerSettings.internalCostSettings!,usePlannerCapacity:false,productiveCapacity:{productiveOperators:3,hoursPerOperatorPerDay:8,workingDaysPerMonth:20,efficiencyPercent:50}}
+ const settings=vi.fn()
+ render(<PlannerPage data={data} customerById={()=>undefined} onMove={()=>{}} onOpenSettings={settings} onUpdateVehicleStatus={()=>{}} statusOptions={[]} statusLabel={status=>status}/>)
+ const panel=within(screen.getByRole('region',{name:'Tariffa oraria obiettivo mensile'}))
+ expect(panel.getByText(/125,00/)).toBeInTheDocument()
+ expect(panel.getByText(/30.000,00/)).toBeInTheDocument()
+ expect(panel.getByText('240,0 h')).toBeInTheDocument()
+ fireEvent.click(panel.getByRole('button',{name:'Modifica obiettivo e ore'}))
+ expect(settings).toHaveBeenCalledOnce()
+})
