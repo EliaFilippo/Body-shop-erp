@@ -61,6 +61,8 @@ jobs:
         run: psql -f supabase/tests/tablet_cones.sql
       - name: Cleaning and coffee, isolated timers, idempotency and Rome daily totals
         run: psql -f supabase/tests/operator_activities.sql
+      - name: Office read access without private password preserves write restrictions
+        run: psql -f supabase/tests/read_without_private_password.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
