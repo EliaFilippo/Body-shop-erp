@@ -1,3 +1,4 @@
+import { OperatorActivities } from './OperatorActivities'
 import { phaseDisplayName } from '../../services/workCycle'
 import { panelTaskDescription } from '../../services/eliasPriceList'
 import { ProductionControlPanel } from './ProductionControlPanel'
@@ -156,6 +157,7 @@ export function LiveProductionPage() {
     {session && feed && <>
       {!feed.operatorName && <p className="live-alert">Il titolare deve collegare questo account al tuo operatore prima di avviare il lavoro.</p>}
       <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 2 secondi'}</p>
+      {feed.operatorName && <OperatorActivities activity={feed.activity} busy={busy} stale={stale} elapsed={(performance.now()-lastSample.current)/1000} onAction={kind=>void act('production_activity_action',{p_kind:kind})}/>}
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
       {feed.operatorName && <section className="live-day-hours"><h2>I miei lavori assegnati</h2>
@@ -200,7 +202,7 @@ export function LiveProductionPage() {
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
               {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}</option>)}</select></label>}
-            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected) || !!(ownRunning && ownRunning.jobId !== job.jobId)}
+            <div className="live-controls"><button disabled={busy || stale || !!feed.activity?.kind || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected) || !!(ownRunning && ownRunning.jobId !== job.jobId)}
               onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'start', p_phase_id: selected || null })}>{job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>

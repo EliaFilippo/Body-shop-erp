@@ -192,3 +192,20 @@ it('shows only permitted phases and keeps Start disabled on a revoked paused car
  expect(screen.getByRole('button',{name:'Fine'})).toBeEnabled()
  expect(screen.queryByRole('option',{name:'Smontaggio'})).not.toBeInTheDocument()
 })
+
+it('mette in pausa la vettura con PULIZIE e richiede di terminare l’attività prima di riprendere',async()=>{
+ let active=false
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_activity_action'){active=true;return null}
+  if(name==='production_phase_notices_action')return []
+  return {companyId:'c1',role:'production',operatorName:'Mario',serverNow:new Date().toISOString(),members:[],
+   activity:{kind:active?'cleaning':null,elapsedSeconds:0,cleaningSeconds:0,coffeeSeconds:0},
+   jobs:[{jobId:'j1',plate:'CLEAN123',number:'1',remainingSeconds:600,remainingPercent:100,activeCount:active?0:1,ownStatus:active?'paused':'running',operators:[]}]}
+ })
+ render(<LiveProductionPage/>)
+ fireEvent.click(await screen.findByRole('button',{name:'PULIZIE'}))
+ await screen.findByText('PULIZIE IN CORSO')
+ expect(mocked.rpc).toHaveBeenCalledWith('production_activity_action',{p_company_id:'c1',p_kind:'cleaning'},expect.anything(),expect.anything())
+ expect(screen.getByRole('button',{name:'Riprendi'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'TERMINA ATTIVITÀ'})).toBeEnabled()
+})

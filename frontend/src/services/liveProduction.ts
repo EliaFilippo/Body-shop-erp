@@ -16,7 +16,9 @@ export interface HoursReport {
   operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];
   workedSeconds: number; ordinarySeconds: number | null; extraSeconds: number | null; unconfigured: boolean;
 }
+export interface OperatorActivity { kind: 'cleaning' | 'coffee' | null; elapsedSeconds: number; cleaningSeconds: number; coffeeSeconds: number }
 export interface LiveFeed {
+  activity?: OperatorActivity | null;
   companyId: string; serverNow: string; role: 'owner' | 'office' | 'production';
   operatorName: string | null; jobs: LiveClock[];
   members: { userId: string; name: string; operatorId: string | null }[];
