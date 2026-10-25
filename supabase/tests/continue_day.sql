@@ -32,7 +32,7 @@ update erp_snapshots s set payload=jsonb_set(payload,'{plannerSettings,operators
   select jsonb_agg(jsonb_build_object('dayOfWeek',d,'active',true,'intervals','[{"startTime":"00:00","endTime":"00:01"}]'::jsonb)) from generate_series(0,6)d)) else o end)
  from jsonb_array_elements(payload->'plannerSettings'->'operators')o
 )) where company_id='10000000-0000-0000-0000-000000000001';
-do $declare target text; total_before bigint; feed jsonb; minute_now integer;begin
+do $$declare target text; total_before bigint; feed jsonb; minute_now integer;begin
  minute_now:=extract(hour from clock_timestamp() at time zone 'Europe/Rome')::integer*60+extract(minute from clock_timestamp() at time zone 'Europe/Rome')::integer;
  if minute_now<1 or minute_now>=1438 then return;end if;
  target:=to_char(((clock_timestamp() at time zone 'Europe/Rome')::date + make_interval(mins=>least(1439,minute_now+10)))::timestamp,'HH24:MI');
@@ -44,5 +44,5 @@ do $declare target text; total_before bigint; feed jsonb; minute_now integer;beg
  feed:=production_live_feed('10000000-0000-0000-0000-000000000001');
  if feed->'dayContinuation'->>'untilMinute' is null then raise exception 'Extension missing after reload';end if;
  if exists(select 1 from production_day_extensions where operator_id='b') then raise exception 'Colleague changed';end if;
-end $;
+end $$;
 rollback;
