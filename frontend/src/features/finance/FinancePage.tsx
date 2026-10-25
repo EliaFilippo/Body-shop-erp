@@ -334,7 +334,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
     return 'programmata'
   }
 
-  const currentLiquidity = liquidityProjection.points[0]?.balance ?? 0
+  const currentLiquidity = data.bankAccounts.reduce((sum,account)=>sum+account.currentBalance,0)
   const minLiquidityPoint = liquidityProjection.minPoint
   const overdueInvoices = data.invoices.filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status) && invoice.dueDate < today())
   const overdueInvoicesAmount = overdueInvoices.reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
@@ -479,7 +479,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
     <TreasuryPanel data={data} />
     <SupplierInvoiceCapture data={data} onSave={input => { onChange(createPayableEntry(data, input)); setNotice('Fattura registrata nello scadenziario.') }} />
     <section className="stat-grid cashflow-kpi-grid">
-      <div className="stat-card"><span>Liquidità attuale</span><strong>{money(currentLiquidity)}</strong><small>Saldo previsto di partenza</small></div>
+      <div className="stat-card"><span>Liquidità attuale</span><strong>{money(currentLiquidity)}</strong><small>Saldo bancario registrato</small></div>
       <div className="stat-card"><span>Incassi previsti 30 giorni</span><strong>{money(liquidityProjection30.totalInflow)}</strong><small>Fatture, RIBA e preventivi confermati: previsioni senza doppioni</small></div>
       <div className="stat-card"><span>Pagamenti previsti 30 giorni</span><strong>{money(liquidityProjection30.totalOutflow)}</strong><small>Uscite previste + costi + prelievo titolare</small></div>
       <div className="stat-card"><span>Liquidità minima prevista</span><strong>{money(minLiquidityPoint?.balance ?? currentLiquidity)}</strong><small>{minLiquidityPoint ? `Data: ${minLiquidityPoint.date}` : 'Nessuna proiezione disponibile'}</small></div>
