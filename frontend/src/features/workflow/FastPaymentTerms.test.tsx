@@ -26,3 +26,12 @@ it('propone RIBA a 40 giorni e calcola la scadenza dalla data di fatturazione',(
  expect(screen.getByLabelText('Scadenza pagamento')).toHaveValue('40')
  expect(screen.getByText('Incasso previsto: 05/12/2026')).toBeInTheDocument()
 })
+
+it('propone anche RIBA a 75 giorni',()=>{
+ render(<Form/>)
+ fireEvent.change(screen.getByLabelText('Metodo di pagamento'),{target:{value:'R.I.B.A.'}})
+ fireEvent.change(screen.getByLabelText('Scadenza pagamento'),{target:{value:'75'}})
+ fireEvent.change(screen.getByLabelText('Data prevista fatturazione'),{target:{value:'2026-10-26'}})
+ expect(screen.getByLabelText('Scadenza pagamento')).toHaveValue('75')
+ expect(screen.getByText('Incasso previsto: 09/01/2027')).toBeInTheDocument()
+})
