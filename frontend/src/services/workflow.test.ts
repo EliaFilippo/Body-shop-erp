@@ -23,6 +23,7 @@ import {
   updateJobPhase,
   updateJobStatus,
   resolveInternalHourlyRate,
+  syncOperationalStateFromJobs,
 } from './workflow'
 
 const baseVehicle = (customerId: string): Vehicle => ({
@@ -2166,4 +2167,22 @@ describe('commesse con vettura eliminata', () => {
     expect(cancelled.customers).toEqual(data.customers)
     expect(cancelled.jobs![0].lines).toEqual(job.lines)
   })
+})
+
+describe('avanzamento sulle sole fasi richieste',()=>{
+ it('parte da zero e non considera eseguite le fasi escluse',()=>{
+  const data=createEstimate(makeData(),{
+   customerId:'c1',vehicleId:'v1',plate:'AB123CD',companyName:'',contactName:'',
+   date:'2026-10-25',notes:'',selectedPhases:['Lavaggio esterno'],
+   lines:[{description:'Paraurti',category:'verniciatura',quantity:1,unitPrice:185,discount:0,vatRate:22,standardWorkName:'Verniciatura',estimatedMinutes:60}],
+  })
+  const converted=approveEstimateAndCreateJob(data,data.estimates![0].id)
+  const job=converted.jobs![0]
+  expect(job.phases.some(phase=>phase.notRequired&&phase.status==='Completata')).toBe(true)
+  expect(workflowOperationalSnapshot(job).progressPercent).toBe(0)
+  expect(syncOperationalStateFromJobs(converted).jobs![0].progressPercent).toBe(0)
+  const wash=job.phases.find(phase=>phase.name==='Lavaggio esterno')!
+  const completed={...job,phases:job.phases.map(phase=>phase.id===wash.id?{...phase,status:'Completata' as const}:phase)}
+  expect(workflowOperationalSnapshot(completed).progressPercent).toBe(33)
+ })
 })

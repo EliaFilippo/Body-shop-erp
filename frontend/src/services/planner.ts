@@ -1124,7 +1124,13 @@ export function recalculateOperatorPrograms(data: ErpData, date = todayKey(), re
   const runtimeNow = nowIso
   const generated = generateOperatorPrograms(data, date, reason, runtimeNow)
   const current = data.operatorPrograms ?? []
-  if (samePrograms(current, generated.programs)) return data
+  const plannedJobIds = new Set(generated.programs.flatMap(program=>program.tasks.filter(task=>task.plannedMinutes>0).map(task=>task.jobId)))
+  const plannedJobs=(data.jobs??[]).map(job=>job.status==='Da pianificare'&&plannedJobIds.has(job.id)?{
+    ...job,status:'Pianificata' as const,updatedAt:generated.historyEntry.generatedAt,
+    history:[{id:crypto.randomUUID(),at:generated.historyEntry.generatedAt,actor:'Planner automatico',message:'Commessa pianificata nel programma operatori.'},...job.history],
+  }:job)
+  const statusChanged=plannedJobs.some((job,index)=>job!==(data.jobs??[])[index])
+  if (samePrograms(current, generated.programs)) return statusChanged?{...data,jobs:plannedJobs}:data
   const moved = movedJobCount(current, generated.programs)
   const reasonWithMovement = moved > 0
     ? `${generated.historyEntry.reason} · commesse ripianificate: ${moved}`
@@ -1132,6 +1138,7 @@ export function recalculateOperatorPrograms(data: ErpData, date = todayKey(), re
   const history = [{ ...generated.historyEntry, reason: reasonWithMovement, previousPrograms: current }, ...(data.operatorProgramHistory ?? [])].slice(0, 200)
   return {
     ...data,
+    jobs: statusChanged?plannedJobs:data.jobs,
     operatorPrograms: generated.programs,
     operatorProgramHistory: history,
     operatorProgramRevision: generated.historyEntry.revision,
