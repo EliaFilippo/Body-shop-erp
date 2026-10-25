@@ -76,3 +76,15 @@ it('due colleghi non moltiplicano un tempo condiviso dispari',()=>{
  expect(tasks.filter(t=>['Stuccatura','Verniciatura'].includes(t.phaseName)).reduce((sum,t)=>sum+t.plannedMinutes,0)).toBe(61)
  expect(tasks.filter(t=>t.phaseName==='Stuccatura')).toHaveLength(2)
 })
+
+it('un lavoro disponibile in futuro non lascia inutilizzato il turno di oggi',()=>{
+ const data=fixture(2)
+ const future=data.jobs![0]
+ future.entryDate='2026-11-02';future.expectedDeliveryDate='2026-11-03'
+ const available=data.jobs![1]
+ available.entryDate='2026-10-26';available.expectedDeliveryDate='2026-11-10'
+ const result=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z')
+ const first=result.programs.filter(p=>p.operatorId==='wash').flatMap(p=>p.tasks).sort((a,b)=>a.startAt.localeCompare(b.startAt))[0]
+ expect(first.jobId).toBe(available.id)
+ expect(first.startAt.slice(0,10)).toBe('2026-10-26')
+})

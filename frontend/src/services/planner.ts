@@ -1004,7 +1004,28 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
 
   const paintReservations=currentPaintReservations(data,schedulingFloor)
   const remainingByPhase = new Map<string,number>()
-  for (const item of candidates) {
+  for (let candidateIndex=0;candidateIndex<candidates.length;candidateIndex++) {
+    // Fill the earliest usable slot first; a future vehicle must not reserve an employee past today's work.
+    const earliestSlot=(candidate:typeof candidates[number])=>{
+      if(candidate.blocked)return '~'
+      let states=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,candidate.phase))
+      if(candidate.phase.preferredOperatorId)states=states.filter(state=>state.operator.id===candidate.phase.preferredOperatorId)
+      const running=(candidate.phase.operatorAssignments??[]).filter(a=>a.activityStatus==='Attivo'&&!a.endedAt).map(a=>a.operatorName)
+      if(running.length)states=states.filter(state=>running.includes(state.operator.name))
+      if(!states.length)return '~'
+      let start=states.map(state=>[state.nextAt,candidate.readyAt,schedulingFloor].sort().at(-1)!).sort()[0]
+      const support=operatorState.get(candidate.phase.supportOperatorId??'')
+      if(support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
+      return start
+    }
+    let nextIndex=candidateIndex
+    let earliest=earliestSlot(candidates[nextIndex])
+    for(let index=candidateIndex+1;index<candidates.length;index++){
+      const slot=earliestSlot(candidates[index])
+      if(slot<earliest){earliest=slot;nextIndex=index}
+    }
+    if(nextIndex!==candidateIndex)[candidates[candidateIndex],candidates[nextIndex]]=[candidates[nextIndex],candidates[candidateIndex]]
+    const item=candidates[candidateIndex]
     if (item.blocked) continue
     const activeAssignments = (item.phase.operatorAssignments ?? []).filter((entry) => entry.activityStatus === 'Attivo' && !entry.endedAt)
     const phaseKey = item.job.id+'|'+item.phase.id
@@ -1094,7 +1115,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         revision,
       }
       state.tasks.push(task)
-      state.nextAt = workerEndAt
+      state.nextAt = nextWorkingInstant(workerEndAt,data.plannerSettings,state.operator)
     }
     if (item.job.workflowCycle==='elias-v1') {
       const consumed=Math.min(residual,duration*selected.length)
