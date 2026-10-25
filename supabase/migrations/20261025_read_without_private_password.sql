@@ -11,7 +11,7 @@ revoke all on function public.production_report_access(uuid) from public,anon;
 grant execute on function public.production_report_access(uuid) to authenticated;
 -- Keep production_owner_password_recent and the confirmed-document write trigger unchanged.
 create or replace function public.require_recent_owner_password()
-returns trigger language plpgsql security definer set search_path=public,pg_temp as $
+returns trigger language plpgsql security definer set search_path=public,pg_temp as $$
 declare kind text; previous jsonb; revised jsonb;
 begin
  if not exists(select 1 from company_members where company_id=old.company_id and user_id=auth.uid() and active and role in ('owner','office')) then return new;end if;
@@ -25,7 +25,7 @@ begin
   end loop;
  end loop;
  return new;
-end $;
+end $$;
 revoke all on function public.require_recent_owner_password() from public,anon,authenticated;
 
 notify pgrst,'reload schema';
