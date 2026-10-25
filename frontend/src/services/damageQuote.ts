@@ -1,3 +1,4 @@
+import { WORK_CYCLE } from './workCycle'
 import { quoteCustomerLines } from './quotePricing'
 import type { AcceptanceQuote, EstimateLine, MinorDamagePreset, PlannerSettings, StandardWorkDefinition } from '../types'
 import { computeLineInternalEconomics, resolvePriceListItem, resolveStandardRuleForLine } from './workflow'
@@ -17,7 +18,7 @@ function retainOptionalChoices(times: EstimateLine['minorDamageTimes'], source?:
 }
 
 export function recalculateDamageLine(line: EstimateLine, settings: PlannerSettings): EstimateLine {
-  const estimatedMinutes = Math.round(safe(line.estimatedMinutes ?? 0))
+  const estimatedMinutes = Math.round(line.manualPhaseTimes ? line.manualPhaseTimes.reduce((sum,item)=>sum+safe(item.minutes),0) : safe(line.estimatedMinutes ?? 0))
   const unitPrice = round(safe(line.unitPrice))
   const taxableAmount = unitPrice
   const vatAmount = round(taxableAmount * safe(line.vatRate) / 100)
@@ -69,6 +70,12 @@ export function minorDamageLines(settings: PlannerSettings, panel: { id: string;
 
 export function damageQuoteError(lines: EstimateLine[]): string {
   if (lines.some(line => line.customerDescription !== undefined && !line.customerDescription.trim())) return 'Inserisci la descrizione della lavorazione.'
+  for (const line of lines) {
+    if (!line.manualPhaseTimes) continue
+    const phases=line.manualPhaseTimes
+    if (!phases.length || phases.some(item=>!WORK_CYCLE.includes(item.phase as typeof WORK_CYCLE[number]) || ['Stuccatura','Consegna'].includes(item.phase) || !Number.isFinite(item.minutes) || item.minutes<=0)) return 'Completa la fase e i minuti di ogni lavorazione manuale.'
+    if (new Set(phases.map(item=>item.phase)).size!==phases.length) return 'Fase ripetuta: riunisci i minuti nella stessa fase.'
+  }
   if (lines.some(line => line.manualFastLine && !line.categoryOrPhase)) return 'Scegli la fase della lavorazione manuale.'
   const invalid = lines.find((line) => !Number.isFinite(line.estimatedMinutes) || (line.estimatedMinutes ?? 0) <= 0
     || !Number.isFinite(line.unitPrice) || line.unitPrice <= 0)

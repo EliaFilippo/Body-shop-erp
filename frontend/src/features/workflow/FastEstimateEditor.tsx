@@ -42,6 +42,8 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
   quantity:1,discount:0,vatRate:quote.appliedVatRate,unitPrice:0,estimatedMinutes:0,
   taxableAmount:0,vatAmount:0,total:0,materialsIncluded:true,
  },data.plannerSettings)])
+ const manualTimes=(line:EstimateLine)=>line.manualPhaseTimes??[{phase:line.categoryOrPhase||'',minutes:line.estimatedMinutes||0}]
+ const updateManualTimes=(line:EstimateLine,times:Array<{phase:string;minutes:number}>)=>setLines(current=>current.map(item=>item.id!==line.id?item:recalculateDamageLine({...item,manualPhaseTimes:times,standardWorkName:times[0]?.phase||'',categoryOrPhase:times[0]?.phase||'',requiredSkill:times[0]?.phase||''},data.plannerSettings)))
  const taxable=lines.reduce((sum,line)=>sum+line.unitPrice,0)
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
  return <Modal title="Preventivo fast" onClose={onCancel}>
@@ -67,9 +69,17 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <button type="button" className="secondary" onClick={addManualLine}>+ Aggiungi lavorazione manuale</button>
    {lines.map((line,index)=><section className="panel" key={line.id}><strong>{line.manualFastLine?'Lavorazione manuale':line.standardWorkName}</strong><p>{line.estimatedMinutes||0} min · {euro(line.unitPrice)} IVA esclusa</p>
     <label>Descrizione riga {index+1}<input required value={damageLineDescription(line)} onChange={e=>setLines(lines.map(item=>item.id===line.id?{...item,customerDescription:e.target.value}:item))}/></label>
-    {line.manualFastLine&&<label>Fase riga {index+1}<select required value={line.categoryOrPhase||''} onChange={e=>{const phase=e.target.value;setLines(lines.map(item=>item.id!==line.id?item:recalculateDamageLine({...item,standardWorkName:phase,categoryOrPhase:phase,requiredSkill:phase,category:phase==='Verniciatura'?'verniciatura':phase==='Meccanica / gommista'?'meccanica':'carrozzeria'},data.plannerSettings)))}}><option value="">Scegli fase</option>{WORK_CYCLE.filter(phase=>phase!=='Stuccatura'&&phase!=='Consegna').map(phase=><option key={phase} value={phase}>{phaseDisplayName(phase)}</option>)}</select></label>}
+    {line.manualFastLine&&<section aria-label={`Tempi lavorazione riga ${index+1}`}>
+     {manualTimes(line).map((time,timeIndex)=><div className="form-grid" key={timeIndex}>
+      <label>{timeIndex===0?`Fase riga ${index+1}`:`Fase ${timeIndex+1} riga ${index+1}`}<select required value={time.phase} onChange={e=>updateManualTimes(line,manualTimes(line).map((item,i)=>i===timeIndex?{...item,phase:e.target.value}:item))}><option value="">Scegli fase</option>{WORK_CYCLE.filter(phase=>phase!=='Stuccatura'&&phase!=='Consegna').map(phase=><option key={phase} value={phase}>{phaseDisplayName(phase)}</option>)}</select></label>
+      <label>{timeIndex===0?`Minuti riga ${index+1}`:`Minuti fase ${timeIndex+1} riga ${index+1}`}<input required type="number" min="1" step="1" value={time.minutes||''} onChange={e=>updateManualTimes(line,manualTimes(line).map((item,i)=>i===timeIndex?{...item,minutes:Number(e.target.value)}:item))}/></label>
+      {manualTimes(line).length>1&&<button type="button" className="secondary" onClick={()=>updateManualTimes(line,manualTimes(line).filter((_,i)=>i!==timeIndex))}>Rimuovi fase {timeIndex+1} riga {index+1}</button>}
+     </div>)}
+     <button type="button" className="secondary" onClick={()=>updateManualTimes(line,[...manualTimes(line),{phase:'',minutes:0}])}>+ Aggiungi fase riga {index+1}</button>
+     <p>Un solo prezzo per la riga; il tempo totale è la somma delle fasi. Verniciatura: massimo 3 vetture contemporaneamente, inclusa l’asciugatura.</p>
+    </section>}
     <OptionalPanelPhases line={line} settings={data.plannerSettings} onChange={updated=>setLines(lines.map(item=>item.id===line.id?updated:item))}/><details open={line.manualFastLine||undefined}><summary>Modifica prezzo e tempi</summary><label>Prezzo riga {index+1} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
-    {(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing)&&<label>Minuti riga {index+1}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
+    {(!line.manualFastLine&&(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing))&&<label>Minuti riga {index+1}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
    </section>)}
    <label><input type="checkbox" checked={wash} onChange={e=>setWash(e.target.checked)}/>Includi lavaggio esterno · {data.plannerSettings.eliasExteriorWashMinutes??25} min</label>

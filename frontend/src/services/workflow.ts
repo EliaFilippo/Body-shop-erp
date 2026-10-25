@@ -628,6 +628,7 @@ function sanitizeLine(
 		id: line.id || id(),
 		description: line.description.trim(),
 		customerDescription: line.customerDescription,
+		manualPhaseTimes: line.manualPhaseTimes,
 		manualFastLine: line.manualFastLine,
 		panelId: String(line.panelId ?? '').trim(),
 		panelName: (line.panelName || '').trim(),
