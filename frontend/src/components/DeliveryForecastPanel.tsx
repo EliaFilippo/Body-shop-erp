@@ -3,17 +3,18 @@ import type { AcceptanceQuote, ErpData, EstimateDocument, EstimateLine } from '.
 import { acceptanceEstimateLines } from '../services/damageQuote'
 import { simulateEstimateProductionForecast } from '../services/planner'
 
-export function DeliveryForecastPanel({ data, vehicleId, quote, estimate }: { data: ErpData; vehicleId?: string; quote?: AcceptanceQuote; estimate?: EstimateDocument }) {
+export function DeliveryForecastPanel({ data, vehicleId, plate, requestedDeliveryDate, quote, estimate }: { data: ErpData; vehicleId?: string; plate?: string; requestedDeliveryDate?: string; quote?: AcceptanceQuote; estimate?: EstimateDocument }) {
   const [revision, setRevision] = useState(0)
   const result = useMemo(() => {
     void revision // Explicit refresh without changing the quote.
     try {
       const vehicle = data.vehicles.find(item => item.id === vehicleId)
       const lines = quote ? acceptanceEstimateLines(quote, data.plannerSettings) as EstimateLine[] : estimate?.lines ?? []
-      if (!lines.length || !vehicle) return { error: 'Aggiungi la vettura e le lavorazioni per vedere la previsione.' }
-      return { forecast: simulateEstimateProductionForecast(data, { vehicleId, plate: vehicle.plate, lines, selectedPhases: quote?.selectedPhases ?? estimate?.selectedPhases, priority: estimate?.priority, requestedDeliveryDate: estimate?.requestedDeliveryDate }) }
+      const targetPlate = vehicle?.plate || plate?.trim()
+      if (!lines.length || !targetPlate) return { error: 'Aggiungi la vettura e le lavorazioni per vedere la previsione.' }
+      return { forecast: simulateEstimateProductionForecast(data, { vehicleId, plate: targetPlate, lines, selectedPhases: quote?.selectedPhases ?? estimate?.selectedPhases, priority: estimate?.priority, requestedDeliveryDate: requestedDeliveryDate ?? estimate?.requestedDeliveryDate }) }
     } catch (problem) { return { error: problem instanceof Error ? problem.message : 'Completa le lavorazioni.' } }
-  }, [data, vehicleId, quote, estimate, revision])
+  }, [data, vehicleId, plate, requestedDeliveryDate, quote, estimate, revision])
   const forecast = result.forecast
   const date = forecast?.advisedDeliveryDate
   return <section className="panel" aria-label="Previsione consegna preventivo">
