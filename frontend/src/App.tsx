@@ -1,3 +1,5 @@
+import { applyDayExtensions } from './services/operatorDayExtensions'
+import type { OperatorDayExtension } from './types'
 import { ConfirmedWorkOverview } from './features/dashboard/ConfirmedWorkOverview'
 import { ProductionControlPanel } from './features/production/ProductionControlPanel'
 import { EliasCatalogSettings } from './features/catalog/EliasCatalogSettings'
@@ -24,7 +26,7 @@ import { OperatorProgramPage } from './features/planner/OperatorProgramPage'
 import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
 import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
 import { VehicleStatusesSettingsPage } from './features/planner/VehicleStatusesSettingsPage'
-import { calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
+import { todayKey, calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
@@ -713,6 +715,10 @@ function App() {
       try {
         const checks = await productionRpc<PhaseCheckUpdate[]>('production_phase_updates', { p_company_id: cloudMembership.companyId }, cloudSession, cloudConfig)
         if (!cancelled && checks.length) setData(current => applyLivePhaseChecks(current, checks))
+        try {
+          const extensions=await productionRpc<OperatorDayExtension[]>('production_day_extensions',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
+          if(!cancelled)setData(current=>applyDayExtensions(current,extensions,todayKey(),new Date().toISOString()))
+        } catch { /* Older installations keep their normal calendar until the update is installed. */ }
       } catch { /* Production can remain unconfigured while the office ERP stays usable. */ }
       finally { inFlight = false }
     }

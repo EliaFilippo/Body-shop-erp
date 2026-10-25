@@ -595,7 +595,10 @@ export interface EliasCatalogOverride {
   times?: MinorDamageTimes
   manualPricing?: boolean
 }
+export interface OperatorDayExtension { id:string; operatorId:string; date:string; startMinute:number; endMinute:number }
+
 export interface PlannerSettings {
+  operatorDayExtensions?: OperatorDayExtension[]
   eliasPriceOverrides?: Record<string, EliasCatalogOverride>
   eliasExteriorWashMinutes?: number
   eliasPriceHistory?: Array<{at:string;key:string;before?:EliasCatalogOverride;after:EliasCatalogOverride}>

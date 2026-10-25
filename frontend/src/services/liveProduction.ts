@@ -17,7 +17,9 @@ export interface HoursReport {
   workedSeconds: number; ordinarySeconds: number | null; extraSeconds: number | null; unconfigured: boolean;
 }
 export interface OperatorActivity { kind: 'cleaning' | 'coffee' | null; elapsedSeconds: number; cleaningSeconds: number; coffeeSeconds: number }
+export interface DayContinuation { canContinue:boolean; ordinaryEndMinute:number|null; untilMinute:number|null; date:string }
 export interface LiveFeed {
+  dayContinuation?: DayContinuation | null;
   activity?: OperatorActivity | null;
   companyId: string; serverNow: string; role: 'owner' | 'office' | 'production';
   operatorName: string | null; jobs: LiveClock[];

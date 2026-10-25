@@ -65,6 +65,8 @@ jobs:
         run: psql -f supabase/tests/read_without_private_password.sql
       - name: Shared preparation before masking, preserved V totals and advanced work
         run: psql -f supabase/tests/shared_preparation.sql
+      - name: Day continuation, ordinary schedule and tenant isolation
+        run: psql -f supabase/tests/continue_day.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
