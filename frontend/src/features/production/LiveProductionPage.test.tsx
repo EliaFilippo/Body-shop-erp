@@ -21,6 +21,8 @@ describe('profilo tablet', () => {
   it('shows tasks, personal hours and the identity of the phase signer before advancing to the next phase', async () => {
     let checked = false
     mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_productivity_report') return {alerts:[],operators:[],teams:[]}
+    if (name === 'production_staff_hours') return []
     if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
       if (name === 'production_phase_notices_action') return []
       if (name === 'production_complete_phase') { checked = true; return null }
@@ -49,6 +51,8 @@ describe('profilo tablet', () => {
   it('shows a shared low-budget clock and pauses only the authenticated operator', async () => {
     let paused = false
     mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_productivity_report') return {alerts:[],operators:[],teams:[]}
+    if (name === 'production_staff_hours') return []
     if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
       if (name === 'production_phase_notices_action') return []
       if (name === 'production_timer_action') { paused = true; return null }
@@ -73,6 +77,8 @@ it('allows the owner to clear the operator binding and displays the saved result
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ company_id: 'c1', role: 'owner' }]))))
   let bound = true
   mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_productivity_report') return {alerts:[],operators:[],teams:[]}
+    if (name === 'production_staff_hours') return []
     if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
     if (name === 'production_unbind_profile') { bound = false; return null }
     return { companyId: 'c1', role: 'owner', operatorName: null, serverNow: new Date().toISOString(), jobs: [], members: [{ userId: 'u1', name: 'Filippo Elia', operatorId: bound ? 's' : null }], staff: [] }
@@ -87,6 +93,8 @@ it('allows the owner to clear the operator binding and displays the saved result
 
 it('shows the selected phase countdown separately from the whole vehicle', async () => {
   mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_productivity_report') return {alerts:[],operators:[],teams:[]}
+    if (name === 'production_staff_hours') return []
     if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
     if (name === 'production_phase_notices_action') return []
     return { companyId: 'c1', role: 'production', operatorName: 'Mario', serverNow: new Date().toISOString(), members: [], jobs: [{
@@ -105,6 +113,8 @@ it('shows the selected phase countdown separately from the whole vehicle', async
 
 it('keeps the shared standard allowance distinct from the economic countdown with two colleagues', async () => {
   mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_productivity_report') return {alerts:[],operators:[],teams:[]}
+    if (name === 'production_staff_hours') return []
     if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
     if(name==='production_phase_notices_action')return []
     return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[{

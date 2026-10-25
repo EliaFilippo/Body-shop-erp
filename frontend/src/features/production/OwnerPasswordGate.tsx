@@ -23,9 +23,9 @@ export function OwnerPasswordGate({ connection, title, children, onAccessChange 
   document.addEventListener('visibilitychange', hide)
   return () => document.removeEventListener('visibilitychange', hide)
  }, [])
- return <section className="panel" aria-label={`${title} protetto`}><h3>{title} · accesso protetto</h3>
+ return <section className="panel" aria-label={`${title} protetto`}><h3>{title} · modifiche protette</h3>
   {unlocked && verified ? <><p>Sbloccato per 5 minuti. <button type="button" onClick={() => { generation.current++; setVerified(null); setUntil(0) }}>Blocca</button></p>{children(verified)}</>
-  : <><p>Inserisci la password dei blocchi, separata da quella di accesso al gestionale.</p><form onSubmit={async e => {
+  : <><p>La consultazione è libera dopo l’accesso al gestionale. Inserisci la password dei blocchi soltanto per abilitare le modifiche.</p><form onSubmit={async e => {
    e.preventDefault(); if (!connection || busy) return
    const request = generation.current
    setBusy(true); setError('')
