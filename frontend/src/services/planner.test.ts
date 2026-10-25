@@ -321,7 +321,7 @@ describe('programma operatori autonomo', () => {
 describe('visibilita commesse nel planner', () => {
   const queueSettings: PlannerSettings = {
     ...settings,
-    operators: [{ id: 'op-a', name: 'Operatore A', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] }],
+    operators: [{ id: 'op-a', name: 'Operatore A', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'stuccatura', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] }],
   }
 
   const makeQueueData = () => {
@@ -515,8 +515,8 @@ describe('simulazione previsione produzione preventivo', () => {
     data.plannerSettings = {
       ...structuredClone(emptyData.plannerSettings),
       operators: [
-        { id: 'op-1', name: 'Mario', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] },
-        { id: 'op-2', name: 'Luca', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'verniciatura'] },
+        { id: 'op-1', name: 'Mario', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'stuccatura', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] },
+        { id: 'op-2', name: 'Luca', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'stuccatura', 'verniciatura'] },
       ],
       workingDays: [1, 2, 3, 4, 5],
       efficiencyPercent: 100,
@@ -549,8 +549,8 @@ describe('simulazione previsione produzione preventivo', () => {
     const data = makeForecastData()
     const result = simulateEstimateProductionForecast(data, { plate: 'AB123CD', referenceDate: '2026-07-27', selectedPhases: [], lines: forecastLines([{ name: 'Verniciatura', minutes: 60 }]) })
     expect(result.blockingReasons).toEqual([])
-    expect(result.phasePlans.map(phase => phase.phaseName)).toEqual(['Verniciatura'])
-    expect(new Date(result.technicalCompletionAt).getTime() - new Date(result.phasePlans[0].endAt).getTime()).toBe(60 * 60_000)
+    expect(result.phasePlans.map(phase => phase.phaseName)).toEqual(['Stuccatura','Verniciatura'])
+    expect(new Date(result.technicalCompletionAt).getTime() - new Date(result.phasePlans.at(-1)!.endAt).getTime()).toBe(60 * 60_000)
     expect(result.advisedDeliveryDate).toBeTruthy()
   })
 
@@ -700,8 +700,8 @@ describe('12 scenari priorita planner', () => {
   const prioritySettings: PlannerSettings = {
     ...settings,
     operators: [
-      { id: 'op-p1', name: 'Operatore 1', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] },
-      { id: 'op-p2', name: 'Operatore 2', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] },
+      { id: 'op-p1', name: 'Operatore 1', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'stuccatura', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] },
+      { id: 'op-p2', name: 'Operatore 2', dailyHours: 8, active: true, skills: ['smontaggio', 'lattoneria', 'preparazione', 'stuccatura', 'verniciatura', 'rimontaggio', 'lucidatura', 'lavaggio', 'controllo'] },
     ],
     safetyMarginPercent: 0,
     plannerPriorityWeights: {

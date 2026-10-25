@@ -2183,6 +2183,6 @@ describe('avanzamento sulle sole fasi richieste',()=>{
   expect(syncOperationalStateFromJobs(converted).jobs![0].progressPercent).toBe(0)
   const wash=job.phases.find(phase=>phase.name==='Lavaggio esterno')!
   const completed={...job,phases:job.phases.map(phase=>phase.id===wash.id?{...phase,status:'Completata' as const}:phase)}
-  expect(workflowOperationalSnapshot(completed).progressPercent).toBe(33)
+  expect(workflowOperationalSnapshot(completed).progressPercent).toBe(25)
  })
 })

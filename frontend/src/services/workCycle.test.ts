@@ -1,3 +1,4 @@
+import { phaseResidualMinutes } from './planner'
 import { describe,it,expect } from 'vitest'
 import { emptyData } from './erp'
 import { createEstimate, approveEstimateAndCreateJob } from './workflow'
@@ -80,4 +81,14 @@ it('ripartisce i tempi manuali della singola riga senza moltiplicare il prezzo',
  const job=approveEstimateAndCreateJob(data,data.estimates![0].id).jobs![0]
  expect(job.taxableAmount).toBe(185)
  expect(job.phases.filter(phase=>!phase.notRequired).map(phase=>[phase.name,phase.estimatedMinutes])).toEqual([['Stuccatura',60],['Incartatura',20],['Verniciatura',0],['Scartatura',10],['Consegna',0]])
+})
+
+it('detrarre 55 minuti di preparazione lascia 35 minuti alla verniciatura dello stesso V90',()=>{
+ const initial=createEstimate(structuredClone(emptyData),{...input,selectedPhases:[],lines:input.lines})
+ const job=approveEstimateAndCreateJob(initial,initial.estimates![0].id).jobs![0]
+ const phases=job.phases.map(p=>p.name==='Stuccatura'?{...p,status:'Completata' as const,actualMinutes:55}:p)
+ const painted=phases.find(p=>p.name==='Verniciatura')!
+ expect(phaseResidualMinutes(painted,'2026-10-26T10:00:00Z',{...job,phases})).toBe(35)
+ expect(phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(90)
+ expect(phases.find(p=>p.name==='Incartatura')!.sharedTimeKey).not.toBe('v')
 })
