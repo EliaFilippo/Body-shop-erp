@@ -1,3 +1,4 @@
+import { phaseDisplayName } from '../../services/workCycle'
 import { useMemo, useState } from 'react'
 import { isVehicleWaitingForCone } from '../../services/erp'
 import { recalculateOperatorPrograms, selectSchedulablePhase, todayKey } from '../../services/planner'
@@ -38,7 +39,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
         const phase = selectSchedulablePhase(job)?.phase
         if (!phase) return null
         const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))
-        return <div key={job.id}>{job.plate} · {phase.name}
+        return <div key={job.id}>{job.plate} · {phaseDisplayName(phase.name)}
           <select aria-label={`Assegnazione ${job.plate}`} value={phase.preferredOperatorId ?? ''} onChange={event => {
             const operatorId = event.target.value
             const operator = operators.find(o => o.id === operatorId)
@@ -83,7 +84,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
           <div className="day-jobs">
             {program.tasks.map((task) => <div className="day-job" key={task.id}>
               <strong className="plate">{timeLabel(task.startAt)}-{timeLabel(task.endAt)}</strong>
-              <span>{task.jobNumber} - {task.phaseName} - {task.plate}</span>
+              <span>{task.jobNumber} - {phaseDisplayName(task.phaseName)} - {task.plate}</span>
               <small>{task.plannedMinutes} min · {task.priority}</small>
               <small>{coneLabelByTask(task.jobId, task.vehicleId)}</small>
               {!!task.panelNames?.length && <small>Pannelli: {task.panelNames.join(', ')}</small>}

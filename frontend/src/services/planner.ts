@@ -518,7 +518,7 @@ function phaseManWorkedMinutes(phase: JobPhase, atIso: string) {
   }, 0)
 }
 
-function phaseResidualMinutes(phase: JobPhase, atIso: string, job?: RepairJob) {
+export function phaseResidualMinutes(phase: JobPhase, atIso: string, job?: RepairJob) {
   if (phase.sharedTimeKey && phase.sharedTimeMinutes !== undefined && job) {
     const worked = job.phases.filter(p => p.sharedTimeKey === phase.sharedTimeKey).reduce((sum, p) => sum + Math.max(p.tabletWorkedSeconds ? p.tabletWorkedSeconds / 60 : 0, p.actualMinutes || 0, phaseManWorkedMinutes(p, atIso)), 0)
     return Math.max(1, Math.ceil(phase.sharedTimeMinutes - worked))
