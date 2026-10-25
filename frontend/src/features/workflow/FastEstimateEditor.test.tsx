@@ -127,3 +127,27 @@ it('permette più tempi sotto lo stesso prezzo nella riga manuale',()=>{
  fireEvent.click(screen.getByRole('button',{name:'Salva preventivo fast'}))
  expect(done.mock.calls[0][0].estimates[0].lines[0]).toMatchObject({unitPrice:185,estimatedMinutes:90,manualPhaseTimes:[{phase:'Verniciatura',minutes:60},{phase:'Incartatura',minutes:20},{phase:'Scartatura',minutes:10}]})
 })
+
+it('mostra il confronto economico prima della conferma e lo aggiorna cambiando prezzo e tempi',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings.monthlyRevenueGoal=25000
+ data.plannerSettings.internalCostSettings={...data.plannerSettings.internalCostSettings!,usePlannerCapacity:false,budgetMaterialsPercent:20,
+ monthlyCostItems:[{id:'p',category:'personale',description:'Personale',monthlyAmount:4000,active:true},{id:'s',category:'affitto',description:'Struttura',monthlyAmount:6000,active:true}],
+ productiveCapacity:{productiveOperators:2,hoursPerOperatorPerDay:8,workingDaysPerMonth:20,efficiencyPercent:62.5}}
+ const done=vi.fn()
+ render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
+ fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi lavorazione manuale'}))
+ fireEvent.change(screen.getByLabelText('Descrizione riga 1'),{target:{value:'Ripristino personalizzato'}})
+ fireEvent.change(screen.getByLabelText('Fase riga 1'),{target:{value:'Verniciatura'}})
+ fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'120'}})
+ fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'200'}})
+ const preview=screen.getByLabelText('Convenienza del preventivo')
+ expect(preview).toHaveTextContent('100,00')
+ expect(preview).toHaveTextContent('125,00')
+ expect(preview).toHaveTextContent('IN GUADAGNO · sotto l’obiettivo orario')
+ fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
+ expect(preview).toHaveTextContent('SOTTOCOSTO')
+ fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'15'}})
+ expect(preview).toHaveTextContent('IN GUADAGNO · obiettivo orario raggiunto')
+ expect(done).not.toHaveBeenCalled()
+})
