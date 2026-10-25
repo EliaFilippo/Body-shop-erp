@@ -68,6 +68,8 @@ export function minorDamageLines(settings: PlannerSettings, panel: { id: string;
 }
 
 export function damageQuoteError(lines: EstimateLine[]): string {
+  if (lines.some(line => line.customerDescription !== undefined && !line.customerDescription.trim())) return 'Inserisci la descrizione della lavorazione.'
+  if (lines.some(line => line.manualFastLine && !line.categoryOrPhase)) return 'Scegli la fase della lavorazione manuale.'
   const invalid = lines.find((line) => !Number.isFinite(line.estimatedMinutes) || (line.estimatedMinutes ?? 0) <= 0
     || !Number.isFinite(line.unitPrice) || line.unitPrice <= 0)
   return invalid ? `Completa tempo e prezzo: ${invalid.panelName} · ${invalid.standardWorkName || invalid.description}.` : ''
@@ -112,12 +114,17 @@ function damageWorkDescription(line: EstimateLine): string {
   return identifiesPanel ? work : `${work} · ${line.panelName}`
 }
 
+export function damageLineDescription(line: EstimateLine): string {
+  if (line.customerDescription !== undefined) return line.customerDescription.trim()
+  return `${damageWorkDescription(line)} (${line.damageSeverity || 'lieve'})${line.priceVariant && line.damageSeverity !== 'grave' ? ` · ${line.priceVariant}` : ''}${line.materialsIncluded ? ' · materiali inclusi' : ''}`
+}
+
 export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: PlannerSettings): Array<Partial<EstimateLine> & Pick<EstimateLine, 'description' | 'category' | 'quantity' | 'unitPrice' | 'discount' | 'vatRate'>> {
   quote = { ...quote, lines: quoteCustomerLines(quote) }
   const error = damageQuoteError(quote.damageLines ?? [])
   if (error) throw new Error(error)
   const lines = [
-    ...(quote.damageLines ?? []).map((line) => ({ ...(settings ? budgetLineSnapshot(line, quote, settings) : line), description: `${damageWorkDescription(line)} (${line.damageSeverity || 'lieve'})${line.priceVariant && line.damageSeverity !== 'grave' ? ` · ${line.priceVariant}` : ''}${line.materialsIncluded ? ' · materiali inclusi' : ''}`, vatRate: quote.appliedVatRate })),
+    ...(quote.damageLines ?? []).map((line) => ({ ...(settings ? budgetLineSnapshot(line, quote, settings) : line), description: damageLineDescription(line), vatRate: quote.appliedVatRate })),
     ...quote.lines.filter((line) => line.kind !== 'discount' && line.quantity > 0 && line.unitPrice > 0).map((line) => ({
       description: line.description,
       category: line.kind === 'labor' ? 'carrozzeria' as const : line.kind === 'parts' ? 'ricambi' as const : line.kind === 'consumption' ? 'materiali' as const : line.kind === 'external' ? 'servizi esterni' as const : 'altre' as const,

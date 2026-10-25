@@ -627,6 +627,8 @@ function sanitizeLine(
 	const baseLine: EstimateLine = {
 		id: line.id || id(),
 		description: line.description.trim(),
+		customerDescription: line.customerDescription,
+		manualFastLine: line.manualFastLine,
 		panelId: String(line.panelId ?? '').trim(),
 		panelName: (line.panelName || '').trim(),
 		minorDamageTimes: line.minorDamageTimes,
