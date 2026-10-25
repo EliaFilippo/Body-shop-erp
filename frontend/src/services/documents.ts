@@ -1,3 +1,4 @@
+import { expectedPaymentDate } from './paymentTerms'
 import { calculateDueDate } from './finance'
 import { approveEstimateAndCreateJob } from './workflow'
 import type {
@@ -233,7 +234,8 @@ export function convertAcceptedQuoteToInvoice(data: ErpData, input: InvoiceFromQ
   if (data.invoices.some((item) => item.number === number)) throw new Error('Numero fattura già presente.')
 
   const issueDate = input.issueDate ?? todayKey()
-  const dueDate = input.dueDate ?? calculateDueDate(issueDate, quote.paymentTerms?.days ?? customer.paymentDays ?? data.financeSettings.defaultPaymentDays, quote.paymentTerms?.endOfMonth ?? Boolean(customer.endOfMonth))
+  const agreedDate=quote.paymentTerms?.expectedCollectionDate||(quote.paymentTerms?.atDelivery?expectedPaymentDate(quote.paymentTerms,data.vehicles.find(vehicle=>vehicle.id===quote.vehicleId)?.deliveryDate||data.vehicles.find(vehicle=>vehicle.id===quote.vehicleId)?.requestedDeliveryDate):'')
+  const dueDate = input.dueDate ?? (agreedDate || calculateDueDate(issueDate, quote.paymentTerms?.days ?? customer.paymentDays ?? data.financeSettings.defaultPaymentDays, quote.paymentTerms?.endOfMonth ?? Boolean(customer.endOfMonth)))
   const lines = mapQuoteLinesToInvoiceLines(quote)
   const totals = calculateDocumentTotals(quote.lines)
   const timestamp = now()

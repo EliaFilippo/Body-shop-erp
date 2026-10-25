@@ -1,3 +1,5 @@
+import { createVehicleRiba,ribaVehicleOptions } from './vehicleRiba'
+import { receivableFlows,ribaDueAlerts } from './receivableFlows'
 import { describe, expect, it } from 'vitest'
 import type { ErpData, Vehicle } from '../types'
 import {
@@ -139,4 +141,48 @@ describe('finance core rules', () => {
     expect(insolvent.invoices[0].status).toBe('Insoluta')
     expect(insolvent.invoices[0].ribaAllocatedAmount).toBe(0)
   })
+})
+
+describe('RIBA per vetture e liquidità senza duplicazioni',()=>{
+ const source=()=>{
+  const base=makeData();base.vehicles.push(vehicle('2','c1'))
+  return createInvoice(base,{customerId:'c1',vehicleIds:['1','2'],number:'FAT-VEHICLES',issueDate:'2026-03-01'})
+ }
+ const input=(data:ErpData)=>({number:'RIBA-CARS',bankAccountId:'b1',presentationDate:'2026-03-02',dueDate:'2026-03-31',collectionDate:'2026-04-02',selections:ribaVehicleOptions(data).map(row=>({key:row.key,amount:row.amount})),mode:'maturity' as const,advanceDate:'2026-03-03',fees:0,interest:0})
+ it('collega più vetture e raggruppa gli importi della stessa fattura una sola volta',()=>{
+  const data=source(),next=createVehicleRiba(data,input(data))
+  expect(next.ribaBatches[0].vehicleLinks).toHaveLength(2)
+  expect(next.ribaBatches[0].allocations).toHaveLength(1)
+  expect(next.ribaBatches[0].total).toBe(2440)
+  expect(next.ribaBatches[0].collectionDate).toBe('2026-04-02')
+  expect(receivableFlows(next)).toEqual([{dueDate:'2026-04-02',amount:2440,kind:'riba'}])
+  expect(ribaVehicleOptions(next)).toHaveLength(0)
+  expect(data.ribaBatches).toHaveLength(0)
+ })
+ it('l’anticipo incrementa il saldo netto e a maturazione rimane soltanto il residuo',()=>{
+  const data=source()
+  const next=createVehicleRiba(data,{...input(data),mode:'advance',advanceAmount:1000,fees:20,interest:10})
+  expect(next.bankAccounts[0].currentBalance).toBe(1970)
+  expect(receivableFlows(next)).toEqual([{dueDate:'2026-04-02',amount:1440,kind:'riba'}])
+  const settled=settleRibaBatch(next,next.ribaBatches[0].id,'2026-04-02')
+  expect(settled.bankAccounts[0].currentBalance).toBe(3410)
+  expect(receivableFlows(settled)).toEqual([])
+  expect(()=>settleRibaBatch(settled,settled.ribaBatches[0].id,'2026-04-02')).toThrow('già chiusa')
+ })
+ it('avvisa da 15 giorni prima soltanto per distinte caricate e mantiene i costi dopo insoluto',()=>{
+  const data=source()
+  expect(ribaDueAlerts(data,'2026-03-16')).toHaveLength(0)
+  const next=createVehicleRiba(data,{...input(data),mode:'advance',advanceAmount:1000,fees:20,interest:10})
+  expect(ribaDueAlerts(next,'2026-03-15')).toHaveLength(0)
+  expect(ribaDueAlerts(next,'2026-03-16')).toHaveLength(1)
+  const failed=markRibaInsolvent(next,next.ribaBatches[0].id,'2026-04-02')
+  expect(failed.bankAccounts[0].currentBalance).toBe(970)
+  expect(failed.invoices[0].ribaAllocatedAmount).toBe(0)
+  expect(ribaDueAlerts(failed,'2026-04-02')).toHaveLength(0)
+ })
+ it('una RIBA a maturazione non consuma il castelletto dell’anticipo',()=>{
+  const data=source();data.bankAccounts[0].creditLimit=500
+  expect(createVehicleRiba(data,input(data)).ribaBatches[0].total).toBe(2440)
+  expect(()=>createVehicleRiba(data,{...input(data),mode:'advance',advanceAmount:1000})).toThrow('castelletto')
+ })
 })

@@ -702,6 +702,9 @@ export interface RibaAllocation {
 }
 
 export interface RibaBatch {
+  collectionDate?: string
+  vehicleLinks?: Array<{vehicleId:string;invoiceId:string;plate:string;amount:number}>
+  bankAdvanceApplied?: boolean
   id: string
   number: string
   bankAccountId: string
@@ -1055,6 +1058,8 @@ export interface EstimateHistoryEntry {
 }
 
 export interface EstimatePaymentTerms {
+  atDelivery?: boolean
+  expectedCollectionDate?: string
   method: PaymentMethod
   days: number
   endOfMonth: boolean

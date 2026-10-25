@@ -1,3 +1,4 @@
+import { confirmedQuoteForecasts } from './cashflow'
 import 'fake-indexeddb/auto'
 import { describe,expect,it } from 'vitest'
 import { emptyData } from './erp'
@@ -74,4 +75,13 @@ describe('validazione testo manuale',()=>{
   const {data,quote}=setup()
   expect(()=>createFastEstimate(data,{...input,quote:{...quote,damageLines:[{...quote.damageLines[0],customerDescription:'  '}]}})).toThrow('descrizione')
  })
+})
+
+it('salva il pagamento Fast e la previsione di incasso senza creare RIBA bancarie',()=>{
+ const {data,quote}=setup()
+ const next=createFastEstimate(data,{...input,quote,confirmed:true,paymentTerms:{method:'R.I.B.A.',days:60,endOfMonth:false,expectedInvoiceDate:'2026-10-26',expectedCollectionDate:'2026-12-28'}})
+ expect(next.estimates![0].paymentTerms?.expectedCollectionDate).toBe('2026-12-28')
+ expect(next.quotes![0].paymentTerms?.method).toBe('R.I.B.A.')
+ expect(confirmedQuoteForecasts(next)).toEqual([{amount:366,dueDate:'2026-12-28'}])
+ expect(next.ribaBatches).toHaveLength(0)
 })

@@ -1,3 +1,4 @@
+import { receivableFlows, ribaDueAlerts } from './receivableFlows'
 import type { ErpData } from '../types'
 import { calculateOwnerWithdrawalSnapshot } from './finance'
 import { calculateVatQuarterOutflows } from './vatQuarterly'
@@ -8,7 +9,7 @@ export function ribaExposure(data: ErpData, bankId?: string) {
  return round(data.ribaBatches.filter(b => (!bankId || b.bankAccountId===bankId) && !['Chiusa','Stornata'].includes(b.status)).reduce((sum,b)=>sum+b.advancedAmount,0))
 }
 export function treasuryPlan(data: ErpData, today: string, horizon = 90) {
- const alerts: { id: string; kind: 'Pagamento'|'R.I.B.A. da presentare'; date: string; amount: number; title: string }[]=[]
+ const alerts: { id: string; kind: 'Pagamento'|'R.I.B.A. da presentare'|'R.I.B.A. in scadenza'; date: string; amount: number; title: string }[]=[]
  const flows = new Map<string,number>()
  const flow = (date: string, amount: number) => { if (date <= add(today,horizon)) { const key=date<today?today:date; flows.set(key,(flows.get(key)??0)+amount) } }
  for (const payable of data.payables??[]) for (const installment of payable.installments) {
@@ -20,12 +21,11 @@ export function treasuryPlan(data: ErpData, today: string, horizon = 90) {
  for(const vat of calculateVatQuarterOutflows(data)) flow(vat.dueDate,-vat.amount)
  const owner=calculateOwnerWithdrawalSnapshot(data,today); if(!owner.settled) flow(owner.plannedDate,-owner.amount)
  const candidates: { id:string; kind:'Distinta'|'Fattura'; number:string; date:string; amount:number }[]=[]
+ for(const receipt of receivableFlows(data))if(receipt.dueDate>=today)flow(receipt.dueDate,receipt.amount)
+ for(const batch of ribaDueAlerts(data,today))alerts.push({id:`bank-${batch.id}`,kind:'R.I.B.A. in scadenza',date:batch.dueDate,amount:batch.total,title:`Distinta ${batch.number}`})
  for(const invoice of data.invoices) {
   if(['Incassata','Stornata','Insoluta','Contestata'].includes(invoice.status)) continue
   const residual=Math.max(0,invoice.total-invoice.collectedAmount)
-  // Already advanced cash is in the bank balance: exclude that portion at maturity.
-  const advanced=data.ribaBatches.filter(b=>b.status==='Anticipata').reduce((sum,b)=>sum+b.allocations.filter(a=>a.invoiceId===invoice.id).reduce((s,a)=>s+a.amount,0)*Math.min(1,b.advancedAmount/Math.max(.01,b.total)),0)
-  if(invoice.dueDate>=today) flow(invoice.dueDate,Math.max(0,residual-advanced))
   const available=Math.max(0,residual-invoice.ribaAllocatedAmount)
   if(invoice.paymentMethod==='R.I.B.A.' && available>0) {
    if(invoice.dueDate<=add(today,15)) alerts.push({id:invoice.id,kind:'R.I.B.A. da presentare',date:invoice.dueDate,amount:available,title:`Fattura ${invoice.number}: presenta entro ${add(invoice.dueDate,-15)}`})

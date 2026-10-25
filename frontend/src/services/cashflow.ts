@@ -1,6 +1,8 @@
+import { confirmedQuoteForecasts, receivableFlows } from './receivableFlows'
+export { confirmedQuoteForecasts } from './receivableFlows'
 import type { ErpData } from '../types'
 import { invoiceDocumentStatus } from './documents'
-import { calculateOwnerWithdrawalSnapshot, calculateDueDate } from './finance'
+import { calculateOwnerWithdrawalSnapshot } from './finance'
 import { calculateVatQuarterOutflows } from './vatQuarterly'
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
@@ -63,28 +65,12 @@ export interface CreditFilter {
 
 export interface CalendarEvent {
   id: string
-  type: 'delivery' | 'invoice-due' | 'riba-due' | 'payment-expected' | 'response-needed' | 'owner-withdrawal' | 'payable-due' | 'vat-quarter'
+  type: 'delivery' | 'invoice-due' | 'riba-due' | 'riba-reminder' | 'payment-expected' | 'response-needed' | 'owner-withdrawal' | 'payable-due' | 'vat-quarter'
   title: string
   date: string
   status: 'scaduto' | 'oggi' | 'imminente' | 'futuro'
   amount?: number
   customerId?: string
-}
-
-export function confirmedQuoteForecasts(data: ErpData) {
-  const invoices = data.invoices.filter(invoice => invoice.status !== 'Stornata')
-  const estimates = (data.estimates ?? []).filter(estimate => estimate.status === 'Approvato' && estimate.paymentTerms?.expectedInvoiceDate && Number.isFinite(Date.parse(estimate.paymentTerms.expectedInvoiceDate)))
-    .filter(estimate => {
-      const job = (data.jobs ?? []).find(item => item.estimateId === estimate.id)
-      if (job?.status === 'Annullata') return false
-      const vehicleId = job?.vehicleId ?? estimate.vehicleId
-      const linkedQuoteIds = (data.quotes ?? []).filter(quote => quote.estimateId === estimate.id).map(quote => quote.id)
-      return !invoices.some(invoice => invoice.quoteId === estimate.id || linkedQuoteIds.includes(invoice.quoteId ?? '') || (vehicleId && (invoice.vehicleId === vehicleId || invoice.lines.some(line => line.vehicleId === vehicleId))))
-        && !data.vehicles.some(vehicle => vehicle.id === vehicleId && Boolean(vehicle.invoiceId))
-    })
-  const quotes = (data.quotes ?? []).filter(quote => quote.status === 'accettato' && !quote.invoiceId && quote.paymentTerms?.expectedInvoiceDate && Number.isFinite(Date.parse(quote.paymentTerms.expectedInvoiceDate)))
-    .filter(quote => !estimates.some(estimate => estimate.id === quote.estimateId) && !invoices.some(invoice => invoice.quoteId === quote.id || invoice.vehicleId === quote.vehicleId || invoice.lines.some(line => line.vehicleId === quote.vehicleId)))
-  return [...estimates, ...quotes].map(document => ({ amount: document.total, dueDate: calculateDueDate(document.paymentTerms!.expectedInvoiceDate, document.paymentTerms!.days, document.paymentTerms!.endOfMonth) }))
 }
 
 export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKey()): CashFlowSnapshot {
@@ -100,13 +86,8 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
     daysToDue: diffDays(referenceDate, invoice.dueDate),
   }))
 
-  const inflowInWindow = (days: number) => round(invoicesWithResidual
-    .filter((item) => item.daysToDue >= 0 && item.daysToDue <= days)
-    .reduce((sum, item) => sum + item.residual, 0)
-    + quoteForecasts.filter(item => diffDays(referenceDate, item.dueDate) >= 0 && diffDays(referenceDate, item.dueDate) <= days).reduce((sum, item) => sum + item.amount, 0)
-    + data.ribaBatches
-      .filter((batch) => !['Chiusa', 'Stornata', 'Insoluta'].includes(batch.status) && diffDays(referenceDate, batch.dueDate) >= 0 && diffDays(referenceDate, batch.dueDate) <= days)
-      .reduce((sum, batch) => sum + batch.total, 0))
+  const plannedReceipts=receivableFlows(data)
+  const inflowInWindow = (days:number)=>round(plannedReceipts.filter(item=>diffDays(referenceDate,item.dueDate)>=0&&diffDays(referenceDate,item.dueDate)<=days).reduce((sum,item)=>sum+item.amount,0))
 
   const outflowInWindow = (days: number) => {
     const end = addDays(referenceDate, days)
@@ -276,7 +257,7 @@ export function buildCalendarEvents(data: ErpData, referenceDate = todayKey(), v
     })
 
   data.ribaBatches
-    .filter((batch) => batch.dueDate >= referenceDate && batch.dueDate <= endDate)
+    .filter((batch) => ['Presentata','Anticipata'].includes(batch.status) && batch.dueDate >= referenceDate && batch.dueDate <= endDate)
     .forEach((batch) => {
       events.push({
         id: `riba-${batch.id}`,
@@ -287,6 +268,11 @@ export function buildCalendarEvents(data: ErpData, referenceDate = todayKey(), v
         amount: round(batch.total),
       })
     })
+
+  data.ribaBatches.filter(batch=>['Presentata','Anticipata'].includes(batch.status)).forEach(batch=>{
+    const reminder=addDays(batch.dueDate,-15)
+    if(reminder>=referenceDate&&reminder<=endDate)events.push({id:`riba-reminder-${batch.id}`,type:'riba-reminder',title:`RIBA ${batch.number}: scadenza tra 15 giorni`,date:reminder,status:calendarStatus(reminder,referenceDate),amount:batch.total})
+  })
 
   if (ownerWithdrawal.plannedDate >= referenceDate && ownerWithdrawal.plannedDate <= endDate) {
     events.push({

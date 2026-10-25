@@ -3,7 +3,7 @@ import type { CloudAuthConfig, CloudAuthSession } from './cloudAuth'
 import { quoteOperatorRate, quoteStructureRate } from './quoteHourBudget'
 
 export interface LiveClock {
-  jobId: string; plate: string; number: string; remainingSeconds: number | null;
+  jobId: string; coneNumber?: number | null; plate: string; number: string; remainingSeconds: number | null;
   remainingPercent: number; activeCount: number; ownStatus: 'running' | 'paused' | 'finished' | null;
   operators: { name: string; status: string }[];
   overrunSeconds?: number; ownRemainingSeconds?: number | null; ownBurnFactor?: number; ownPhaseId?: string | null;
@@ -22,7 +22,7 @@ export interface LiveFeed {
   members: { userId: string; name: string; operatorId: string | null }[];
   today?: HoursReport | null;
   staff?: { operatorId: string; name: string; today: HoursReport }[];
-  program?: { id: string; jobId: string; plate: string; phaseId: string; phaseName: string; startAt: string; endAt: string; ready: boolean; panels: string[] }[];
+  program?: { id: string; jobId: string; coneNumber?: number | null; plate: string; phaseId: string; phaseName: string; startAt: string; endAt: string; ready: boolean; panels: string[] }[];
 }
 
 export async function refreshProductionSession(session: CloudAuthSession, config: CloudAuthConfig): Promise<CloudAuthSession> {

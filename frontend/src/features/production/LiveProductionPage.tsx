@@ -159,7 +159,7 @@ export function LiveProductionPage() {
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
       {feed.operatorName && <section className="live-day-hours"><h2>I miei lavori assegnati</h2>
-        {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
+        {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.coneNumber!=null&&<span className="live-program-cone">CONO {task.coneNumber}</span>}{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
           <p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
           {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}>Apri vettura e fase</a>
@@ -181,7 +181,7 @@ export function LiveProductionPage() {
           const clock = selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
           const workClock = standardClock ?? clock
           return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && workClock.warning ? 'live-warning' : ''}`}>
-            <h2>{job.plate}</h2><p>Commessa {job.number}</p>{permissionRemoved && <p role="alert">La mansione precedente non è più abilitata. Puoi mettere in pausa o terminare il timer; chiedi all’ufficio per la riassegnazione.</p>}
+            <div className="live-cone-identity">{job.coneNumber!=null?<><span>CONO</span><strong aria-label={`Cono ${job.coneNumber}`}>{job.coneNumber}</strong></>:<span>Cono non assegnato</span>}<h2>{job.plate}</h2></div><p>Commessa {job.number}</p>{permissionRemoved && <p role="alert">La mansione precedente non è più abilitata. Puoi mettere in pausa o terminare il timer; chiedi all’ufficio per la riassegnazione.</p>}
             <p>{standardClock && workClock.overrunSeconds > 0 ? `Tempo oltre il previsto · ${selectedPhase?.standardClock?.label}` : standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
             <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : standardClock && workClock.overrunSeconds > 0 ? `+${clockText(workClock.overrunSeconds)}` : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
             {standardClock ? standardClock.individualSeconds === null && <p>Tempo standard non impostato su questa commessa: richiedi la configurazione all’ufficio.</p> : selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}

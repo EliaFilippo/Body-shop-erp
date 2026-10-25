@@ -1051,6 +1051,7 @@ function validatedPaymentTerms(terms: EstimateDocument['paymentTerms']) {
  if (!terms) return undefined
  if (!['Bonifico', 'R.I.B.A.', 'Contanti', 'POS', 'Personalizzato'].includes(terms.method)
  || !Number.isInteger(terms.days) || terms.days < 0 || terms.days > 365
+ || (terms.expectedCollectionDate && (!/^\d{4}-\d{2}-\d{2}$/.test(terms.expectedCollectionDate) || !Number.isFinite(Date.parse(terms.expectedCollectionDate))))
  || (terms.expectedInvoiceDate && (!/^\d{4}-\d{2}-\d{2}$/.test(terms.expectedInvoiceDate) || !Number.isFinite(Date.parse(terms.expectedInvoiceDate))))) throw new Error('Controlla le condizioni di pagamento: giorni da 0 a 365 e data valida.')
  return { ...terms, endOfMonth: Boolean(terms.endOfMonth) }
 }
