@@ -1,3 +1,4 @@
+import { expectedPaymentDate } from './paymentTerms'
 import { ribaExposure, RIBA_CREDIT_LIMIT } from './treasury'
 import type {
   ErpData,
@@ -388,8 +389,8 @@ export function createInvoice(
   const issueDate = input.issueDate
   const agreedTerms = vehicles.map(vehicle => (data.estimates ?? []).find(estimate => estimate.status === 'Approvato' && (estimate.vehicleId === vehicle.id || (data.jobs ?? []).some(job => job.estimateId === estimate.id && job.vehicleId === vehicle.id)))?.paymentTerms)
   const firstTerms = agreedTerms[0]
-  if (agreedTerms.some(terms => JSON.stringify(terms && { method: terms.method, days: terms.days, endOfMonth: terms.endOfMonth }) !== JSON.stringify(firstTerms && { method: firstTerms.method, days: firstTerms.days, endOfMonth: firstTerms.endOfMonth }))) throw new Error('Le vetture hanno condizioni di pagamento diverse: emetti fatture separate.')
-  const dueDate = calculateDueDate(issueDate, firstTerms?.days ?? customer.paymentDays ?? data.financeSettings.defaultPaymentDays, firstTerms?.endOfMonth ?? customer.endOfMonth)
+  if (agreedTerms.some(terms => JSON.stringify(terms && { method: terms.method, days: terms.days, endOfMonth: terms.endOfMonth, expectedCollectionDate:terms.expectedCollectionDate,atDelivery:terms.atDelivery }) !== JSON.stringify(firstTerms && { method: firstTerms.method, days: firstTerms.days, endOfMonth: firstTerms.endOfMonth,expectedCollectionDate:firstTerms.expectedCollectionDate,atDelivery:firstTerms.atDelivery }))) throw new Error('Le vetture hanno condizioni di pagamento diverse: emetti fatture separate.')
+  const dueDate = (firstTerms?.expectedCollectionDate || (firstTerms?.atDelivery?expectedPaymentDate(firstTerms,vehicles[0]?.deliveryDate||vehicles[0]?.requestedDeliveryDate):'')) || calculateDueDate(issueDate, firstTerms?.days ?? customer.paymentDays ?? data.financeSettings.defaultPaymentDays, firstTerms?.endOfMonth ?? customer.endOfMonth)
   const timestamp = now()
   const invoice: Invoice = {
     id: id(), customerId: customer.id, number: input.number.trim(), issueDate, dueDate,
@@ -407,9 +408,10 @@ export function createInvoice(
 
 export function createRibaBatch(
   data: ErpData,
-  input: { number: string; bankAccountId: string; presentationDate: string; dueDate: string; allocations: { invoiceId: string; amount: number }[] },
+  input: { number: string; bankAccountId: string; presentationDate: string; dueDate: string; collectionDate?:string; vehicleLinks?:RibaBatch['vehicleLinks']; allocations: { invoiceId: string; amount: number }[] },
 ): ErpData {
   if (!input.number.trim()) throw new Error('Il numero distinta è obbligatorio.')
+  for(const value of [input.presentationDate,input.dueDate,input.collectionDate||input.dueDate])if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value)))throw new Error('Controlla le date della distinta RIBA.')
   if (data.ribaBatches.some((item) => item.number.trim().toLowerCase() === input.number.trim().toLowerCase())) throw new Error('Numero distinta già presente.')
   const bank = data.bankAccounts.find((item) => item.id === input.bankAccountId)
   if (!bank) throw new Error('Banca non trovata.')
@@ -421,16 +423,23 @@ export function createRibaBatch(
     const invoice = data.invoices.find((item) => item.id === allocation.invoiceId)
     if (!invoice) throw new Error('Fattura non trovata.')
     const amount = roundMoney(Number(allocation.amount))
-    if (amount <= 0) throw new Error('L’importo R.I.B.A. deve essere maggiore di zero.')
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('L’importo R.I.B.A. deve essere maggiore di zero.')
     const residual = invoiceResidual(invoice)
     if (amount > residual) throw new Error(`La fattura ${invoice.number} ha un residuo disponibile di € ${residual.toLocaleString('it-IT', { minimumFractionDigits: 2 })}.`)
     return { id: id(), invoiceId: invoice.id, amount }
   })
   const total = roundMoney(allocations.reduce((sum, item) => sum + item.amount, 0))
-  const used = data.ribaBatches.filter((item) => item.bankAccountId === bank.id && !['Chiusa', 'Stornata'].includes(item.status)).reduce((sum, item) => sum + item.advancedAmount, 0)
-  if (bank.blockOverLimit && used + total > bank.creditLimit) throw new Error(`Plafond superato. Disponibile: € ${Math.max(0, bank.creditLimit - used).toLocaleString('it-IT', { minimumFractionDigits: 2 })}.`)
+
+  if(input.vehicleLinks){
+   if(roundMoney(input.vehicleLinks.reduce((sum,link)=>sum+link.amount,0))!==total||input.vehicleLinks.some(link=>!allocations.some(allocation=>allocation.invoiceId===link.invoiceId)))throw new Error('Totale riepilogo vetture non valido.')
+   for(const link of input.vehicleLinks){
+    const invoice=data.invoices.find(item=>item.id===link.invoiceId)
+    if(!invoice||!data.vehicles.some(vehicle=>vehicle.id===link.vehicleId)||!(invoice.vehicleId===link.vehicleId||invoice.lines.some(line=>line.vehicleId===link.vehicleId))||!Number.isFinite(link.amount)||link.amount<=0)throw new Error('Collegamento vettura e fattura RIBA non valido.')
+   }
+   for(const allocation of allocations)if(roundMoney(input.vehicleLinks.filter(link=>link.invoiceId===allocation.invoiceId).reduce((sum,link)=>sum+link.amount,0))!==allocation.amount)throw new Error('Il riepilogo vetture non corrisponde al totale della distinta.')
+  }
   const timestamp = now()
-  const batch: RibaBatch = { id: id(), number: input.number.trim(), bankAccountId: bank.id, presentationDate: input.presentationDate, dueDate: input.dueDate, allocations, total, advancedAmount: 0, advanceDate: '', fees: 0, interest: 0, status: 'Presentata', createdAt: timestamp, updatedAt: timestamp }
+  const batch: RibaBatch = { collectionDate:input.collectionDate||input.dueDate,vehicleLinks:input.vehicleLinks, id: id(), number: input.number.trim(), bankAccountId: bank.id, presentationDate: input.presentationDate, dueDate: input.dueDate, allocations, total, advancedAmount: 0, advanceDate: '', fees: 0, interest: 0, status: 'Presentata', createdAt: timestamp, updatedAt: timestamp }
   const allocatedByInvoice = new Map(allocations.map((item) => [item.invoiceId, item.amount]))
   return {
     ...data,
@@ -453,12 +462,14 @@ export function registerRibaAdvance(data: ErpData, batchId: string, amount: numb
   if (!bank) throw new Error('Banca non trovata.')
   if (![amount, fees, interest].every(Number.isFinite) || fees < 0 || interest < 0 || fees + interest >= amount) throw new Error('Controlla importo, commissioni e interessi.')
   if (ribaExposure(data) + amount > RIBA_CREDIT_LIMIT || (bank.creditLimit > 0 && ribaExposure(data, bank.id) + amount > bank.creditLimit)) throw new Error('Anticipo oltre il castelletto disponibile (massimo totale 40.000 €).')
+  validateActualBankDate(date)
   const advancedAmount = roundMoney(amount)
   if (advancedAmount <= 0 || advancedAmount > batch.total) throw new Error('Importo anticipato non valido.')
   const timestamp = now()
   return {
     ...data,
-    ribaBatches: data.ribaBatches.map((item) => item.id === batchId ? { ...item, advancedAmount, advanceDate: date, fees: roundMoney(fees), interest: roundMoney(interest), status: 'Anticipata', updatedAt: timestamp } : item),
+    bankAccounts:data.bankAccounts.map(item=>item.id===batch.bankAccountId?{...item,currentBalance:roundMoney(item.currentBalance+advancedAmount-fees-interest)}:item),
+    ribaBatches: data.ribaBatches.map((item) => item.id === batchId ? { ...item, bankAdvanceApplied:true, advancedAmount, advanceDate: date, fees: roundMoney(fees), interest: roundMoney(interest), status: 'Anticipata', updatedAt: timestamp } : item),
     invoices: data.invoices.map((invoice) => batch.allocations.some((allocation) => allocation.invoiceId === invoice.id) && invoice.status !== 'Incassata' ? { ...invoice, status: 'Anticipata', updatedAt: timestamp } : invoice),
     financialEvents: [event({ type: 'Anticipo bancario', date, amount: advancedAmount, ribaBatchId: batch.id, bankAccountId: batch.bankAccountId, note: `Anticipo distinta ${batch.number}; costi € ${roundMoney(fees + interest).toLocaleString('it-IT')}` }), ...data.financialEvents],
   }
@@ -467,10 +478,13 @@ export function registerRibaAdvance(data: ErpData, batchId: string, amount: numb
 export function settleRibaBatch(data: ErpData, batchId: string, date: string): ErpData {
   const batch = data.ribaBatches.find((item) => item.id === batchId)
   if (!batch) throw new Error('Distinta non trovata.')
+  if(!['Presentata','Anticipata'].includes(batch.status))throw new Error('Questa distinta è già chiusa o non disponibile.')
+  validateActualBankDate(date)
   const timestamp = now()
   const amounts = new Map(batch.allocations.map((item) => [item.invoiceId, item.amount]))
   return {
     ...data,
+    bankAccounts:data.bankAccounts.map(item=>item.id===batch.bankAccountId?{...item,currentBalance:roundMoney(item.currentBalance+Math.max(0,batch.total-batch.advancedAmount))}:item),
     ribaBatches: data.ribaBatches.map((item) => item.id === batchId ? { ...item, status: 'Chiusa', updatedAt: timestamp } : item),
     invoices: data.invoices.map((invoice) => {
       const amount = amounts.get(invoice.id)
@@ -486,10 +500,13 @@ export function settleRibaBatch(data: ErpData, batchId: string, date: string): E
 export function markRibaInsolvent(data: ErpData, batchId: string, date: string): ErpData {
   const batch = data.ribaBatches.find((item) => item.id === batchId)
   if (!batch) throw new Error('Distinta non trovata.')
+  if(!['Presentata','Anticipata'].includes(batch.status))throw new Error('Questa distinta è già chiusa o non disponibile.')
+  validateActualBankDate(date)
   const timestamp = now()
   const amounts = new Map(batch.allocations.map((item) => [item.invoiceId, item.amount]))
   return {
     ...data,
+    bankAccounts:data.bankAccounts.map(item=>item.id===batch.bankAccountId&&batch.bankAdvanceApplied?{...item,currentBalance:roundMoney(item.currentBalance-batch.advancedAmount)}:item),
     ribaBatches: data.ribaBatches.map((item) => item.id === batchId ? { ...item, status: 'Insoluta', updatedAt: timestamp } : item),
     invoices: data.invoices.map((invoice) => {
       const amount = amounts.get(invoice.id)
@@ -581,4 +598,9 @@ export function createVatQuarterF24Payable(data: ErpData, input: CreateVatQuarte
     dueDate,
     status: current.status === 'In corso' ? 'Da verificare' : current.status,
   }))
+}
+
+function validateActualBankDate(date:string){
+ const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date())
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||date>today)throw new Error('Inserisci una data bancaria effettiva valida, non futura.')
 }

@@ -1,4 +1,5 @@
-import type { AcceptanceQuote, ErpData, EstimateLine } from '../types'
+import { expectedPaymentDate } from './paymentTerms'
+import type { AcceptanceQuote, ErpData, EstimateLine, EstimatePaymentTerms } from '../types'
 import { addVehicle, createCustomer, normalizePlate } from './erp'
 import { acceptanceEstimateLines, damageQuoteError } from './damageQuote'
 import { approveEstimateAndCreateJob, createEstimate } from './workflow'
@@ -10,6 +11,7 @@ export interface FastEstimateInput {
  customerId?:string
  newCustomer?:{name:string;phone:string}
  quote:AcceptanceQuote
+ paymentTerms?:EstimatePaymentTerms
  confirmed:boolean
  requestedDeliveryDate?:string
  notes?:string
@@ -40,7 +42,7 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
  const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(at)
  const selectedPhases=input.quote.selectedPhases??[]
  const productionForecast=simulateEstimateProductionForecast(next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,requestedDeliveryDate:input.requestedDeliveryDate,referenceDate:date})
- next=createEstimate(next,{customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast})
+ next=createEstimate(next,{customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined})
  const estimate=next.estimates![0]
  next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:0}))})
  if(input.confirmed)next=recalculateOperatorPrograms(approveEstimateAndCreateJob(next,estimate.id),date,'Preventivo fast confermato')

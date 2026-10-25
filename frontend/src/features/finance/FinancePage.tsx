@@ -1,9 +1,10 @@
+import { receivableFlows, ribaDueAlerts } from '../../services/receivableFlows'
+import { VehicleRibaModal } from './VehicleRibaModal'
 import { OwnerPasswordGate } from '../production/OwnerPasswordGate'
 import type { NoticesConnection } from '../production/PhaseNotices'
 import { QuoteActions } from './QuoteActions'
 import { SupplierInvoiceCapture } from './SupplierInvoiceCapture'
 import { TreasuryPanel } from './TreasuryPanel'
-import { confirmedQuoteForecasts } from '../../services/cashflow'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Modal } from '../../components/Modal'
@@ -135,16 +136,7 @@ const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typ
     outflowEntries.push(entry)
   }
 
-  data.invoices
-    .filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status))
-    .forEach((invoice) => {
-      const residual = round(Math.max(0, invoice.total - invoice.collectedAmount))
-      if (!residual) return
-      if (invoice.dueDate < referenceDate || invoice.dueDate > endDate) return
-      addInflow(invoice.dueDate, residual)
-    })
-
-  confirmedQuoteForecasts(data).filter(item => item.dueDate >= referenceDate && item.dueDate <= endDate).forEach(item => addInflow(item.dueDate, item.amount))
+  receivableFlows(data).filter(item=>item.dueDate>=referenceDate&&item.dueDate<=endDate).forEach(item=>addInflow(item.dueDate,item.amount))
 
   data.financialEvents
     .filter((event) => event.type === 'Uscita prevista' && event.date >= referenceDate && event.date <= endDate)
@@ -278,6 +270,7 @@ type FinanceModalState =
   | { type: 'quote-convert'; quoteId: string }
   | { type: 'customer-terms'; customerId: string }
   | { type: 'invoice-create'; customerId: string; vehicleIds: string[] }
+  | { type: 'riba-vehicles' }
   | { type: 'riba-create'; invoiceId: string }
   | { type: 'riba-advance'; batchId: string }
   | { type: 'communication'; draft: CommunicationDraft }
@@ -427,7 +420,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   }).sort((a, b) => b.outstanding - a.outstanding), [data.customers, data.vehicles, data.invoices])
 
   const selected = customerRows.find((row) => row.customer.id === selectedCustomerId) ?? customerRows[0]
-  const projected = (days: number) => confirmedQuoteForecasts(data).filter(item => dayDiff(today(), item.dueDate) >= 0 && dayDiff(today(), item.dueDate) <= days).reduce((sum, item) => sum + item.amount, 0) + openInvoices.filter((invoice) => dayDiff(today(), invoice.dueDate) >= 0 && dayDiff(today(), invoice.dueDate) <= days).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
+  const projected = (days:number)=>receivableFlows(data).filter(item=>dayDiff(today(),item.dueDate)>=0&&dayDiff(today(),item.dueDate)<=days).reduce((sum,item)=>sum+item.amount,0)
   const bankExposure = data.ribaBatches.filter((batch) => batch.status === 'Anticipata').reduce((sum, batch) => sum + batch.advancedAmount, 0)
   const bankLimit = data.bankAccounts.reduce((sum, bank) => sum + bank.creditLimit, 0)
   const availableLimit = Math.max(0, bankLimit - bankExposure)
@@ -458,6 +451,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
     }
   }
 
+  const bankReminders=ribaDueAlerts(data,today())
   const alerts = [
     overdue > 0 ? `Hai ${money(overdue)} di fatture scadute da controllare.` : '',
     availableLimit < data.financeSettings.minimumProjectedBalance ? `Plafond bancario disponibile basso: ${money(availableLimit)}.` : '',
@@ -481,11 +475,12 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   ].filter(Boolean)
 
   return <>
+    {!!bankReminders.length&&<section className="panel" aria-label="Avvisi scadenza RIBA"><h3>RIBA in scadenza entro 15 giorni</h3>{bankReminders.map(batch=><p key={batch.id}><strong>{batch.number} · {money(batch.total)}</strong> · scadenza {batch.dueDate} · {batch.dueDate<today()?'SCADUTA':`tra ${dayDiff(today(),batch.dueDate)} giorni`}</p>)}</section>}
     <TreasuryPanel data={data} />
     <SupplierInvoiceCapture data={data} onSave={input => { onChange(createPayableEntry(data, input)); setNotice('Fattura registrata nello scadenziario.') }} />
     <section className="stat-grid cashflow-kpi-grid">
       <div className="stat-card"><span>Liquidità attuale</span><strong>{money(currentLiquidity)}</strong><small>Saldo previsto di partenza</small></div>
-      <div className="stat-card"><span>Incassi previsti 30 giorni</span><strong>{money(liquidityProjection30.totalInflow)}</strong><small>Fatture aperte con scadenza nel periodo</small></div>
+      <div className="stat-card"><span>Incassi previsti 30 giorni</span><strong>{money(liquidityProjection30.totalInflow)}</strong><small>Fatture, RIBA e preventivi confermati: previsioni senza doppioni</small></div>
       <div className="stat-card"><span>Pagamenti previsti 30 giorni</span><strong>{money(liquidityProjection30.totalOutflow)}</strong><small>Uscite previste + costi + prelievo titolare</small></div>
       <div className="stat-card"><span>Liquidità minima prevista</span><strong>{money(minLiquidityPoint?.balance ?? currentLiquidity)}</strong><small>{minLiquidityPoint ? `Data: ${minLiquidityPoint.date}` : 'Nessuna proiezione disponibile'}</small></div>
     </section>
@@ -770,7 +765,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       {!communications.length && <div className="empty"><div>◇</div><p>Nessuna comunicazione registrata.</p></div>}
     </section>
 
-    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">DISTINTE BANCARIE</span><h3>R.I.B.A. e anticipi</h3></div></div><div className="table-wrap"><table><thead><tr><th>Distinta</th><th>Banca</th><th>Totale</th><th>Anticipato</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>{data.ribaBatches.map((batch) => <tr key={batch.id}><td><strong>{batch.number}</strong><small>{batch.presentationDate}</small></td><td>{data.bankAccounts.find((bank) => bank.id === batch.bankAccountId)?.name ?? '—'}</td><td>{money(batch.total)}</td><td>{money(batch.advancedAmount)}</td><td>{batch.dueDate}</td><td><span className="tag">{batch.status}</span></td><td><div className="row-actions">{batch.status === 'Presentata' && <button onClick={() => setModal({ type: 'riba-advance', batchId: batch.id })}>Registra anticipo</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button onClick={() => run(() => settleRibaBatch(data, batch.id, today()), 'Incasso definitivo registrato.')}>Incassata</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button className="danger" onClick={() => run(() => markRibaInsolvent(data, batch.id, today()), 'Insoluto registrato e credito riaperto.')}>Insoluta</button>}</div></td></tr>)}</tbody></table></div>{!data.ribaBatches.length && <div className="empty"><div>◇</div><p>Nessuna distinta R.I.B.A. registrata.</p></div>}</section>
+    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">DISTINTE BANCARIE</span><h3>R.I.B.A. e anticipi</h3></div><button className="primary" onClick={()=>setModal({type:'riba-vehicles'})}>Carica RIBA per vetture</button></div><p>Distinte effettive: date indipendenti dalle previsioni dei preventivi. L’anticipo aggiorna il saldo bancario al netto di commissioni e interessi.</p><div className="table-wrap"><table><thead><tr><th>Distinta</th><th>Banca</th><th>Totale</th><th>Anticipato</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>{data.ribaBatches.map((batch) => <tr key={batch.id}><td><strong>{batch.number}</strong><small>{batch.presentationDate}</small><small>{batch.vehicleLinks?.map(link=>link.plate).join(', ')||batch.allocations.map(allocation=>{const invoice=data.invoices.find(item=>item.id===allocation.invoiceId);return invoice?.lines.map(line=>data.vehicles.find(vehicle=>vehicle.id===line.vehicleId)?.plate).filter(Boolean).join(', ')}).join(', ')}</small></td><td>{data.bankAccounts.find((bank) => bank.id === batch.bankAccountId)?.name ?? '—'}</td><td>{money(batch.total)}</td><td>{money(batch.advancedAmount)}</td><td>{batch.dueDate}<small>Incasso previsto: {batch.collectionDate||batch.dueDate}</small><small>A maturazione: {money(Math.max(0,batch.total-batch.advancedAmount))}</small></td><td><span className="tag">{batch.status}</span></td><td><div className="row-actions">{batch.status === 'Presentata' && <button onClick={() => setModal({ type: 'riba-advance', batchId: batch.id })}>Registra anticipo</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button onClick={() => run(() => settleRibaBatch(data, batch.id, today()), 'Incasso definitivo registrato.')}>Incassata</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button className="danger" onClick={() => run(() => markRibaInsolvent(data, batch.id, today()), 'Insoluto registrato e credito riaperto.')}>Insoluta</button>}</div></td></tr>)}</tbody></table></div>{!data.ribaBatches.length && <div className="empty"><div>◇</div><p>Nessuna distinta R.I.B.A. registrata.</p></div>}</section>
 
     {modal?.type === 'company-profile' && <CompanyProfileModal
       profile={data.companyProfile}
@@ -903,6 +898,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       />
     })()}
 
+    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} onClose={()=>setModal(null)} onSave={next=>{onChange(next);setNotice('RIBA registrata con riepilogo vetture e date bancarie separate.');setModal(null)}}/>}
     {modal?.type === 'riba-create' && (() => {
       const invoice = data.invoices.find((item) => item.id === modal.invoiceId)
       if (!invoice) return null

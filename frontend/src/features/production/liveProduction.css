@@ -5,3 +5,9 @@
 .live-time-alert-banner{position:sticky;top:0;z-index:9998;display:grid;gap:6px;padding:18px;margin-bottom:18px;border:3px solid #fff;border-radius:12px;background:#a90000;color:#fff;box-shadow:0 0 0 4px #e60000;font-size:clamp(16px,3vw,24px)}
 @keyframes phase-screen-warning{0%,100%{opacity:.12}50%{opacity:.38}}
 @media(prefers-reduced-motion:reduce){.live-time-alert-screen::before{animation:none;opacity:.22}.live-time-alert-banner{background:#a90000}}
+
+.live-cone-identity {display:flex;flex-direction:column;align-items:center;gap:.25rem;padding:1rem;border:2px solid #f4d889;border-radius:1rem;margin-bottom:1rem;text-align:center}
+.live-cone-identity>span {font-size:1.2rem;font-weight:800;letter-spacing:.12em}
+.live-cone-identity>strong {font-size:clamp(5rem,18vw,9rem);font-weight:900;line-height:1;color:#ffe19a}
+.live-cone-identity h2 {font-size:clamp(1.8rem,6vw,3rem);margin:.5rem 0;word-break:break-word}
+.live-program-cone {display:block;font-size:2.5rem;line-height:1.2;color:#ffe19a;font-weight:900}

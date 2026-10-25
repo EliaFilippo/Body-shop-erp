@@ -1,3 +1,4 @@
+import { paymentTermsText } from './paymentTerms'
 import type { EstimateDocument } from '../types'
 
 export function normalizeWhatsAppPhone(value: string): string {
@@ -22,6 +23,7 @@ export function fastEstimateWhatsAppLink(estimate: EstimateDocument, phone: stri
     `IVA: ${euro(estimate.vatAmount)}`,
     `Totale IVA inclusa: ${euro(estimate.total)}`,
     ...(estimate.requestedDeliveryDate?[`Consegna concordata: ${estimate.requestedDeliveryDate.split('-').reverse().join('/')}`]:[]),
+    ...(estimate.paymentTerms?[`Pagamento: ${paymentTermsText(estimate.paymentTerms,estimate.requestedDeliveryDate)}`]:[]),
     estimate.status==='Approvato'?'Grazie per la conferma.':'Per accettare, rispondi confermando questo preventivo.',
     'Carrozzeria Elias · San Vendemiano · 0438 402510',
   ].join('\n')

@@ -57,6 +57,8 @@ jobs:
         run: psql -f supabase/tests/remove_known_demo.sql
       - name: Three paint stations, paused vehicles, support and drying
         run: psql -f supabase/tests/paint_station_capacity.sql
+      - name: Tablet cone identity, current vehicle number and tenant permissions
+        run: psql -f supabase/tests/tablet_cones.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

@@ -181,3 +181,12 @@ describe('cashflow and credit control', () => {
     expect(events.some((event) => event.type === 'vat-quarter' && event.amount === 500)).toBe(true)
   })
 })
+
+it('non somma due volte fattura e RIBA e sottrae l’anticipo dalla maturazione',()=>{
+ const data=baseData()
+ expect(calculateCashFlowSnapshot(data,'2026-02-10').windows[0].inflow).toBe(1000)
+ data.ribaBatches[0]={...data.ribaBatches[0],status:'Anticipata',advancedAmount:200,advanceDate:'2026-02-09'}
+ expect(calculateCashFlowSnapshot(data,'2026-02-10').windows[0].inflow).toBe(800)
+ data.ribaBatches[0].collectionDate='2026-05-01'
+ expect(calculateCashFlowSnapshot(data,'2026-02-10').windows[0].inflow).toBe(700)
+})
