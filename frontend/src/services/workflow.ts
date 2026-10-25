@@ -1482,7 +1482,7 @@ export function updateJobStatus(data: ErpData, jobId: string, status: JobStatus)
 	}
 
 	const updated = (next.jobs ?? []).find((job) => job.id === jobId)
-	if (updated?.vehicleId) {
+	if (updated?.vehicleId && next.vehicles.some((vehicle) => vehicle.id === updated.vehicleId)) {
 		next = {
 			...next,
 			jobs: (next.jobs ?? []).map((job) => job.id === updated.id ? { ...job, coneNumber: next.vehicles.find((vehicle) => vehicle.id === updated.vehicleId)?.coneNumber ?? job.coneNumber } : job),

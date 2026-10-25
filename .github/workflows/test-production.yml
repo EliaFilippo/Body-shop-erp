@@ -53,6 +53,8 @@ jobs:
         run: psql -f supabase/tests/private_employee_reports.sql
       - name: Separate private password, session isolation, rotation and lockout
         run: psql -f supabase/tests/separate_private_password.sql
+      - name: Remove only the identified demo, keep recovery copy and guard invoices
+        run: psql -f supabase/tests/remove_known_demo.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

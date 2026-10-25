@@ -2147,3 +2147,23 @@ describe('workflow preventivi e commesse', () => {
     expect(plan?.assignments[0]?.date ?? plan?.calculatedDeliveryDate).toBeTruthy()
   })
 })
+
+describe('commesse con vettura eliminata', () => {
+  it('annulla la commessa orfana senza ricreare vetture o perdere lo storico', () => {
+    const data = createDirectJob(makeData(), {
+      customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD',
+      companyName: '', contactName: '', entryDate: '2026-08-09',
+      expectedDeliveryDate: '2026-08-20', priority: 'Alta',
+      responsible: '', notes: 'Prova',
+      lines: [{ description: 'Prova', category: 'altre', quantity: 1, unitPrice: 50, discount: 0, vatRate: 22 }],
+    })
+    const job = data.jobs![0]
+    const orphan = { ...data, vehicles: [] }
+    const cancelled = updateJobStatus(orphan, job.id, 'Annullata')
+    expect(cancelled.jobs![0].status).toBe('Annullata')
+    expect(cancelled.vehicles).toEqual([])
+    expect(cancelled.jobs![0].history[0].message).toContain('Annullata')
+    expect(cancelled.customers).toEqual(data.customers)
+    expect(cancelled.jobs![0].lines).toEqual(job.lines)
+  })
+})
