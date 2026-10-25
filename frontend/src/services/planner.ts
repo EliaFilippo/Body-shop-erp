@@ -480,7 +480,7 @@ function computePriorityScore(input: {
   const economics = marginMetrics(job, vehicle, settings)
   const marginPerHourScore = normalizeScore(Math.max(0, economics.marginPerHour), 500)
   const totalMarginScore = normalizeScore(Math.max(0, economics.totalMargin), 5000)
-  const fifoAgeDays = Math.max(0, betweenDays(vehicle.createdAt.slice(0, 10), referenceDate))
+  const fifoAgeDays = Math.max(0, betweenDays(job.createdAt.slice(0, 10), referenceDate))
   const fifoScore = normalizeScore(fifoAgeDays, 90)
   const rawScore =
     weights.urgency * (job.priority === 'Urgente' ? 1 : 0)
@@ -979,10 +979,10 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       // Prima la consegna concordata, poi il margine totale, poi l'attesa di almeno quattro giorni.
       if (a.score.dueDate !== b.score.dueDate) return a.score.dueDate.localeCompare(b.score.dueDate)
       if (a.score.totalMargin !== b.score.totalMargin) return b.score.totalMargin - a.score.totalMargin
-      const aAge = Math.max(0, betweenDays(a.vehicle.createdAt.slice(0, 10), effectiveDate))
-      const bAge = Math.max(0, betweenDays(b.vehicle.createdAt.slice(0, 10), effectiveDate))
-      if ((aAge >= 4) !== (bAge >= 4)) return Number(bAge >= 4) - Number(aAge >= 4)
-      if (aAge >= 4 && aAge !== bAge) return bAge - aAge
+      const aAge = Math.max(0, betweenDays(a.job.createdAt.slice(0, 10), effectiveDate))
+      const bAge = Math.max(0, betweenDays(b.job.createdAt.slice(0, 10), effectiveDate))
+      if ((aAge > 4) !== (bAge > 4)) return Number(bAge > 4) - Number(aAge > 4)
+      if (aAge > 4 && aAge !== bAge) return bAge - aAge
       if (Number(a.score.started) !== Number(b.score.started)) return Number(b.score.started) - Number(a.score.started)
       if (a.score.score !== b.score.score) return b.score.score - a.score.score
       return a.readyAt.localeCompare(b.readyAt)
@@ -1022,7 +1022,15 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     let earliest=earliestSlot(candidates[nextIndex])
     for(let index=candidateIndex+1;index<candidates.length;index++){
       const slot=earliestSlot(candidates[index])
-      if(slot<earliest){earliest=slot;nextIndex=index}
+      const a=candidates[index],b=candidates[nextIndex]
+      const ageA=Math.max(0,betweenDays(a.job.createdAt.slice(0,10),effectiveDate))
+      const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
+      const priorityOrder=a.score.dueDate.localeCompare(b.score.dueDate)
+        || b.score.totalMargin-a.score.totalMargin
+        || Number(ageB>4)-Number(ageA>4)
+        || ((ageA>4&&ageB>4)?ageB-ageA:0)
+        || a.arrivalIndex-b.arrivalIndex
+      if(slot<earliest||(slot===earliest&&priorityOrder<0)){earliest=slot;nextIndex=index}
     }
     if(nextIndex!==candidateIndex)[candidates[candidateIndex],candidates[nextIndex]]=[candidates[nextIndex],candidates[candidateIndex]]
     const item=candidates[candidateIndex]
