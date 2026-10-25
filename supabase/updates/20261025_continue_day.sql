@@ -27,13 +27,17 @@ begin
  seconds_left:=greatest(0,capacity-coalesce(absence_hours,0)*3600);
  if seconds_left<=0 then return null;end if;
  select value into day from jsonb_array_elements(schedule->'days') where (value->>'dayOfWeek')::integer=extract(dow from p_date);
- for piece in select value from jsonb_array_elements(coalesce(day->'intervals','[]')) order by (value->>'start')::numeric loop
-  start_sec:=(piece->>'start')::numeric;end_sec:=(piece->>'end')::numeric;
-  last_end:=start_sec+least(seconds_left,end_sec-start_sec);
-  seconds_left:=seconds_left-(end_sec-start_sec);
-  if seconds_left<=0 then return ceil(last_end/60)::integer;end if;
- end loop;
- return null;
+
+ select max(m)+1 into last_end from (
+  select m from generate_series(0,1438) m
+  where exists(select 1 from jsonb_array_elements(coalesce(day->'intervals','[]')) i where m*60>=(i->>'start')::numeric and m*60<(i->>'end')::numeric)
+  and not exists(select 1 from jsonb_array_elements(coalesce(p_snapshot->'plannerSettings'->'companyClosures','[]')) c
+   where c->>'startDate'<=p_date::text and c->>'endDate'>=p_date::text
+   and (production_clock_seconds(c->>'startTime') is null or production_clock_seconds(c->>'endTime') is null
+    or (m*60>=production_clock_seconds(c->>'startTime') and m*60<production_clock_seconds(c->>'endTime'))))
+  order by m limit floor(seconds_left/60)::integer
+ ) available;
+ return last_end::integer;
 end $$;
 revoke all on function public.production_ordinary_end(jsonb,text,date) from public,anon,authenticated;
 
