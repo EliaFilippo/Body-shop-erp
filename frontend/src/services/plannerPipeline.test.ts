@@ -2,7 +2,7 @@ import { describe,it,expect } from 'vitest'
 import { emptyData } from './erp'
 import { createEstimate,approveEstimateAndCreateJob } from './workflow'
 import { generateOperatorPrograms } from './planner'
-import type { ErpData } from '../types'
+import type { ErpData, Vehicle } from '../types'
 
 function fixture(count=4) {
  let data:ErpData=structuredClone(emptyData)
@@ -19,6 +19,10 @@ function fixture(count=4) {
    manualPhaseTimes:[{phase:'Verniciatura',minutes:60},{phase:'Incartatura',minutes:20},{phase:'Scartatura',minutes:10}],
   }]})
   data=approveEstimateAndCreateJob(data,data.estimates![0].id)
+  const job=data.jobs![0]
+  const vehicleId='car-'+n
+  job.vehicleId=vehicleId
+  data.vehicles.push({id:vehicleId,customerId:'c',plate:job.plate,make:'',model:'',color:'',year:'',vin:'',mileage:'',status:'Accettata',coneNumber:n+1,priority:'Normale',deliveryDate:'2026-11-10',estimatedHours:2,workedHours:0,plannedEntryDate:'2026-10-26',requestedDeliveryDate:'2026-11-10',calculatedDeliveryDate:'',expectedRevenue:600,expectedMargin:300,partsStatus:'Disponibili',blockReason:'',manualPlanningDate:'',createdAt:'2026-10-25T08:00:00Z'} as Vehicle)
  }
  data.jobs=data.jobs!.map(j=>({...j,entryDate:'2026-10-26',expectedDeliveryDate:'2026-11-10'}))
  return data
@@ -28,7 +32,7 @@ describe('giornata completa di lavoro prevista',()=>{
   const data=fixture()
   const before=JSON.stringify(data)
   const result=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z')
-  for(const id of ['wash','prep','mask','paint'])expect(result.programs.filter(p=>p.operatorId===id).flatMap(p=>p.tasks).length).toBeGreaterThan(0)
+  for(const id of ['wash','prep','mask','paint'])expect(result.programs.filter(p=>p.operatorId===id).flatMap(p=>p.tasks).length,id).toBeGreaterThan(0)
   const tasks=result.programs.flatMap(p=>p.tasks)
   for(const job of data.jobs!){
    const own=tasks.filter(t=>t.jobId===job.id)
