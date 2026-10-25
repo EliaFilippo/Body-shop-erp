@@ -38,7 +38,9 @@ begin
 end $$;
 revoke all on function public.production_split_preparation(jsonb,boolean) from public,anon,authenticated;
 
-do $$declare row record; job jsonb; revised jsonb; jobs jsonb; advanced boolean; changed boolean; prep jsonb;paint jsonb;total numeric;
+create or replace function public.production_apply_shared_preparation()
+returns void language plpgsql set search_path=public,pg_temp as $
+declare row record; job jsonb; revised jsonb; jobs jsonb; advanced boolean; changed boolean; prep jsonb;paint jsonb;total numeric;
 begin
  for row in select company_id,payload from erp_snapshots for update loop
   perform pg_advisory_xact_lock(hashtextextended(row.company_id::text,0));
@@ -66,6 +68,8 @@ begin
    end loop;
   end if;
  end loop;
-end $$;
+end $;
+revoke all on function public.production_apply_shared_preparation() from public,anon,authenticated;
+select public.production_apply_shared_preparation();
 notify pgrst,'reload schema';
 commit;

@@ -16,4 +16,17 @@ do $$declare original jsonb; revised jsonb; second jsonb; prep jsonb; paint json
  if revised->>'taxableAmount'<>original->>'taxableAmount' then raise exception 'Price changed';end if;
  if has_table_privilege('authenticated','public.preparation_cycle_backups','SELECT') or has_function_privilege('authenticated','public.production_split_preparation(jsonb,boolean)','EXECUTE') then raise exception 'Recovery helpers exposed';end if;
 end $$;
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||'[{"id":"v-repair","workflowCycle":"elias-v1","status":"Pianificata","taxableAmount":200,"phases":[{"id":"vp","name":"Stuccatura","status":"Completata","notRequired":true,"estimatedMinutes":0},{"id":"vm","name":"Incartatura","status":"Da fare","estimatedMinutes":30},{"id":"vv","name":"Verniciatura","status":"Da fare","estimatedMinutes":90,"technicalWaitMinutes":60}]}]'::jsonb) where company_id='10000000-0000-0000-0000-000000000001';
+select production_apply_shared_preparation();
+do $declare job jsonb; limits jsonb;before_count bigint;begin
+ select j into job from erp_snapshots s,jsonb_array_elements(s.payload->'jobs') j where s.company_id='10000000-0000-0000-0000-000000000001' and j->>'id'='v-repair';
+ if not (job->>'sharedPreparationCycle')::boolean then raise exception 'Stored job not converted';end if;
+ limits:=production_time_limits('10000000-0000-0000-0000-000000000001','v-repair');
+ if limits->'vp'->>'key'<>'v' or limits->'vv'->>'key'<>'v' or (limits->'vp'->>'minutes')::numeric<>90 or (limits->'vv'->>'minutes')::numeric<>90 then raise exception 'Live shared timer pool incorrect';end if;
+ before_count:=(select count(*) from production_live_segments);
+ perform production_apply_shared_preparation();
+ if before_count<>(select count(*) from production_live_segments) then raise exception 'Timer history changed';end if;
+ if not exists(select 1 from preparation_cycle_backups where company_id='10000000-0000-0000-0000-000000000001') then raise exception 'Recovery snapshot missing';end if;
+end $;
 rollback;
