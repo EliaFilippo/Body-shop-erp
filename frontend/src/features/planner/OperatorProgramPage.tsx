@@ -1,3 +1,4 @@
+import { workingMinutesForDate } from '../../services/workCalendar'
 import { phaseDisplayName } from '../../services/workCycle'
 import { useMemo, useState } from 'react'
 import { isVehicleWaitingForCone } from '../../services/erp'
@@ -12,6 +13,17 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id) ?? { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
+  const attendanceMinutes=(id:string)=>workingMinutesForDate(date,data.plannerSettings,data.plannerSettings.operators.find(o=>o.id===id))
+  const idleReason=(id:string)=>{
+    const op=data.plannerSettings.operators.find(o=>o.id===id)!
+    if(attendanceMinutes(id)<=0)return 'Nessuna presenza lavorativa configurata per questa data.'
+    const open=(data.jobs??[]).filter(j=>!['Consegnata','Annullata'].includes(j.status))
+    if(!open.length)return 'Non ci sono commesse aperte da assegnare.'
+    const compatible=open.filter(j=>j.phases.some(p=>!p.notRequired&&p.status!=='Completata'&&p.name!=='Consegna'&&supportsOperatorDuty(op,p.requiredSkill||p.name)))
+    if(!compatible.length)return 'Nessuna fase da svolgere compatibile con le mansioni abilitate.'
+    if(compatible.every(j=>j.blocks.length>0||!!data.vehicles.find(v=>v.id===j.vehicleId)?.blockReason))return 'Le commesse compatibili sono bloccate: verifica ricambi e blocchi operativi.'
+    return 'Nessuna assegnazione nella data scelta. Verifica disponibilità delle vetture, fasi precedenti e assegnazioni manuali delle commesse compatibili.'
+  }
   const coneLabelByTask = (jobId: string, vehicleId: string) => {
     const job = (data.jobs ?? []).find((item) => item.id === jobId)
     if (job?.coneNumber != null) return `Cono ${job.coneNumber}`
@@ -77,11 +89,11 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
     </section>
 
     <section className="panel table-panel">
-      <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni.</p>
+      <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni. Le fasi successive sono previsioni: sui tablet diventano avviabili solo dopo il completamento reale delle precedenti. Le quote dei tempi condivisi servono a organizzare il piano; il totale del timer resta unico.</p>
       <div className="week-grid">
         {programs.map((program) => <article className="day-card" key={program.operatorId}>
           <div className="day-head"><strong>{program.operatorName}</strong><span>{program.revision ? `rev. ${program.revision}` : 'Senza assegnazioni'}</span></div>
-          <div className="day-jobs">
+          <p>{Math.round(program.tasks.reduce((sum,task)=>sum+task.plannedMinutes,0))} min programmati / {Math.round(attendanceMinutes(program.operatorId))} min di presenza</p><div className="day-jobs">
             {program.tasks.map((task) => <div className="day-job" key={task.id}>
               <strong className="plate">{timeLabel(task.startAt)}-{timeLabel(task.endAt)}</strong>
               <span>{task.jobNumber} - {phaseDisplayName(task.phaseName)} - {task.plate}</span>
@@ -91,7 +103,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
               {!!task.panelNotes?.length && <small>Note pannello: {task.panelNotes.join(' | ')}</small>}
               <small>{task.reason}</small>
             </div>)}
-            {!program.tasks.length && <small>Nessuna attività assegnata in questa giornata.</small>}
+            {!program.tasks.length && <small>{idleReason(program.operatorId)}</small>}
           </div>
         </article>)}
         {!programs.length && <article className="day-card"><div className="day-head"><strong>Nessun programma disponibile</strong></div><small>Esegui Ricalcola piano per generare il piano giornaliero.</small></article>}

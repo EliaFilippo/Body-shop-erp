@@ -19,7 +19,7 @@ import type {
   RepairJob,
   Vehicle,
 } from '../types'
-import { calculateOperatorSustainableMinutes, estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
+import { estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
 import { isVehicleDeliveredStatus } from './vehicleStatuses'
 import {
   addDays as calendarAddDays,
@@ -448,7 +448,7 @@ export function moveVehiclePlanningDate(assignments: PlannerAssignment[], vehicl
 
 export const moveVehicleWork = moveVehiclePlanningDate
 
-const isJobBlocked = (job: RepairJob) => job.status === 'In attesa' || job.phases.some((phase) => phase.status === 'Bloccata')
+const isJobBlocked = (job: RepairJob) => job.status === 'In attesa' || (job.blocks??[]).some(block=>block.trim()) || job.phases.some((phase) => phase.status === 'Bloccata')
 const isJobActive = (job: RepairJob) => job.status !== 'Annullata' && job.status !== 'Consegnata'
 
 function jobStarted(job: RepairJob) {
@@ -1003,36 +1003,76 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   }
 
   const paintReservations=currentPaintReservations(data,schedulingFloor)
-  for (const item of candidates) {
+  const remainingByPhase = new Map<string,number>()
+  for (let candidateIndex=0;candidateIndex<candidates.length;candidateIndex++) {
+    // Fill the earliest usable slot first; a future vehicle must not reserve an employee past today's work.
+    const earliestSlot=(candidate:typeof candidates[number])=>{
+      if(candidate.blocked)return '~'
+      let states=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,candidate.phase))
+      if(candidate.phase.preferredOperatorId)states=states.filter(state=>state.operator.id===candidate.phase.preferredOperatorId)
+      const running=(candidate.phase.operatorAssignments??[]).filter(a=>a.activityStatus==='Attivo'&&!a.endedAt).map(a=>a.operatorName)
+      if(running.length)states=states.filter(state=>running.includes(state.operator.name))
+      if(!states.length)return '~'
+      let start=states.map(state=>[state.nextAt,candidate.readyAt,schedulingFloor].sort().at(-1)!).sort()[0]
+      const support=operatorState.get(candidate.phase.supportOperatorId??'')
+      if(support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
+      return start
+    }
+    let nextIndex=candidateIndex
+    let earliest=earliestSlot(candidates[nextIndex])
+    for(let index=candidateIndex+1;index<candidates.length;index++){
+      const slot=earliestSlot(candidates[index])
+      if(slot<earliest){earliest=slot;nextIndex=index}
+    }
+    if(nextIndex!==candidateIndex)[candidates[candidateIndex],candidates[nextIndex]]=[candidates[nextIndex],candidates[candidateIndex]]
+    const item=candidates[candidateIndex]
     if (item.blocked) continue
     const activeAssignments = (item.phase.operatorAssignments ?? []).filter((entry) => entry.activityStatus === 'Attivo' && !entry.endedAt)
-    const residual = phaseResidualMinutes(item.phase, now, item.job)
+    const phaseKey = item.job.id+'|'+item.phase.id
+    if (!remainingByPhase.has(phaseKey)) {
+      const groupMembers=item.phase.sharedTimeKey?item.job.phases.filter(p=>p.sharedTimeKey===item.phase.sharedTimeKey&&!p.notRequired&&p.status!=='Completata').length:1
+      remainingByPhase.set(phaseKey,Math.max(1,Math.ceil(phaseResidualMinutes(item.phase,now,item.job)/Math.max(1,groupMembers))))
+    }
+    const residual = remainingByPhase.get(phaseKey)!
     const desiredOperators = item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
 
-    const ranking = rankPhaseOperators(data, item.job, item.phase, Array.from(operatorState.values())
-      .filter((state) => operatorCompatible(state.operator, item.phase)), residual, schedulingFloor, item.readyAt)
+    let eligible=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,item.phase))
+    // Automatic choices do not queue behind a busy colleague while another qualified employee can start.
+    if (!item.phase.preferredOperatorId&&!item.phase.supportOperatorId&&!activeAssignments.length&&eligible.length) {
+      const starts=eligible.map(state=>({state,start:nextWorkingInstant([state.nextAt,schedulingFloor,item.readyAt].sort().at(-1)!,data.plannerSettings,state.operator)}))
+      const earliest=starts.map(entry=>entry.start).sort()[0]
+      eligible=starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
+    }
+    const ranking = rankPhaseOperators(data,item.job,item.phase,eligible,residual,schedulingFloor,item.readyAt)
     const compatible = ranking.operators
     if (!compatible.length) continue
 
     const selected = compatible.slice(0, Math.min(desiredOperators, compatible.length))
     const rawReadyAt = nextWorkingInstant(item.readyAt, data.plannerSettings, selected[0]?.operator)
     const readyAt = rawReadyAt < schedulingFloor ? nextWorkingInstant(schedulingFloor, data.plannerSettings, selected[0]?.operator) : rawReadyAt
-    const sharedStartAt = selected.reduce((latest, state) => state.nextAt > latest ? state.nextAt : latest, readyAt)
+    let sharedStartAt = selected.reduce((latest,state)=>{const next=nextWorkingInstant(state.nextAt,data.plannerSettings,state.operator);return next>latest?next:latest},readyAt)
+    for(let attempt=0;attempt<60;attempt++){
+      const aligned=selected.map(state=>nextWorkingInstant(sharedStartAt,data.plannerSettings,state.operator)).sort().at(-1)!
+      if(aligned===sharedStartAt)break
+      sharedStartAt=aligned
+    }
+    if(selected.some(state=>nextWorkingInstant(sharedStartAt,data.plannerSettings,state.operator)!==sharedStartAt))continue
     if (sharedStartAt.slice(0, 10) > horizonEndDate) continue
     const availableToday = selected.map((state) => remainingWorkingMinutesToday(sharedStartAt, data.plannerSettings, state.operator))
-    const sustainableByOperator = selected.map((state) => calculateOperatorSustainableMinutes(state.operator.name, residual, data.plannerSettings).sustainableMinutes)
-    const personMinutes = item.phase.sharedTimeKey ? Math.ceil(residual / selected.length) : residual
-    const duration = Math.max(item.phase.sharedTimeKey ? 1 : 15, Math.min(personMinutes, ...availableToday, ...sustainableByOperator))
+    const personMinutes = item.phase.sharedTimeKey || item.job.workflowCycle==='elias-v1' ? Math.ceil(residual / selected.length) : residual
+    const duration = Math.min(personMinutes, ...availableToday)
     if (duration <= 0) continue
 
+    const workerMinutes=(index:number)=>item.phase.sharedTimeKey||item.job.workflowCycle==='elias-v1'?Math.max(0,Math.min(duration,residual-duration*index)):duration
+    const crewEnd=(start:string)=>selected.map((state,index)=>addWorkingMinutes(start,workerMinutes(index),data.plannerSettings,state.operator)).sort().at(-1)!
     const painting=item.phase.name==='Verniciatura'
     const drying=Math.max(0,Number(item.phase.technicalWaitMinutes??60))*60_000
-    const stationEnd=(start:string)=>new Date(new Date(addWorkingMinutes(start,duration,data.plannerSettings,selected[0]?.operator)).getTime()+drying).toISOString()
+    const stationEnd=(start:string)=>new Date(new Date(crewEnd(start)).getTime()+drying).toISOString()
     const startAt = painting&&item.phase.status!=='In lavorazione'
       ? findPaintStationStart(sharedStartAt,item.job.id,paintReservations,stationEnd,at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator))
       : sharedStartAt
     if(startAt.slice(0,10)>horizonEndDate)continue
-    const endAt = addWorkingMinutes(startAt, duration, data.plannerSettings, selected[0]?.operator)
+    const endAt = crewEnd(startAt)
     if(painting){
      const prior=paintReservations.filter(reservation=>reservation.jobId===item.job.id)
      const reservedStart=[startAt,...prior.map(reservation=>reservation.startAt)].sort()[0]
@@ -1046,7 +1086,10 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const panelNames = Array.from(new Set(phaseLines.map((line) => String(line.standardWorkId?.startsWith('elias-listino:') ? line.standardWorkName || line.panelName || '' : line.panelName ?? '').trim()).filter(Boolean)))
     const panelNotes = Array.from(new Set(phaseLines.map((line) => String(line.panelWorkNote ?? '').trim()).filter(Boolean)))
 
-    for (const state of selected) {
+    for (const [workerIndex,state] of selected.entries()) {
+      const plannedMinutes=workerMinutes(workerIndex)
+      if(plannedMinutes<=0)continue
+      const workerEndAt=addWorkingMinutes(startAt,plannedMinutes,data.plannerSettings,state.operator)
       const operatorName = state.operator.name.trim() || 'Operatore'
       const task: OperatorProgramTask = {
         id: crypto.randomUUID(),
@@ -1059,16 +1102,10 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         phaseId: item.phase.id,
         phaseName: item.phase.name,
         startAt,
-        endAt,
-        plannedMinutes: duration,
+        endAt:workerEndAt,
+        plannedMinutes,
         priority: item.job.priority,
-        reason: (() => {
-          const baseReason = `${ranking.reason} · ${reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)}`
-          const sustainable = calculateOperatorSustainableMinutes(operatorName, residual, data.plannerSettings)
-          return sustainable.sustainableMinutes < sustainable.baseMinutes
-            ? `${baseReason} · Tempo ricalcolato per costo esterno: ${sustainable.sustainableMinutes} min su ${sustainable.baseMinutes} min`
-            : baseReason
-        })(),
+        reason: `${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
@@ -1078,7 +1115,19 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         revision,
       }
       state.tasks.push(task)
-      state.nextAt = endAt
+      state.nextAt = nextWorkingInstant(workerEndAt,data.plannerSettings,state.operator)
+    }
+    if (item.job.workflowCycle==='elias-v1') {
+      const consumed=Math.min(residual,duration*selected.length)
+      const remaining=Math.max(0,residual-consumed)
+      remainingByPhase.set(phaseKey,remaining)
+      const virtualJob={...item.job,phases:item.job.phases.map(phase=>phase.id!==item.phase.id?phase:{
+        ...phase,status:remaining>0?'Da fare' as const:'Completata' as const,
+        actualMinutes:Math.max(phase.actualMinutes||0,(phase.tabletWorkedSeconds??0)/60,phaseManWorkedMinutes(phase,now))+consumed,operatorAssignments:[],tabletWorkedSeconds:undefined,
+        completedAt:remaining>0?undefined:endAt,endedAt:remaining>0?undefined:endAt,
+      })}
+      const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}:selectSchedulablePhase(virtualJob)
+      if(selectedNext&&endAt.slice(0,10)<=horizonEndDate)candidates.push({...item,job:virtualJob,phase:selectedNext.phase,readyAt:[selectedNext.readyAt,endAt].sort().at(-1)!})
     }
   }
 
