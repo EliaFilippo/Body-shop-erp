@@ -73,7 +73,7 @@ export function damageQuoteError(lines: EstimateLine[]): string {
   for (const line of lines) {
     if (!line.manualPhaseTimes) continue
     const phases=line.manualPhaseTimes
-    if (!phases.length || phases.some(item=>!WORK_CYCLE.includes(item.phase as typeof WORK_CYCLE[number]) || ['Stuccatura','Consegna'].includes(item.phase) || !Number.isFinite(item.minutes) || item.minutes<=0)) return 'Completa la fase e i minuti di ogni lavorazione manuale.'
+    if (!phases.length || phases.some(item=>!WORK_CYCLE.includes(item.phase as typeof WORK_CYCLE[number]) || ['Consegna'].includes(item.phase) || !Number.isFinite(item.minutes) || item.minutes<=0)) return 'Completa la fase e i minuti di ogni lavorazione manuale.'
     if (new Set(phases.map(item=>item.phase)).size!==phases.length) return 'Fase ripetuta: riunisci i minuti nella stessa fase.'
   }
   if (lines.some(line => line.manualFastLine && !line.categoryOrPhase)) return 'Scegli la fase della lavorazione manuale.'
