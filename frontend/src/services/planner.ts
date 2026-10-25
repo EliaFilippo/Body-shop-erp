@@ -1032,7 +1032,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const sharedStartAt = selected.reduce((latest,state)=>{const next=nextWorkingInstant(state.nextAt,data.plannerSettings,state.operator);return next>latest?next:latest},readyAt)
     if (sharedStartAt.slice(0, 10) > horizonEndDate) continue
     const availableToday = selected.map((state) => remainingWorkingMinutesToday(sharedStartAt, data.plannerSettings, state.operator))
-    const personMinutes = item.phase.sharedTimeKey ? Math.ceil(residual / selected.length) : residual
+    const personMinutes = item.phase.sharedTimeKey || item.job.workflowCycle==='elias-v1' ? residual / selected.length : residual
     const duration = Math.min(personMinutes, ...availableToday)
     if (duration <= 0) continue
 
@@ -1086,12 +1086,12 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       state.nextAt = endAt
     }
     if (item.job.workflowCycle==='elias-v1') {
-      const consumed=item.phase.sharedTimeKey?Math.min(residual,duration*selected.length):duration
+      const consumed=Math.min(residual,duration*selected.length)
       const remaining=Math.max(0,residual-consumed)
       remainingByPhase.set(phaseKey,remaining)
       const virtualJob={...item.job,phases:item.job.phases.map(phase=>phase.id!==item.phase.id?phase:{
         ...phase,status:remaining>0?'Da fare' as const:'Completata' as const,
-        actualMinutes:(phase.actualMinutes||0)+consumed,operatorAssignments:[],tabletWorkedSeconds:undefined,
+        actualMinutes:Math.max(phase.actualMinutes||0,(phase.tabletWorkedSeconds??0)/60,phaseManWorkedMinutes(phase,now))+consumed,operatorAssignments:[],tabletWorkedSeconds:undefined,
         completedAt:remaining>0?undefined:endAt,endedAt:remaining>0?undefined:endAt,
       })}
       const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}:selectSchedulablePhase(virtualJob)

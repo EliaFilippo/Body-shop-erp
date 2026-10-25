@@ -1,0 +1,54 @@
+import { describe,it,expect } from 'vitest'
+import { emptyData } from './erp'
+import { createEstimate,approveEstimateAndCreateJob } from './workflow'
+import { generateOperatorPrograms } from './planner'
+import type { ErpData } from '../types'
+
+function fixture(count=4) {
+ let data:ErpData=structuredClone(emptyData)
+ data.plannerSettings={...data.plannerSettings,workingDays:[1,2,3,4,5],efficiencyPercent:100,safetyMarginPercent:0,holidays:[],closures:[],absences:[],
+ operators:[
+ {id:'wash',name:'Lavaggio',active:true,dailyHours:8,hourlyCost:20,skillsConfigured:true,skills:['Lavaggio esterno']},
+ {id:'prep',name:'Preparazione',active:true,dailyHours:8,hourlyCost:20,skillsConfigured:true,skills:['Stuccatura']},
+ {id:'mask',name:'Incartatore',active:true,dailyHours:8,hourlyCost:20,skillsConfigured:true,skills:['Incartatura','Scartatura']},
+ {id:'paint',name:'Verniciatore',active:true,dailyHours:8,hourlyCost:40,skillsConfigured:true,skills:['Verniciatura']},
+ ]}
+ for(let n=0;n<count;n++){
+  data=createEstimate(data,{customerId:'c',plate:'CAR'+String(n).padStart(4,'0'),companyName:'',contactName:'',date:'2026-10-26',requestedDeliveryDate:'2026-11-10',notes:'',selectedPhases:['Lavaggio esterno'],lines:[{
+   description:'Ripristino',standardWorkName:'Verniciatura',category:'verniciatura',quantity:1,unitPrice:600,discount:0,vatRate:22,estimatedMinutes:90,
+   manualPhaseTimes:[{phase:'Verniciatura',minutes:60},{phase:'Incartatura',minutes:20},{phase:'Scartatura',minutes:10}],
+  }]})
+  data=approveEstimateAndCreateJob(data,data.estimates![0].id)
+ }
+ data.jobs=data.jobs!.map(j=>({...j,entryDate:'2026-10-26',expectedDeliveryDate:'2026-11-10'}))
+ return data
+}
+describe('giornata completa di lavoro prevista',()=>{
+ it('programma le fasi successive per tutti i mestieri senza completare realmente le fasi',()=>{
+  const data=fixture()
+  const before=JSON.stringify(data)
+  const result=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z')
+  for(const id of ['wash','prep','mask','paint'])expect(result.programs.filter(p=>p.operatorId===id).flatMap(p=>p.tasks).length).toBeGreaterThan(0)
+  const tasks=result.programs.flatMap(p=>p.tasks)
+  for(const job of data.jobs!){
+   const own=tasks.filter(t=>t.jobId===job.id)
+   const prep=own.find(t=>t.phaseName==='Stuccatura')!
+   const mask=own.find(t=>t.phaseName==='Incartatura')!
+   const paint=own.find(t=>t.phaseName==='Verniciatura')!
+   const unwrap=own.find(t=>t.phaseName==='Scartatura')!
+   expect(prep.endAt<=mask.startAt).toBe(true)
+   expect(mask.endAt<=paint.startAt).toBe(true)
+   expect(new Date(unwrap.startAt).getTime()-new Date(paint.endAt).getTime()).toBeGreaterThanOrEqual(3600000)
+   expect(own.filter(t=>['Stuccatura','Verniciatura'].includes(t.phaseName)).reduce((sum,t)=>sum+t.plannedMinutes,0)).toBe(60)
+  }
+  expect(JSON.stringify(data)).toBe(before)
+  for(const program of result.programs)for(let i=1;i<program.tasks.length;i++)expect(program.tasks[i].startAt>=program.tasks[i-1].endAt).toBe(true)
+ })
+ it('non assegna fasi a chi non ha la mansione e non forza lavori bloccati',()=>{
+  const data=fixture(1)
+  data.plannerSettings.operators.push({id:'none',name:'Non abilitato',active:true,dailyHours:8,skillsConfigured:true,skills:['Meccanica / gommista']})
+  data.jobs![0].blocks=['Ricambi mancanti']
+  const tasks=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z').programs.flatMap(p=>p.tasks)
+  expect(tasks).toHaveLength(0)
+ })
+})
