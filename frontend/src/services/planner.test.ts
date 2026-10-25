@@ -1495,8 +1495,11 @@ it('programma al massimo tre vetture in verniciatura e riserva l’ora di asciug
 })
 
 it('segna Pianificata solo una commessa con attività assegnate e non la considera lavorata',()=>{
- const data=makeProgramData()
- data.jobs=data.jobs!.map(job=>({...job,status:'Da pianificare',phases:job.phases.map((phase,index)=>({...phase,status:index===0?'Completata':'Da fare',notRequired:index===0}))}))
+ const data=structuredClone(emptyData)
+ data.plannerSettings={...settings,operators:[{id:'plan-test-op',name:'Plan test',dailyHours:8,active:true,skills:['verniciatura']}]}
+ data.vehicles=[{...vehicle('1',1,'2026-07-28'),id:'plan-test-car'}]
+ const fixture=baseJob('plan-test-job','COMM-PLAN','plan-test-car',data.vehicles[0].plate,'Normale','2026-07-28')
+ data.jobs=[{...fixture,status:'Da pianificare',workflowCycle:'elias-v1',phases:[{...fixture.phases[0],id:'plan-test-paint',name:'Verniciatura',status:'Da fare',notRequired:false,estimatedMinutes:30,actualMinutes:0,technicalWaitMinutes:60}]}]
  const planned=recalculateOperatorPrograms(data,'2026-07-27','Test','2026-07-27T05:00:00.000Z')
  const assignedIds=new Set(planned.operatorPrograms!.flatMap(program=>program.tasks.map(task=>task.jobId)))
  expect(assignedIds.size).toBeGreaterThan(0)
