@@ -19,7 +19,7 @@ import type {
   RepairJob,
   Vehicle,
 } from '../types'
-import { calculateOperatorSustainableMinutes, estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
+import { estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
 import { isVehicleDeliveredStatus } from './vehicleStatuses'
 import {
   addDays as calendarAddDays,
