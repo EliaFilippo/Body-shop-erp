@@ -262,7 +262,7 @@ export function WorkflowPage({
     const byStatus = estimateStatusFilter === 'Tutti' || estimate.status === estimateStatusFilter
     const byCustomer = !customerFilter || estimate.customerId === customerFilter
     const byQuery = !q || `${estimate.number} ${estimate.plate} ${customer?.name || ''}`.toLowerCase().includes(q)
-    return byStatus && byCustomer && byQuery && (ownerUnlocked || (estimate.status !== 'Approvato' && !estimate.convertedJobId))
+    return byStatus && byCustomer && byQuery
   })
 
   const filteredJobs = jobs.filter((job) => {
@@ -307,7 +307,7 @@ export function WorkflowPage({
       <article className="owner-kpi-card"><span>Completamento puntuale</span><strong>{kpis.onTimeCompletionRate}%</strong><small>Solo su commesse consegnate.</small></article>
     </section>
 
-    <section className="panel"><h3>Preventivi confermati · accesso protetto</h3><p>{ownerUnlocked ? 'Accesso del titolare sbloccato per 5 minuti. Le modifiche restano nello storico.' : 'Inserisci la password dei blocchi per accedere ai preventivi confermati. È separata dalla password di accesso al gestionale.'}</p>{isOwner && <button type="button" onClick={() => ownerUnlocked ? setUnlockUntil(0) : setUnlockPrompt(true)}>{ownerUnlocked ? 'Blocca preventivi' : 'Sblocca con password'}</button>}{!isOwner && <small>Accesso riservato al titolare.</small>}</section>
+    <section className="panel"><h3>Preventivi confermati · modifiche protette</h3><p>{ownerUnlocked ? 'Accesso del titolare sbloccato per 5 minuti. Le modifiche restano nello storico.' : 'I preventivi sono visibili. Inserisci la password dei blocchi per modificarli. È separata dalla password di accesso al gestionale.'}</p>{isOwner && <button type="button" onClick={() => ownerUnlocked ? setUnlockUntil(0) : setUnlockPrompt(true)}>{ownerUnlocked ? 'Blocca modifiche' : 'Sblocca con password'}</button>}{!isOwner && <small>Accesso riservato al titolare.</small>}</section>
     {unlockPrompt && <Modal title="Sblocca preventivi confermati" onClose={() => { setUnlockPassword(''); setUnlockPrompt(false) }}><form onSubmit={event => { event.preventDefault(); if (!onOwnerUnlock) return; setUnlockBusy(true); void onOwnerUnlock(unlockPassword).then(() => { setUnlockUntil(Date.now()+300000); setUnlockNow(Date.now()); setUnlockPrompt(false); setError('') }).catch(() => setError('Sblocco non riuscito. Controlla la password dei blocchi.')).finally(() => { setUnlockPassword(''); setUnlockBusy(false) }) }}><label>Password dei blocchi<input type="password" autoComplete="current-password" required value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} /></label><button type="submit" disabled={unlockBusy}>{unlockBusy ? 'Verifica…' : 'Sblocca'}</button></form></Modal>}
     <section className="panel table-panel">
       <div className="panel-head">

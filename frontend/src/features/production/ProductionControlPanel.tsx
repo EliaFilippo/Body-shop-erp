@@ -1,5 +1,4 @@
 import { PrivatePasswordSettings } from './PrivatePasswordSettings'
-import { OwnerPasswordGate } from './OwnerPasswordGate'
 import { useEffect, useRef, useState } from 'react'
 import { productionRpc } from '../../services/liveProduction'
 import type { NoticesConnection } from './PhaseNotices'
@@ -63,7 +62,7 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
    <label>Mese del rapporto <input type="month" value={month} onChange={e => { if (e.target.value) setMonth(e.target.value) }} /></label>
    {!report && !error && <p>Caricamento…</p>}
    <PrivatePasswordSettings connection={connection} />
-   <OwnerPasswordGate title="Ore e produttività dei dipendenti" connection={connection}>{session => <PrivateProductivity connection={{...connection,session}} from={from} to={to} />}</OwnerPasswordGate>
+   <PrivateProductivity connection={connection} from={from} to={to} />
    <details><summary>Report di tutte le fasi · verifica del tempario</summary>
     <p>Confronto delle lavorazioni concluse nel mese; quelle aperte sono indicate a parte. Uno scostamento medio oltre il 15%, con almeno 5 lavori, segnala una verifica. Vetture, pannelli e difficoltà possono essere diversi: il tempario non cambia da solo.</p>
     <p>S/R e I/S hanno un tempo totale condiviso: il confronto li considera insieme per non duplicare le ore.</p>

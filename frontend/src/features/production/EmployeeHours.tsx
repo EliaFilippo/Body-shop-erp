@@ -1,4 +1,3 @@
-import { OwnerPasswordGate } from './OwnerPasswordGate'
 import { useEffect, useRef, useState } from 'react'
 import type { CloudAuthConfig, CloudAuthSession } from '../../services/cloudAuth'
 import { interpolateHours, productionRpc, type HoursReport, type LiveFeed } from '../../services/liveProduction'
@@ -54,5 +53,5 @@ function UnlockedEmployeeHours({ feed, session, config, elapsed, stale }: {
 }
 
 export function EmployeeHours(props: {feed:LiveFeed;session:CloudAuthSession;config:CloudAuthConfig;elapsed:number;stale:boolean}) {
- return <OwnerPasswordGate title="Report ore dei dipendenti" connection={{companyId:props.feed.companyId,session:props.session,config:props.config}}>{session => <UnlockedEmployeeHours {...props} session={session} />}</OwnerPasswordGate>
+ return <UnlockedEmployeeHours {...props} />
 }
