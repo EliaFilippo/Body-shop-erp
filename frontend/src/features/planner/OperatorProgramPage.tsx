@@ -9,7 +9,7 @@ const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-d
 export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChange: (next: ErpData) => void }) {
   const [date, setDate] = useState(todayKey)
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
-  const programs = useMemo(() => (data.operatorPrograms ?? []).filter((item) => item.date === date).sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'it-IT')), [data.operatorPrograms, date])
+  const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id) ?? { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
   const coneLabelByTask = (jobId: string, vehicleId: string) => {
     const job = (data.jobs ?? []).find((item) => item.id === jobId)
@@ -79,7 +79,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
       <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni.</p>
       <div className="week-grid">
         {programs.map((program) => <article className="day-card" key={program.operatorId}>
-          <div className="day-head"><strong>{program.operatorName}</strong><span>rev. {program.revision}</span></div>
+          <div className="day-head"><strong>{program.operatorName}</strong><span>{program.revision ? `rev. ${program.revision}` : 'Senza assegnazioni'}</span></div>
           <div className="day-jobs">
             {program.tasks.map((task) => <div className="day-job" key={task.id}>
               <strong className="plate">{timeLabel(task.startAt)}-{timeLabel(task.endAt)}</strong>
@@ -90,7 +90,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
               {!!task.panelNotes?.length && <small>Note pannello: {task.panelNotes.join(' | ')}</small>}
               <small>{task.reason}</small>
             </div>)}
-            {!program.tasks.length && <small>Nessuna attivita assegnata.</small>}
+            {!program.tasks.length && <small>Nessuna attività assegnata in questa giornata.</small>}
           </div>
         </article>)}
         {!programs.length && <article className="day-card"><div className="day-head"><strong>Nessun programma disponibile</strong></div><small>Esegui Ricalcola piano per generare il piano giornaliero.</small></article>}
