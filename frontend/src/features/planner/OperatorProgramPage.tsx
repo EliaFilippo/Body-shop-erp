@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { isVehicleWaitingForCone } from '../../services/erp'
 import { recalculateOperatorPrograms, selectSchedulablePhase, todayKey } from '../../services/planner'
 import { supportsOperatorDuty } from '../../services/operatorSkills'
@@ -7,7 +7,8 @@ import type { ErpData } from '../../types'
 const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(iso))
 
 export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChange: (next: ErpData) => void }) {
-  const date = todayKey()
+  const [date, setDate] = useState(todayKey)
+  const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const programs = useMemo(() => (data.operatorPrograms ?? []).filter((item) => item.date === date).sort((a, b) => a.operatorName.localeCompare(b.operatorName, 'it-IT')), [data.operatorPrograms, date])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
   const coneLabelByTask = (jobId: string, vehicleId: string) => {
@@ -26,7 +27,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
         <p>Sequenza attivita per operatore calcolata da priorita, consegne, stato fase, compatibilita e disponibilita.</p>
       </div>
       <div className="planner-actions">
-        <button className="primary" onClick={() => onChange(recalculateOperatorPrograms(data, date, 'Ricalcolo piano manuale'))}>Ricalcola piano</button>
+        <button className="primary" onClick={() => onChange(recalculateOperatorPrograms(data, todayKey(), 'Ricalcolo piano manuale'))}>Ricalcola piano</button>
       </div>
     </section>
 
@@ -45,7 +46,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
               phases: j.phases.map(p => p.id === phase.id ? { ...p, preferredOperatorId: operatorId || undefined, supportOperatorId: p.supportOperatorId === operatorId ? undefined : p.supportOperatorId } : p),
               updatedAt: new Date().toISOString(), history: [{ id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'Ufficio', message: `${phase.name}: ${operator ? `operatore scelto ${operator.name}` : 'assegnazione automatica per margine'}` }, ...j.history],
             }) }
-            onChange(recalculateOperatorPrograms(next, date, 'Scelta operatore aggiornata'))
+            onChange(recalculateOperatorPrograms(next, todayKey(), 'Scelta operatore aggiornata'))
           }}>
             <option value="">Automatico · in base al margine</option>
             {phase.preferredOperatorId && !operators.some(o => o.id === phase.preferredOperatorId) && <option value={phase.preferredOperatorId}>Operatore non disponibile: modifica la scelta</option>}
@@ -60,7 +61,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
                 phases: j.phases.map(p => p.id === phase.id ? { ...p, supportOperatorId } : p), updatedAt: stamp,
                 history: [{ id: crypto.randomUUID(), at: stamp, actor: 'Ufficio', message: `${phase.name}: ${operator ? `affiancamento di ${operator.name}` : 'affiancamento rimosso'}` }, ...j.history],
               }) }
-              onChange(recalculateOperatorPrograms(next, date, 'Affiancamento aggiornato'))
+              onChange(recalculateOperatorPrograms(next, todayKey(), 'Affiancamento aggiornato'))
             }}>
               <option value="">Nessun affiancamento manuale</option>
               {phase.supportOperatorId && !operators.some(o => o.id === phase.supportOperatorId) && <option value={phase.supportOperatorId}>Operatore non disponibile</option>}
@@ -75,7 +76,7 @@ export function OperatorProgramPage({ data, onChange }: { data: ErpData; onChang
     </section>
 
     <section className="panel table-panel">
-      <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div></div>
+      <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni.</p>
       <div className="week-grid">
         {programs.map((program) => <article className="day-card" key={program.operatorId}>
           <div className="day-head"><strong>{program.operatorName}</strong><span>rev. {program.revision}</span></div>
