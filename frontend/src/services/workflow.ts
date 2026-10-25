@@ -916,9 +916,10 @@ function updatePhaseOperators(phase: JobPhase, operatorNames: string[], at: stri
 }
 
 function statusFromProgress(phases: JobPhase[]): number {
-	if (!phases.length) return 0
-	const completed = phases.filter((phase) => phase.status === 'Completata' || phase.notRequired).length
-	return Math.round((completed / phases.length) * 100)
+	const required = phases.filter((phase) => !phase.notRequired)
+	if (!required.length) return 0
+	const completed = required.filter((phase) => phase.status === 'Completata').length
+	return Math.round((completed / required.length) * 100)
 }
 
 function activeWorkflowPhases(job: RepairJob) {
