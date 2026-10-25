@@ -56,3 +56,23 @@ describe('giornata completa di lavoro prevista',()=>{
   expect(tasks).toHaveLength(0)
  })
 })
+
+it('prosegue nei turni successivi conservando tutti i minuti tecnici',()=>{
+ const data=fixture(1)
+ const job=data.jobs![0]
+ job.phases=job.phases.map(p=>p.sharedTimeKey==='v'?{...p,sharedTimeMinutes:1200,estimatedMinutes:p.name==='Stuccatura'?1200:0}:p)
+ const result=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z')
+ const tasks=result.programs.flatMap(p=>p.tasks).filter(t=>t.jobId===job.id)
+ expect(tasks.filter(t=>['Stuccatura','Verniciatura'].includes(t.phaseName)).reduce((sum,t)=>sum+t.plannedMinutes,0)).toBe(1200)
+ expect(new Set(tasks.map(t=>t.startAt.slice(0,10))).size).toBeGreaterThan(1)
+ expect(tasks.every(t=>t.startAt.slice(0,10)===t.endAt.slice(0,10))).toBe(true)
+})
+
+it('due colleghi non moltiplicano un tempo condiviso dispari',()=>{
+ const data=fixture(1)
+ data.plannerSettings.operators.push({id:'prep2',name:'Seconda preparazione',active:true,dailyHours:8,hourlyCost:20,skillsConfigured:true,skills:['Stuccatura']})
+ data.jobs![0].phases=data.jobs![0].phases.map(p=>p.sharedTimeKey==='v'?{...p,sharedTimeMinutes:61,estimatedMinutes:p.name==='Stuccatura'?61:0,supportOperatorId:p.name==='Stuccatura'?'prep2':undefined}:p)
+ const tasks=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z').programs.flatMap(p=>p.tasks)
+ expect(tasks.filter(t=>['Stuccatura','Verniciatura'].includes(t.phaseName)).reduce((sum,t)=>sum+t.plannedMinutes,0)).toBe(61)
+ expect(tasks.filter(t=>t.phaseName==='Stuccatura')).toHaveLength(2)
+})
