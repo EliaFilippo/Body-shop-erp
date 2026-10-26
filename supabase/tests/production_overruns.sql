@@ -2,6 +2,7 @@
 \ir ../migrations/20261018_production_overruns.sql
 -- Migration can be run twice without resetting assignments or acknowledgement history.
 \ir ../migrations/20261018_production_overruns.sql
+\ir ../migrations/20261026_operator_status.sql
 begin;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 update erp_snapshots set payload=jsonb_set(jsonb_set(payload,'{jobs}',(payload->'jobs')||'[
@@ -63,5 +64,23 @@ do $$declare report jsonb; a jsonb;begin
  select value into a from jsonb_array_elements(report->'operators') where value->>'operatorId'='a';
  if (a->>'score')::numeric<>80 or (a->>'unscoredSharedSeconds')::numeric<>1800 then raise exception 'Unplanned shared work distorted individual score: %',a;end if;
  if (select count(*) from production_live_segments where job_id='score-open' and ended_at is null)<>1 then raise exception 'Limit stopped timer';end if;
+end $$;
+-- Live operator cards use only open segments and the technical allowance.
+do $$declare r jsonb;begin
+ r:=production_operator_status('10000000-0000-0000-0000-000000000001');
+ if jsonb_array_length(r->'running')<>1 or r->'running'->0->>'operatorId'<>'a'
+ or (r->'running'->0->>'overrunSeconds')::numeric<300 then raise exception 'Running status incorrect: %',r;end if;
+ begin perform production_operator_status('10000000-0000-0000-0000-000000000099');
+ raise exception 'Cross tenant allowed';exception when raise_exception then if sqlerrm not like 'Accesso ufficio%' then raise;end if;end;
+end $$;
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
+do $$begin
+ begin perform production_operator_status('10000000-0000-0000-0000-000000000001');
+ raise exception 'Production access allowed';exception when raise_exception then if sqlerrm not like 'Accesso ufficio%' then raise;end if;end;
+end $$;
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+update production_live_segments set ended_at=statement_timestamp() where job_id='score-open' and ended_at is null;
+do $$begin
+ if jsonb_array_length(production_operator_status('10000000-0000-0000-0000-000000000001')->'running')<>0 then raise exception 'Paused segment still colored';end if;
 end $$;
 rollback;

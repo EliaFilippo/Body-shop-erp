@@ -1080,7 +1080,7 @@ function App() {
           if (hours > capacity.protected && !window.confirm(`La lavorazione richiede ${hours} ore, mentre il ${date} dispone di ${capacity.protected} ore protette. Eccedenza: ${Math.round((hours - capacity.protected) * 100) / 100} ore. Vuoi comunque fissare questa data di inizio?`)) return
           setData({ ...data, vehicles: data.vehicles.map((item) => item.id === vehicleId ? { ...item, manualPlanningDate: date } : item) })
         }} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
-        {view === 'operator-program' && <OperatorProgramPage data={data} onChange={setData} />}
+        {view === 'operator-program' && <OperatorProgramPage data={data} onChange={setData} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
         {view === 'planner-settings' && <PlannerSettingsPage settings={data.plannerSettings} onSave={async (plannerSettings) => {
           const nextData = { ...data, plannerSettings }
           try {
