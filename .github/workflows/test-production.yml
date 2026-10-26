@@ -67,6 +67,8 @@ jobs:
         run: psql -f supabase/tests/shared_preparation.sql
       - name: Day continuation, ordinary schedule and tenant isolation
         run: psql -f supabase/tests/continue_day.sql
+      - name: Single wash station, one operator and pause occupancy
+        run: psql -f supabase/tests/wash_station.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

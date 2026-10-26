@@ -110,3 +110,14 @@ it('a parità di disponibilità rispetta consegna, margine e anzianità dalla co
  data.vehicles.find(v=>v.id===due.vehicleId)!.createdAt='2020-01-01T08:00:00Z'
  expect(order().slice(0,2)).toEqual([rich.id,due.id])
 })
+
+it('una sola postazione di lavaggio e un solo addetto anche con affiancamento manuale',()=>{
+ const data=fixture(3)
+ data.plannerSettings.operators.push({id:'wash2',name:'Secondo lavaggio',active:true,dailyHours:8,hourlyCost:20,skillsConfigured:true,skills:['Lavaggio esterno','Lavaggio interni']})
+ for(const job of data.jobs!){
+  job.phases=job.phases.filter(p=>p.name==='Lavaggio esterno').map(p=>({...p,supportOperatorId:'wash2'}))
+ }
+ const tasks=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z').programs.flatMap(p=>p.tasks).sort((a,b)=>a.startAt.localeCompare(b.startAt))
+ expect(tasks).toHaveLength(3)
+ for(let i=1;i<tasks.length;i++)expect(tasks[i].startAt>=tasks[i-1].endAt).toBe(true)
+})

@@ -1,3 +1,4 @@
+import { isWashingPhase, findWashStationStart, currentWashReservations } from './washStation'
 import { findPaintStationStart, type PaintReservation } from './paintStations'
 import { rankPhaseOperators } from './phaseAssignment'
 import { buildSelectedWorkCycle, cyclePhasesForLine } from './workCycle'
@@ -1003,6 +1004,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   }
 
   const paintReservations=currentPaintReservations(data,schedulingFloor)
+  const washReservations=currentWashReservations(data,schedulingFloor,(job,phase)=>addWorkingMinutes(schedulingFloor,phaseResidualMinutes(phase,now,job),data.plannerSettings))
   const remainingByPhase = new Map<string,number>()
   for (let candidateIndex=0;candidateIndex<candidates.length;candidateIndex++) {
     // Fill the earliest usable slot first; a future vehicle must not reserve an employee past today's work.
@@ -1015,7 +1017,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       if(!states.length)return '~'
       let start=states.map(state=>[state.nextAt,candidate.readyAt,schedulingFloor].sort().at(-1)!).sort()[0]
       const support=operatorState.get(candidate.phase.supportOperatorId??'')
-      if(support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
+      if(!isWashingPhase(candidate.phase.name)&&support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
       return start
     }
     let nextIndex=candidateIndex
@@ -1042,7 +1044,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       remainingByPhase.set(phaseKey,Math.max(1,Math.ceil(phaseResidualMinutes(item.phase,now,item.job)/Math.max(1,groupMembers))))
     }
     const residual = remainingByPhase.get(phaseKey)!
-    const desiredOperators = item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
+    const desiredOperators = isWashingPhase(item.phase.name) ? 1 : item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
 
     let eligible=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,item.phase))
     // Automatic choices do not queue behind a busy colleague while another qualified employee can start.
@@ -1068,7 +1070,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     if (sharedStartAt.slice(0, 10) > horizonEndDate) continue
     const availableToday = selected.map((state) => remainingWorkingMinutesToday(sharedStartAt, data.plannerSettings, state.operator))
     const personMinutes = item.phase.sharedTimeKey || item.job.workflowCycle==='elias-v1' ? Math.ceil(residual / selected.length) : residual
-    const duration = Math.min(personMinutes, ...availableToday)
+    let duration = Math.min(personMinutes, ...availableToday)
     if (duration <= 0) continue
 
     const workerMinutes=(index:number)=>item.phase.sharedTimeKey||item.job.workflowCycle==='elias-v1'?Math.max(0,Math.min(duration,residual-duration*index)):duration
@@ -1078,9 +1080,14 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const stationEnd=(start:string)=>new Date(new Date(crewEnd(start)).getTime()+drying).toISOString()
     const startAt = painting&&item.phase.status!=='In lavorazione'
       ? findPaintStationStart(sharedStartAt,item.job.id,paintReservations,stationEnd,at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator))
-      : sharedStartAt
+      : isWashingPhase(item.phase.name)?findWashStationStart(sharedStartAt,item.job.id,washReservations,crewEnd,at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator)):sharedStartAt
+    if(isWashingPhase(item.phase.name)){
+      duration=Math.min(duration,remainingWorkingMinutesToday(startAt,data.plannerSettings,selected[0]?.operator))
+      if(duration<=0)continue
+    }
     if(startAt.slice(0,10)>horizonEndDate)continue
     const endAt = crewEnd(startAt)
+    if(isWashingPhase(item.phase.name))washReservations.push({jobId:item.job.id,startAt,endAt})
     if(painting){
      const prior=paintReservations.filter(reservation=>reservation.jobId===item.job.id)
      const reservedStart=[startAt,...prior.map(reservation=>reservation.startAt)].sort()[0]
@@ -1288,6 +1295,8 @@ export function simulateEstimateProductionForecast(
    const phase=data.jobs?.find(job=>job.id===task.jobId)?.phases.find(item=>item.id===task.phaseId)
    forecastPaint.push({jobId:task.jobId,startAt:task.startAt,endAt:new Date(new Date(task.endAt).getTime()+Math.max(0,Number(phase?.technicalWaitMinutes??60))*60_000).toISOString()})
   }
+  const forecastWash=currentWashReservations(data,`${firstAvailabilityDate}T00:00:00.000Z`,(job,phase)=>addWorkingMinutes(`${firstAvailabilityDate}T00:00:00.000Z`,phaseResidualMinutes(phase,new Date().toISOString(),job),data.plannerSettings))
+  for(const program of basePrograms)for(const task of program.tasks??[])if(isWashingPhase(task.phaseName)&&task.vehicleId!==syntheticVehicleId)forecastWash.push({jobId:task.jobId,startAt:task.startAt,endAt:task.endAt})
   const phasePlans: SimulatedPhaseForecast[] = []
   const usesMinorTimes = input.lines.some(line => line.minorDamageTimes || line.manualPhaseTimes)
   const phaseSequence = input.selectedPhases === undefined && !usesMinorTimes ? estimatedPhaseSequence(input.lines)
@@ -1311,7 +1320,7 @@ export function simulateEstimateProductionForecast(
       blockingReasons.push(`Nessun operatore disponibile per ${phase.phaseName}.`)
       continue
     }
-    const neededOperators = input.selectedPhases !== undefined ? 1 : Math.min(desiredOperatorCount(priority, requestedDeliveryDate, referenceDate), compatible.length)
+    const neededOperators = isWashingPhase(phase.phaseName) || input.selectedPhases !== undefined ? 1 : Math.min(desiredOperatorCount(priority, requestedDeliveryDate, referenceDate), compatible.length)
     const candidates = compatible
       .map((operator) => {
         const busyUntil = occupiedUntil.get(operator.id)
@@ -1325,8 +1334,9 @@ export function simulateEstimateProductionForecast(
     const earliestStart = selected.reduce((latest, entry) => entry.nextAt > latest ? entry.nextAt : latest, dependencyCursor)
     const startAt=phase.phaseName==='Verniciatura'
      ? findPaintStationStart(earliestStart,syntheticVehicleId,forecastPaint,start=>new Date(new Date(addWorkingMinutes(start,phase.plannedMinutes,data.plannerSettings,selected[0]?.operator)).getTime()+phase.technicalWaitMinutes*60_000).toISOString(),at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator))
-     : earliestStart
+     : isWashingPhase(phase.phaseName)?findWashStationStart(earliestStart,syntheticVehicleId,forecastWash,start=>addWorkingMinutes(start,phase.plannedMinutes,data.plannerSettings,selected[0]?.operator),at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator)):earliestStart
     const endAt = addWorkingMinutes(startAt, phase.plannedMinutes, data.plannerSettings, selected[0]?.operator)
+    if(isWashingPhase(phase.phaseName))forecastWash.push({jobId:syntheticVehicleId,startAt,endAt})
     const availableAfter = phase.technicalWaitMinutes > 0 ? new Date(new Date(endAt).getTime() + phase.technicalWaitMinutes * 60_000).toISOString() : endAt
     for (const entry of selected) occupiedUntil.set(entry.operator.id, endAt)
     phasePlans.push({
