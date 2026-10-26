@@ -21,7 +21,7 @@ export function deliveredJobReport(job:RepairJob){
   }else item.missing++
   groups.set(key,item)
  }
- const rows=[...groups.values()].map(g=>({...g,plannedMinutes:Math.max(g.plannedMinutes,g.allowance)}))
+ const rows=[...groups.values()].map(g=>({...g,plannedMinutes:g.allowance>0?g.allowance:g.plannedMinutes}))
  const missing=rows.reduce((sum,r)=>sum+r.missing,0)
  const workedSeconds=rows.reduce((sum,r)=>sum+r.workedSeconds,0)
  const plannedSeconds=rows.reduce((sum,r)=>sum+r.plannedMinutes*60,0)

@@ -13,7 +13,7 @@ describe('delivered report',()=>{
  it('counts shared allowances once and sums person-time without multiplying tablet totals',()=>{
   const job=makeReportJob()
   job.phases=[phase('s',{sharedTimeKey:'sr',sharedTimeMinutes:60,estimatedMinutes:60,tabletWorkedSeconds:2400}),
-   phase('r',{sharedTimeKey:'sr',sharedTimeMinutes:60,estimatedMinutes:0,tabletWorkedSeconds:1800}),
+   phase('r',{sharedTimeKey:'sr',sharedTimeMinutes:60,estimatedMinutes:60,tabletWorkedSeconds:1800}),
    phase('optional',{notRequired:true}),phase('Consegna',{name:'Consegna'})]
   const before=JSON.stringify(job)
   const r=deliveredJobReport(job)
