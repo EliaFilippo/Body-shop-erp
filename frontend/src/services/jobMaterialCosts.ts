@@ -1,11 +1,11 @@
 import type { ErpData, RepairJob } from '../types'
 const round=(n:number)=>Math.round((n+Number.EPSILON)*100)/100
-const laborCategories=['carrozzeria','verniciatura','meccanica']
+import { isProductionLabourLine } from './liveProduction'
 export function calculateJobMaterialMargin(job:RepairJob) {
  let estimatedMaterials=0;let otherCosts=0;let missingCosts=false
  for(const line of job.lines){
   const quantity=Math.max(0,line.quantity)
-  if(laborCategories.includes(line.category)){
+  if(isProductionLabourLine(line)){
    const amount=Math.max(0,line.taxableAmount ?? quantity*line.unitPrice-line.discount)
    const materials=Number.isFinite(line.budgetMaterialsCost)?Math.max(0,line.budgetMaterialsCost!):amount*Math.max(0,Math.min(100,line.budgetMaterialsPercent??20))/100
    estimatedMaterials+=materials
