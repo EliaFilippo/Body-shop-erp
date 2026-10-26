@@ -11,15 +11,15 @@ afterEach(()=>{vi.useRealTimers();vi.resetAllMocks()})
 describe('daily employee hours',()=>{
  it('shows vehicle identity and includes cleaning in the working total with coffee separate',async()=>{
   const card=await setup()
-  expect(card.getByText('AA123BB · COMM-1')).toBeInTheDocument()
+  expect(card.getByText('AA123BB · COMM-1',{selector:'td'})).toBeInTheDocument()
   expect(card.getByText('Smontaggio')).toBeInTheDocument()
   expect(card.getByText('Totale lavorato').parentElement).toHaveTextContent('1 h 30 min')
-  expect(card.getByText('Pulizie').parentElement).toHaveTextContent('0 h 30 min')
+  expect(card.getByText('Pulizie',{selector:'span'}).parentElement).toHaveTextContent('0 h 30 min')
   expect(card.getByText(/Pausa caffè:/).textContent).toContain('0 h 10 min')
  })
  it('requires a password and reason, saves a signed correction and clears the password',async()=>{
   const card=await setup()
-  vi.mocked(productionRpc).mockResolvedValueOnce({ok:true}).mockResolvedValueOnce({...report,operators:[{...report.operators[0],cleaningSeconds:2700,totalSeconds:6300}]})
+  vi.mocked(productionRpc).mockResolvedValueOnce({ok:true}).mockResolvedValueOnce({...report,operators:[{...report.operators[0],cleaningSeconds:900,totalSeconds:4500}]})
   fireEvent.click(card.getByText('Correggi ore con password'))
   fireEvent.change(card.getByLabelText('Attività da correggere'),{target:{value:'cleaning'}})
   fireEvent.change(card.getByLabelText('Operazione'),{target:{value:'remove'}})

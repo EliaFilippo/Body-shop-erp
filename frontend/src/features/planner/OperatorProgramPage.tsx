@@ -12,8 +12,8 @@ import type { ErpData } from '../../types'
 const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(iso))
 
 export function OperatorProgramPage({ data, onChange, connection }: { data: ErpData; onChange: (next: ErpData) => void; connection?:NoticesConnection }) {
-  const {running,message}=useOperatorStatus(connection)
   const [showHours,setShowHours]=useState(false)
+  const {running,message}=useOperatorStatus(showHours?undefined:connection)
   const [date, setDate] = useState(todayKey)
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id) ?? { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date])
