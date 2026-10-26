@@ -2,7 +2,7 @@ import { afterEach,describe,expect,it,vi } from 'vitest'
 import { configureOperatorPin,readTabletPairing,signInWithPin,tabletLink,validPairing } from './operatorPin'
 const pairing={companyId:'10000000-0000-0000-0000-000000000001',operatorId:'stefania',pairing:'a'.repeat(64)}
 const config={url:'https://example.test',anonKey:'public'}
-afterEach(()=>{localStorage.clear();sessionStorage.clear();history.replaceState(null,'','/');vi.unstubAllGlobals()})
+afterEach(()=>{localStorage.clear();sessionStorage.clear();history.replaceState(null,'','/');vi.restoreAllMocks();vi.unstubAllGlobals()})
 describe('accesso PIN personale',()=>{
   it('activates a tablet from the fragment, removes its link from history and discards an office session',()=>{
     sessionStorage.setItem('body-shop-erp.cloud-session.v1','owner-token')
@@ -30,4 +30,13 @@ describe('accesso PIN personale',()=>{
     expect(fetcher).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({headers:expect.objectContaining({Authorization:'Bearer owner'})}))
     expect(localStorage.length).toBe(0)
   })
+})
+
+it('un collegamento valido funziona anche quando il browser blocca la memoria locale',()=>{
+ history.replaceState(null,'',tabletLink(pairing,location.origin+'/production.html'))
+ const hash=location.hash
+ const storage=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new DOMException('Blocked','SecurityError')})
+ expect(readTabletPairing()).toEqual(pairing)
+ expect(location.hash).toBe(hash)
+ storage.mockRestore()
 })

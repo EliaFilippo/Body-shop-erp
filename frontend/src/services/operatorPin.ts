@@ -6,18 +6,19 @@ export function validPairing(value: unknown): value is TabletPairing {
   return !!p && /^[0-9a-f-]{36}$/i.test(p.companyId) && typeof p.operatorId==='string' && !!p.operatorId && p.operatorId.length<=128 && /^[a-f0-9]{64}$/.test(p.pairing)
 }
 export function readTabletPairing(): TabletPairing | null {
+  const params = new URLSearchParams(location.hash.slice(1))
+  const incoming = { companyId:params.get('company') || '',operatorId:params.get('operator') || '',pairing:params.get('tablet') || '' }
+  if (validPairing(incoming)) {
+    // Storage restrictions must not turn a valid personal link into an office login.
+    let stored=false
+    try { localStorage.setItem(pairingKey,JSON.stringify(incoming)); stored=true } catch { /* Keep the fragment so a reload can retry. */ }
+    try { sessionStorage.removeItem('body-shop-erp.cloud-session.v1') } catch { /* The React session is also cleared by the activation handler. */ }
+    if(stored)try { history.replaceState(null,'',location.pathname+location.search) } catch { /* The personal link remains usable. */ }
+    return incoming
+  }
   try {
-    const params = new URLSearchParams(location.hash.slice(1))
-    const incoming = { companyId:params.get('company') || '',operatorId:params.get('operator') || '',pairing:params.get('tablet') || '' }
-    if (validPairing(incoming)) {
-      localStorage.setItem(pairingKey,JSON.stringify(incoming))
-      // Un link tablet non deve riutilizzare il profilo ufficio aperto prima.
-      sessionStorage.removeItem('body-shop-erp.cloud-session.v1')
-      history.replaceState(null,'',location.pathname+location.search)
-      return incoming
-    }
-    const stored: unknown = JSON.parse(localStorage.getItem(pairingKey) || 'null')
-    return validPairing(stored) ? stored : null
+    const stored:unknown=JSON.parse(localStorage.getItem(pairingKey)||'null')
+    return validPairing(stored)?stored:null
   } catch { return null }
 }
 export function tabletLink(pairing:TabletPairing, baseUrl = new URL('production.html',new URL(import.meta.env.BASE_URL,location.origin)).href) {
