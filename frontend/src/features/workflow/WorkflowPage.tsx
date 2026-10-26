@@ -1,3 +1,4 @@
+import { DeliveredJobReports } from './DeliveredJobReports'
 import { JobMaterialCosts } from './JobMaterialCosts'
 import { setJobMaterialActualCost } from '../../services/jobMaterialCosts'
 import { FastEstimateEditor } from './FastEstimateEditor'
@@ -238,6 +239,7 @@ export function WorkflowPage({
   useEffect(() => { const hide = () => { if (document.hidden) { setUnlockUntil(0); setUnlockPassword('') } }; document.addEventListener('visibilitychange',hide); return()=>document.removeEventListener('visibilitychange',hide) }, [])
 
   const [estimateStatusFilter, setEstimateStatusFilter] = useState<'Tutti' | EstimateStatus>('Tutti')
+  const [deliveredReportQuery,setDeliveredReportQuery]=useState<string|null>(null)
   const [jobStatusFilter, setJobStatusFilter] = useState<'Tutti' | JobStatus>('Tutti')
   const [priorityFilter, setPriorityFilter] = useState<'Tutte' | 'Normale' | 'Alta' | 'Urgente'>('Tutte')
   const [responsibleFilter, setResponsibleFilter] = useState('')
@@ -281,6 +283,8 @@ export function WorkflowPage({
     setNotice(notice)
   }
 
+  if(deliveredReportQuery!==null)return <DeliveredJobReports jobs={jobs} customerById={customerById} initialQuery={deliveredReportQuery} onBack={()=>setDeliveredReportQuery(null)} onSaveMaterials={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Materiali reali salvati. Report aggiornato.')}/>
+
   return <>
     <section className="welcome compact-welcome">
       <div>
@@ -289,6 +293,7 @@ export function WorkflowPage({
         <p>Dal preventivo alla consegna con collegamento reale a planner, produzione e finanza.</p>
       </div>
       <div className="planner-actions">
+        <button className="primary" onClick={()=>setDeliveredReportQuery('')}>Vetture consegnate · Report</button>
         <button className="secondary" onClick={() => setModal({ type: 'checklist-templates' })}>Checklist qualità</button>
         <button className="secondary" onClick={() => setModal({ type: 'job-create' })}>Commessa diretta</button>
         <button className="secondary" onClick={() => setModal({ type: 'estimate-create' })}>Nuovo preventivo</button>
@@ -405,7 +410,7 @@ export function WorkflowPage({
             <td>{job.progressPercent}%</td>
             <td>{money(job.total)}</td>
             <td>{coneLabelForJob(job)}</td>
-            <td><div className="row-actions"><button onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri scheda</button></div></td>
+            <td><div className="row-actions">{job.status==='Consegnata'&&<button className="primary" onClick={()=>setDeliveredReportQuery(job.plate)}>Report ore e materiali</button>}<button onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri scheda</button></div></td>
           </tr>
         })}
       </tbody></table></div>
