@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ company_id: 'c1', role: 'production' }]))))
   mocked.rpc.mockReset()
 })
-afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup();localStorage.clear();history.replaceState(null,'','/'); sessionStorage.clear(); vi.unstubAllGlobals() })
 
 describe('profilo tablet', () => {
   it('shows tasks, personal hours and the identity of the phase signer before advancing to the next phase', async () => {
@@ -218,4 +218,21 @@ it('mette in pausa la vettura con PULIZIE e richiede di terminare l’attività 
  expect(mocked.rpc).toHaveBeenCalledWith('production_activity_action',{p_company_id:'c1',p_kind:'cleaning'},expect.anything(),expect.anything())
  expect(screen.getByRole('button',{name:'Riprendi'})).toBeDisabled()
  expect(screen.getByRole('button',{name:'TERMINA ATTIVITÀ'})).toBeEnabled()
+})
+
+it('riconosce il link personale aperto in una pagina di Produzione già caricata',async()=>{
+ sessionStorage.clear()
+ mocked.rpc.mockResolvedValue({companyId:'c1',role:'production',operatorName:null,serverNow:new Date().toISOString(),members:[],jobs:[]})
+ render(<LiveProductionPage/>)
+ await screen.findByRole('heading',{name:'Accedi al tuo profilo'})
+ const fragment='#company=10000000-0000-0000-0000-000000000001&operator=davide&tablet='+'b'.repeat(64)
+ history.replaceState(null,'','/production.html'+fragment)
+ fireEvent(window,new HashChangeEvent('hashchange'))
+ await screen.findByLabelText('PIN personale')
+ expect(screen.getByRole('heading',{name:'Accesso operatore'})).toBeInTheDocument()
+ expect(sessionStorage.getItem('body-shop-erp.cloud-session.v1')).toBeNull()
+ // Opening a vehicle anchor must leave the paired login intact.
+ history.replaceState(null,'','/production.html#vettura-test')
+ fireEvent(window,new HashChangeEvent('hashchange'))
+ expect(screen.getByLabelText('PIN personale')).toBeInTheDocument()
 })

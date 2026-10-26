@@ -26,7 +26,7 @@ const clockText = (seconds: number | null) => {
 }
 
 export function LiveProductionPage() {
-  const [tabletPairing] = useState(readTabletPairing)
+  const [tabletPairing,setTabletPairing] = useState(readTabletPairing)
   const [session, setSession] = useState(storedSession)
   const [companyId, setCompanyId] = useState('')
   const [feed, setFeed] = useState<LiveFeed | null>(null)
@@ -156,6 +156,20 @@ export function LiveProductionPage() {
     const timer=setInterval(()=>void publish(),15000)
     return()=>{stopped=true;clearInterval(timer)}
   },[session,companyId,feed?.role,refresh])
+
+  useEffect(()=>{
+    const activate=()=>{
+      const params=new URLSearchParams(location.hash.slice(1))
+      if(!params.has('tablet'))return // In-page vehicle anchors must not change the login.
+      const pairing=readTabletPairing()
+      if(!pairing)return
+      generation.current++
+      setTabletPairing(pairing)
+      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('')
+    }
+    window.addEventListener('hashchange',activate)
+    return()=>window.removeEventListener('hashchange',activate)
+  },[])
 
   const stale = performance.now() - lastSample.current > 8000
   const ownRunning = feed?.jobs.find(j => j.ownStatus === 'running')
