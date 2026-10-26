@@ -1017,7 +1017,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       if(!states.length)return '~'
       let start=states.map(state=>[state.nextAt,candidate.readyAt,schedulingFloor].sort().at(-1)!).sort()[0]
       const support=operatorState.get(candidate.phase.supportOperatorId??'')
-      if(support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
+      if(!isWashingPhase(candidate.phase.name)&&support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
       return start
     }
     let nextIndex=candidateIndex

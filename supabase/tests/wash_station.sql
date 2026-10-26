@@ -4,7 +4,7 @@
 begin;
 insert into companies(id,name) values('40000000-0000-0000-0000-000000000004','Wash fixture');
 insert into erp_snapshots(company_id,payload,updated_by) values('40000000-0000-0000-0000-000000000004',
-'{"plannerSettings":{"operators":[]},"jobs":[{"id":"wash-1","status":"In lavorazione","phases":[{"id":"w1","name":"Lavaggio esterno","status":"Da fare"}]},{"id":"wash-2","status":"Pianificata","phases":[{"id":"w2","name":"Lavaggio interni","status":"Da fare"}]}]}',
+'{"plannerSettings":{"operators":[{"id":"wash-a","name":"A","active":true,"skillsConfigured":true,"skills":["Lavaggio esterno","Lavaggio interni"]},{"id":"wash-b","name":"B","active":true,"skillsConfigured":true,"skills":["Lavaggio esterno","Lavaggio interni"]}]},"jobs":[{"id":"wash-1","status":"In lavorazione","phases":[{"id":"w1","name":"Lavaggio esterno","status":"Da fare"}]},{"id":"wash-2","status":"Pianificata","phases":[{"id":"w2","name":"Lavaggio interni","status":"Da fare"}]}]}',
 '00000000-0000-0000-0000-000000000001');
 insert into production_live_jobs(company_id,job_id,plate,number,initial_budget,operator_rates,source_revision,approved_by)
 select '40000000-0000-0000-0000-000000000004','wash-'||n,'WASH'||n,'WASH-'||n,100,'[]',0,'00000000-0000-0000-0000-000000000001'::uuid from generate_series(1,2)n;
