@@ -69,6 +69,8 @@ jobs:
         run: psql -f supabase/tests/continue_day.sql
       - name: Single wash station, one operator and pause occupancy
         run: psql -f supabase/tests/wash_station.sql
+      - name: Daily staff hours, cleaning, Rome midnight and password-protected audited corrections
+        run: psql -f supabase/tests/daily_employee_hours.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

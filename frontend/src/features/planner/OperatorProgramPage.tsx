@@ -1,3 +1,4 @@
+import { DailyEmployeeHours } from '../production/DailyEmployeeHours'
 import { RunningTaskCard, useOperatorStatus } from './operatorLiveStatus'
 import type { NoticesConnection } from '../production/PhaseNotices'
 import { workingMinutesForDate } from '../../services/workCalendar'
@@ -11,7 +12,8 @@ import type { ErpData } from '../../types'
 const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(iso))
 
 export function OperatorProgramPage({ data, onChange, connection }: { data: ErpData; onChange: (next: ErpData) => void; connection?:NoticesConnection }) {
-  const {running,message}=useOperatorStatus(connection)
+  const [showHours,setShowHours]=useState(false)
+  const {running,message}=useOperatorStatus(showHours?undefined:connection)
   const [date, setDate] = useState(todayKey)
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id) ?? { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date])
@@ -35,6 +37,8 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
     return vehicle && isVehicleWaitingForCone(vehicle) ? 'In attesa cono (Nessun cono disponibile)' : '—'
   }
 
+  if(showHours&&connection)return <DailyEmployeeHours connection={connection} onBack={()=>setShowHours(false)}/>
+
   return <>
     <section className="welcome">
       <div>
@@ -43,6 +47,7 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
         <p>Sequenza attivita per operatore calcolata da priorita, consegne, stato fase, compatibilita e disponibilita.</p>
       </div>
       <div className="planner-actions">
+        <button className="primary" disabled={!connection} onClick={()=>setShowHours(true)}>Monte ore giornaliero</button>
         <button className="primary" onClick={() => onChange(recalculateOperatorPrograms(data, todayKey(), 'Ricalcolo piano manuale'))}>Ricalcola piano</button>
       </div>
     </section>

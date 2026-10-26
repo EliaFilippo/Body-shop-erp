@@ -1,3 +1,4 @@
+import { DailyEmployeeHours } from './DailyEmployeeHours'
 import { useEffect, useRef, useState } from 'react'
 import type { CloudAuthConfig, CloudAuthSession } from '../../services/cloudAuth'
 import { interpolateHours, productionRpc, type HoursReport, type LiveFeed } from '../../services/liveProduction'
@@ -53,5 +54,6 @@ function UnlockedEmployeeHours({ feed, session, config, elapsed, stale }: {
 }
 
 export function EmployeeHours(props: {feed:LiveFeed;session:CloudAuthSession;config:CloudAuthConfig;elapsed:number;stale:boolean}) {
- return <UnlockedEmployeeHours {...props} />
+ const [monthly,setMonthly]=useState(false)
+ return <><button onClick={()=>setMonthly(!monthly)}>{monthly?'Torna al monte ore giornaliero':'Report mensile storico · sole vetture'}</button>{monthly?<><p>Questo report storico contiene le ore registrate sulle vetture, senza pulizie e rettifiche del monte ore giornaliero.</p><UnlockedEmployeeHours {...props}/></>:<DailyEmployeeHours connection={{companyId:props.feed.companyId,session:props.session,config:props.config}}/>}</>
 }
