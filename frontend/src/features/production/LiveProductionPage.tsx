@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
 import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../services/cloudAuth'
 import { loadCloudSnapshot, type CloudSnapshot } from '../../services/cloudSync'
-import { liveTimeAlert, liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
+import { syncConfirmedProductionJobs, liveTimeAlert, liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
 import './liveProduction.css'
 import { EmployeeHours, HoursTotals } from './EmployeeHours'
 import { OperatorPinAdmin, OperatorPinLogin } from './OperatorPinAccess'
@@ -32,6 +32,7 @@ export function LiveProductionPage() {
   const [feed, setFeed] = useState<LiveFeed | null>(null)
   const [snapshot, setSnapshot] = useState<CloudSnapshot | null>(null)
   const [error, setError] = useState('')
+  const [publicationWarning,setPublicationWarning]=useState('')
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -133,6 +134,29 @@ export function LiveProductionPage() {
     catch (e) { setError(e instanceof Error ? e.message : 'Disconnessione non riuscita.') }
     finally { sessionStorage.removeItem(sessionKey); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false) }
   }
+  useEffect(()=>{
+    if(!session||!config||!companyId||!feed||!['owner','office'].includes(feed.role))return
+    let stopped=false
+    let publishing=false
+    const publish=async()=>{
+      if(publishing||document.hidden||actionLock.current)return
+      publishing=true
+      try{
+        const result=await syncConfirmedProductionJobs(companyId,session,config)
+        if(!stopped){
+          if(result.snapshot)setSnapshot(result.snapshot)
+          if(result.warnings.length)setPublicationWarning(result.warnings.join(' · '))
+          else setPublicationWarning('')
+          await refresh()
+        }
+      }catch(problem){if(!stopped)setPublicationWarning(problem instanceof Error?problem.message:'Pubblicazione automatica da riprovare.')}
+      finally{publishing=false}
+    }
+    void publish()
+    const timer=setInterval(()=>void publish(),15000)
+    return()=>{stopped=true;clearInterval(timer)}
+  },[session,companyId,feed?.role,refresh])
+
   const stale = performance.now() - lastSample.current > 8000
   const ownRunning = feed?.jobs.find(j => j.ownStatus === 'running')
 
@@ -167,9 +191,10 @@ export function LiveProductionPage() {
           <p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
           {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}>Apri vettura e fase</a>
-            : <p>Il titolare deve confermare il budget prima di avviare il lavoro.</p>}</li>)}</ol>
+            : <p>Pubblicazione automatica in corso. Se il lavoro non compare, l’ufficio può verificare i dati mancanti in Produzione.</p>}</li>)}</ol>
           : <p>Nessun lavoro assegnato nel Programma operatori. Puoi consultare le vetture disponibili qui sotto.</p>}
       </section>}
+      {publicationWarning&&['owner','office'].includes(feed.role)&&<p role="status">Pubblicazione automatica: {publicationWarning}</p>}
       {['owner', 'office'].includes(feed.role) && <ProductionControlPanel connection={{ companyId, session, config: config! }} />}
       <p>Ogni fase ha una quota del budget della vettura. I colleghi sulla stessa fase consumano la stessa quota. Pausa e Fine fermano soltanto il tuo timer.</p>
       <section className="live-job-grid" aria-label="Vetture disponibili">
@@ -224,7 +249,7 @@ export function LiveProductionPage() {
             <PhaseNotices connection={{ companyId, session, config: config! }} jobId={job.jobId} phases={job.phases ?? []} office={['owner', 'office'].includes(feed.role)} />
           </article>
         })}
-        {!feed.jobs.length && <p>Il titolare deve confermare il budget della prima commessa.</p>}
+        {!feed.jobs.length && <p>Le commesse confermate compariranno automaticamente dopo la sincronizzazione.</p>}
       </section>
       {['owner', 'office'].includes(feed.role) && <EmployeeHours feed={feed} session={session} config={config!} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />}
       {feed.role === 'owner' && snapshot && <details className="live-admin"><summary>Configurazione tablet e budget · Titolare</summary>
@@ -233,16 +258,14 @@ export function LiveProductionPage() {
         {feed.members.map(member => <label key={member.userId}>{member.name}<select aria-label={`Operatore per ${member.name}`} value={member.operatorId ?? ''} disabled={busy}
           onChange={e => { void act(e.target.value ? 'production_bind_profile' : 'production_unbind_profile', { p_user_id: member.userId, ...(e.target.value ? { p_operator_id: e.target.value } : {}) }) }}>
           <option value="">Da collegare</option>{snapshot.payload.plannerSettings.operators.filter(o => o.active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>)}
-        <h2>Conferma il budget delle commesse</h2><p>Prezzi IVA esclusa, meno materiali e costi diretti. Il budget e le tariffe si congelano al primo Start. Queste ore sono il limite economico a pareggio; non riservano un margine di utile.</p>
-        <button disabled={busy} onClick={async () => { try { setSnapshot(await loadCloudSnapshot(companyId, session, config!)) } catch (e) { setError(e instanceof Error ? e.message : 'Aggiornamento non riuscito.') } }}>Aggiorna preventivi e costi</button>
+        <h2>Pubblicazione automatica delle commesse</h2><p>Prezzi IVA esclusa, meno materiali e costi diretti. Il budget e le tariffe si congelano al primo Start. Queste ore sono il limite economico a pareggio; non riservano un margine di utile.</p>
+        <button disabled={busy} onClick={async () => { try { setSnapshot(await loadCloudSnapshot(companyId, session, config!)) } catch (e) { setError(e instanceof Error ? e.message : 'Aggiornamento non riuscito.') } }}>Aggiorna stato pubblicazione</button>
         {(snapshot.payload.jobs ?? []).filter(j => !['Consegnata', 'Annullata'].includes(j.status)).map(job => {
           let budget: ReturnType<typeof prepareLiveJob> | undefined; let problem = ''
           try { budget = prepareLiveJob(snapshot.payload, job) } catch (e) { problem = e instanceof Error ? e.message : 'Budget non valido' }
-          const used = feed.jobs.find(j => j.jobId === job.id)?.operators.length
           return <div key={job.id} className="live-budget"><strong>{job.plate} · {job.number}</strong>
             {problem ? <p>{problem}</p> : <p>Ricavo {budget!.revenue.toFixed(2)} € − materiali {budget!.materials.toFixed(2)} € − costi diretti {budget!.directCosts.toFixed(2)} € = budget {budget!.budget.toFixed(2)} €</p>}
-            <button disabled={busy || !!problem || !!used} onClick={() => void act('production_prepare_job', { p_job_id: job.id, p_revision: snapshot.revision, p_budget: budget!.budget, p_rates: budget!.operators })}>
-              {used ? 'Budget congelato · lavoro registrato' : 'Conferma budget e tariffe'}</button></div>
+            <p>{feed.jobs.some(j=>j.jobId===job.id)?'Disponibile sui tablet':problem?'Completa i dati indicati: la pubblicazione riprova automaticamente.':'Pubblicazione automatica in corso.'}</p></div>
         })}
       </details>}
     </>}

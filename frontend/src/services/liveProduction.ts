@@ -1,4 +1,5 @@
-import type { ErpData, RepairJob } from '../types'
+import { loadCloudSnapshot } from './cloudSync'
+import type { ErpData, EstimateLine, RepairJob } from '../types'
 import type { CloudAuthConfig, CloudAuthSession } from './cloudAuth'
 import { quoteOperatorRate, quoteStructureRate } from './quoteHourBudget'
 
@@ -39,6 +40,14 @@ export async function refreshProductionSession(session: CloudAuthSession, config
   return { ...session, accessToken: result.access_token, refreshToken: result.refresh_token ?? session.refreshToken, expiresIn: result.expires_in ?? 3600 }
 }
 
+/** Fast manual phases and catalog services are internal labour, even in legacy category "altre". */
+export function isProductionLabourLine(line:EstimateLine) {
+ if(['carrozzeria','verniciatura','meccanica'].includes(line.category))return true
+ if(line.category!=='altre')return false
+ return Boolean(line.manualFastLine || line.manualPhaseTimes?.some(time=>time.minutes>0&&time.phase)
+  || line.minorDamageTimes || line.standardWorkId?.startsWith('elias-listino:'))
+}
+
 /** A budget is approved once by the office and frozen when the first operator starts. */
 export function prepareLiveJob(data: ErpData, job: RepairJob) {
   if (['Consegnata', 'Annullata'].includes(job.status)) throw new Error('La commessa è chiusa.')
@@ -51,15 +60,15 @@ export function prepareLiveJob(data: ErpData, job: RepairJob) {
   })
   if (!operators.length) throw new Error('Configura almeno un operatore attivo.')
   const percent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.budgetMaterialsPercent ?? 20))
-  const materials = job.lines.filter(l => ['carrozzeria', 'verniciatura', 'meccanica'].includes(l.category))
+  const materials = job.lines.filter(isProductionLabourLine)
     .reduce((sum, l) => sum + Math.max(0, l.quantity * l.unitPrice - l.discount) * percent / 100, 0)
   // Materiali aggiunti manualmente hanno un costo conservato nella riga.
   // Le vecchie righe di consumo automatiche non rappresentano un acquisto extra.
-  const direct = job.lines.filter(l => ['ricambi', 'servizi esterni', 'altre'].includes(l.category)
+  const direct = job.lines.filter(l => ['ricambi', 'servizi esterni'].includes(l.category) || (l.category === 'altre' && !isProductionLabourLine(l))
     || (l.category === 'materiali' && l.budgetDirectUnitCost !== undefined))
   // Never mistake a planned labour amount for a parts/external purchase cost.
   if (direct.some(l => l.quantity > 0 && l.unitPrice > 0 && l.budgetDirectUnitCost === undefined)) {
-    throw new Error('La commessa contiene costi diretti non conservati nel preventivo. Rigenera le righe dal preventivo con i costi interni compilati prima di attivare il timer.')
+    throw new Error('La commessa contiene costi diretti non conservati nel preventivo. Completa il costo interno del ricambio o servizio esterno nella riga interessata.')
   }
   const directCosts = direct.reduce((sum, l) => sum + Math.max(0, l.quantity) * Math.max(0, l.budgetDirectUnitCost ?? 0), 0)
   const budget = Math.round((job.taxableAmount - materials - directCosts) * 100) / 100
@@ -162,4 +171,12 @@ export async function publishProductionJobs(data: ErpData, companyId: string, re
     } catch (error) { warnings.push(`${job.number}: ${error instanceof Error ? error.message : 'Pubblicazione sul tablet non riuscita.'}`) }
   }
   return warnings
+}
+
+/** Retry saved, confirmed work on load/reconnect without another owner approval. */
+export async function syncConfirmedProductionJobs(companyId:string,session:CloudAuthSession,config:CloudAuthConfig) {
+ const snapshot=await loadCloudSnapshot(companyId,session,config)
+ if(!snapshot)return {snapshot,warnings:[] as string[]}
+ const warnings=await publishProductionJobs(snapshot.payload,companyId,snapshot.revision,session,config)
+ return {snapshot,warnings}
 }

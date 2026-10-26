@@ -3,7 +3,7 @@ import type { OperatorDayExtension } from './types'
 import { ConfirmedWorkOverview } from './features/dashboard/ConfirmedWorkOverview'
 import { ProductionControlPanel } from './features/production/ProductionControlPanel'
 import { EliasCatalogSettings } from './features/catalog/EliasCatalogSettings'
-import { publishProductionJobs } from './services/liveProduction'
+import { syncConfirmedProductionJobs, publishProductionJobs } from './services/liveProduction'
 import { quoteCustomerLines } from './services/quotePricing'
 import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
 import { WorkCycleFields } from './components/WorkCycleFields'
@@ -695,6 +695,27 @@ function App() {
       })
     return () => { cancelled = true }
   }, [cloudConfig, cloudMembership, cloudSession])
+
+  useEffect(() => {
+    if(!cloudConfig||!cloudSession||!cloudMembership||cloudMembership.role==='production'||!cloudReady)return
+    let stopped=false
+    let running=false
+    const publish=async()=>{
+      if(running||document.hidden)return
+      running=true
+      try{
+        const result=await syncConfirmedProductionJobs(cloudMembership.companyId,cloudSession,cloudConfig)
+        if(!stopped&&result.warnings.length)setNotice('Pubblicazione automatica sui tablet: '+result.warnings.join(' · '))
+      }catch(problem){
+        if(!stopped)setNotice('Pubblicazione automatica sui tablet da riprovare: '+(problem instanceof Error?problem.message:'Connessione non disponibile'))
+      }finally{running=false}
+    }
+    void publish()
+    const timer=setInterval(()=>void publish(),15000)
+    const online=()=>void publish()
+    window.addEventListener('online',online)
+    return()=>{stopped=true;clearInterval(timer);window.removeEventListener('online',online)}
+  },[cloudConfig,cloudSession,cloudMembership,cloudReady])
 
   useEffect(() => {
     if (!cloudSession || !databaseReady || !cloudReady) return

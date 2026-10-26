@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { publishProductionJobs, applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
+import { syncConfirmedProductionJobs, publishProductionJobs, applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
 import { emptyData } from './erp'
 import type { RepairJob } from '../types'
 import { createDefaultQuote } from './acceptance'
@@ -119,4 +119,38 @@ describe('pubblicazione automatica dopo conferma', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
     } finally { fetchMock.mockRestore() }
   })
+})
+
+describe('righe manuali e ripresa automatica delle commesse confermate',()=>{
+ const setup=()=>{
+  const data=structuredClone(emptyData)
+  data.plannerSettings.internalCostSettings={internalHourlyRate:0,minimumMarginPercent:0,budgetMaterialsPercent:20,budgetUseManualStructureRate:true,budgetManualStructureRate:30}
+  data.plannerSettings.operators=[{id:'a',name:'A',active:true,dailyHours:8,hourlyCost:20}]
+  data.jobs=[{id:'manual-job',number:'COMM-MANUAL',status:'Pianificata',taxableAmount:200,phases:[{name:'Lattoneria',estimatedMinutes:60}],lines:[
+   {category:'altre',manualFastLine:true,manualPhaseTimes:[{phase:'Lattoneria',minutes:60}],description:'Riparazione manuale',quantity:1,unitPrice:200,discount:0}
+  ]} as unknown as RepairJob]
+  return data
+ }
+ it('riconosce anche sulle commesse già caricate la manodopera manuale e applica i materiali una volta sola',()=>{
+  const data=setup(),before=JSON.stringify(data)
+  expect(prepareLiveJob(data,data.jobs![0])).toMatchObject({budget:160,materials:40,directCosts:0})
+  expect(JSON.stringify(data)).toBe(before)
+  data.jobs![0].lines.push({category:'servizi esterni',description:'Lavoro esterno',quantity:1,unitPrice:50,discount:0} as never)
+  expect(()=>prepareLiveJob(data,data.jobs![0])).toThrow('costi diretti')
+ })
+ it('all’apertura pubblica le commesse salvate senza chiedere altre conferme o avviare timer',async()=>{
+  const data=setup(),before=JSON.stringify(data)
+  const fetchMock=vi.spyOn(globalThis,'fetch')
+   .mockResolvedValueOnce(new Response(JSON.stringify([{company_id:'company',revision:42,payload:data}])))
+   .mockResolvedValueOnce(new Response(JSON.stringify({role:'owner',jobs:[]})))
+   .mockResolvedValueOnce(new Response('null'))
+  try{
+   const result=await syncConfirmedProductionJobs('company',{accessToken:'token'} as never,{url:'https://example.invalid',anonKey:'public'})
+   expect(result.warnings).toEqual([])
+   expect(String(fetchMock.mock.calls[2][0])).toContain('production_prepare_job')
+   expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toMatchObject({p_job_id:'manual-job',p_revision:42,p_budget:160})
+   expect(fetchMock.mock.calls.some(call=>String(call[0]).includes('timer_action'))).toBe(false)
+   expect(JSON.stringify(data)).toBe(before)
+  }finally{fetchMock.mockRestore()}
+ })
 })

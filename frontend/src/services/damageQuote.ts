@@ -24,7 +24,8 @@ export function recalculateDamageLine(line: EstimateLine, settings: PlannerSetti
   const vatAmount = round(taxableAmount * safe(line.vatRate) / 100)
   const next = { ...line, quantity: 1, discount: 0, estimatedMinutes, lineTotalMinutes: estimatedMinutes,
     manualTimeOverride: true, unitPrice, taxableAmount, vatAmount, total: round(taxableAmount + vatAmount) }
-  return { ...next, ...computeLineInternalEconomics(next, settings) }
+  const category = line.manualFastLine ? (/Verniciatura/.test(line.categoryOrPhase??'') ? 'verniciatura' as const : 'carrozzeria' as const) : next.category
+  return { ...next, category, ...computeLineInternalEconomics({...next,category}, settings) }
 }
 
 export function makeDamageLine(settings: PlannerSettings, panel: { id: string; name: string }, work: StandardWorkDefinition,
