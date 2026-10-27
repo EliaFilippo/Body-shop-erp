@@ -1,3 +1,4 @@
+import { estimatePdfFile, downloadEstimatePdf } from '../../services/estimatePdf'
 import { DeliveryForecastPanel } from '../../components/DeliveryForecastPanel'
 import { QuoteEconomicsPreview } from './QuoteEconomicsPreview'
 import { FastPaymentTerms } from './FastPaymentTerms'
@@ -16,7 +17,7 @@ import { WORK_CYCLE, phaseDisplayName } from '../../services/workCycle'
 import { QUOTE_PANELS } from './vehiclePanels'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 
-export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(next:ErpData,confirmed:boolean)=>void;onCancel:()=>void}) {
+export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(next:ErpData,confirmed:boolean,pdfPrepared?:boolean)=>void;onCancel:()=>void}) {
  const [plate,setPlate]=useState('')
  const [customerId,setCustomerId]=useState('')
  const [name,setName]=useState('')
@@ -56,9 +57,10 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    const next=createFastEstimate(data,{plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,notes,paymentTerms:terms})
    const send=(e.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='whatsapp'
    const link=send?fastEstimateWhatsAppLink(next.estimates![0],targetPhone):null
+   const file=send?estimatePdfFile(next,next.estimates![0]):null
    const chat=link?window.open('about:blank','_blank'):null
    if(link&&!chat)throw new Error('Consenti le finestre popup per aprire WhatsApp, oppure salva il preventivo senza inviare.')
-   try{onDone(next,confirmed)}catch(problem){chat?.close();throw problem}
+   try{if(file)downloadEstimatePdf(file);onDone(next,confirmed,send)}catch(problem){chat?.close();throw problem}
    if(chat&&link){chat.opener=null;chat.location.href=link}
   }catch(problem){setError(problem instanceof Error?problem.message:'Creazione non riuscita.');busy.current=false}}}>
    <p>Per danni lievi: scegli la vettura, aggiungi i pannelli e salva. Prezzi e tempi arrivano dal listino; i danni gravi si gestiscono nel preventivo completo.</p>
@@ -95,7 +97,7 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings}/>
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
    <label>Numero WhatsApp del cliente<input type="tel" value={targetPhone} placeholder="+39 333 1234567" onChange={e=>setWhatsappPhone(e.target.value)}/></label>
-   <p>WhatsApp apre il riepilogo con lavorazioni, IVA e totale. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>
+   <p>Il gestionale scarica il preventivo PDF e apre WhatsApp. Nella chat premi la graffetta → Documento e allega il PDF appena scaricato. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>
    {lineError&&<p role="status">{lineError}</p>}
    {error&&<p role="alert">{error}</p>}
    <div className="planner-actions"><button type="button" className="secondary" onClick={onCancel}>Annulla</button><button type="submit" className="primary" disabled={!lines.length||Boolean(lineError)}>{confirmed?'Conferma e crea commessa':'Salva preventivo fast'}</button><button type="submit" value="whatsapp" className="primary" disabled={!lines.length||Boolean(lineError)}>Salva e invia su WhatsApp</button></div>

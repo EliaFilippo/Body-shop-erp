@@ -1,3 +1,6 @@
+import { emptyData } from './erp'
+import { createEstimate } from './workflow'
+import { fastEstimateWhatsAppLink } from './fastEstimateWhatsApp'
 import { describe,it,expect } from 'vitest'
 import { normalizeWhatsAppPhone } from './fastEstimateWhatsApp'
 describe('numeri WhatsApp dei preventivi fast',()=>{
@@ -10,4 +13,10 @@ describe('numeri WhatsApp dei preventivi fast',()=>{
  it('rifiuta numeri mancanti, troppo corti o contenenti testo',()=>{
   for(const value of ['', '333', 'Mario 3331234567','+0000000000'])expect(()=>normalizeWhatsAppPhone(value)).toThrow()
  })
+})
+
+it('usa gli importi salvati dopo lo sconto anche nel testo WhatsApp',()=>{
+ const data=createEstimate(structuredClone(emptyData),{customerId:'c',plate:'GL587FB',companyName:'Cliente',contactName:'',date:'2026-10-27',notes:'',selectedPhases:[],lines:[{description:'Ripristino porta',category:'carrozzeria',quantity:2,unitPrice:150,discount:20,vatRate:22}]})
+ const message=new URL(fastEstimateWhatsAppLink(data.estimates![0],'3331234567')).searchParams.get('text')!
+ expect(message).toContain('280,00');expect(message).not.toContain('300,00')
 })

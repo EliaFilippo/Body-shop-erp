@@ -1,3 +1,4 @@
+import { EstimatePdfPreview } from './EstimatePdfPreview'
 import { DeliveredJobReports } from './DeliveredJobReports'
 import { JobMaterialCosts } from './JobMaterialCosts'
 import { setJobMaterialActualCost } from '../../services/jobMaterialCosts'
@@ -57,6 +58,7 @@ const marginStatusLabel = (value?: EstimateLine['marginStatus']) => {
 }
 
 type WorkflowModal =
+  | { type: 'estimate-pdf'; estimateId:string }
   | { type: 'estimate-create' }
   | { type: 'estimate-fast' }
   | { type: 'estimate-edit'; estimateId: string }
@@ -350,6 +352,7 @@ export function WorkflowPage({
             <td>{money(estimate.total)}</td>
             <td><span className="tag">{estimateFinancialStage(data, estimate)}</span></td>
             <td><div className="row-actions">
+              <button className="primary" onClick={()=>setModal({type:'estimate-pdf',estimateId:estimate.id})}>PDF / WhatsApp</button>
               <button onClick={() => setModal({ type: 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
               <button className="primary" onClick={() => {
                 try {
@@ -417,7 +420,8 @@ export function WorkflowPage({
       {!filteredJobs.length && <div className="empty">Nessuna commessa trovata.</div>}
     </section>
 
-    {modal?.type === 'estimate-fast' && <FastEstimateEditor data={data} onCancel={() => setModal(null)} onDone={(next, confirmed) => { apply(next, confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.'); setModal(null) }} />}
+    {modal?.type==='estimate-pdf'&&estimates.find(e=>e.id===modal.estimateId)&&<EstimatePdfPreview data={data} estimate={estimates.find(e=>e.id===modal.estimateId)!} onClose={()=>setModal(null)}/>}
+    {modal?.type === 'estimate-fast' && <FastEstimateEditor data={data} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => { apply(next, pdfPrepared ? 'PDF scaricato e chat WhatsApp aperta: allega il file come Documento e conferma l’invio.' : confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.'); setModal(null) }} />}
     {modal?.type === 'estimate-create' && <EstimateEditor
       title="Nuovo preventivo"
       data={data}
