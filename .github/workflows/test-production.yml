@@ -81,6 +81,8 @@ jobs:
         run: psql -f supabase/tests/fast_production_feed.sql
       - name: Cloud save array reuse retains owner, password, duplicate and economic guards
         run: psql -f supabase/tests/cloud_save_arrays.sql
+      - name: Manual vehicle and phase choice preserves automatic duties, history and timer isolation
+        run: psql -f supabase/tests/manual_vehicle_phase_start.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
