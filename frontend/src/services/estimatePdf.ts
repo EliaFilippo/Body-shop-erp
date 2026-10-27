@@ -90,10 +90,11 @@ export function buildEstimatePdf(data:ErpData,estimate:EstimateDocument){
  // Amounts are the saved customer-facing document totals, never recomputed from internal costs.
  text('RIEPILOGO IVA',left,y,8,true)
  text('Imponibile EUR',130,y,7,true,'right');text('IVA EUR',165,y,7,true,'right');text('Totale EUR',right,y,7,true,'right');y+=5
+ const footerPage=()=>{pdf.addPage();text(`PREVENTIVO ${estimate.number} - ${estimate.plate}`,left,15,10,true);y=24}
  const rates=new Map<number,{taxable:number;vat:number;total:number}>()
  for(const l of estimate.lines){const r=rates.get(l.vatRate)||{taxable:0,vat:0,total:0};r.taxable+=l.taxableAmount;r.vat+=l.vatAmount;r.total+=l.total;rates.set(l.vatRate,r)}
  for(const [rate,r] of rates){
-  if(y>257){pdf.addPage();y=20}
+  if(y>257)footerPage()
   text(`IVA ${amount(rate)}%`,left,y,8);text(amount(r.taxable),130,y,8,false,'right');text(amount(r.vat),165,y,8,false,'right');text(amount(r.total),right,y,8,false,'right');y+=5
  }
  pdf.setDrawColor(80);pdf.line(left,y,right,y);y+=7
@@ -101,13 +102,13 @@ export function buildEstimatePdf(data:ErpData,estimate:EstimateDocument){
  function footerParagraph(value:string){
   pdf.setFontSize(8)
   const lines=pdf.splitTextToSize(clean(value),width) as string[]
-  for(const line of lines){if(y>280){pdf.addPage();y=20}text(line,left,y,8);y+=4}
+  for(const line of lines){if(y>280)footerPage()text(line,left,y,8);y+=4}
  }
  if(estimate.paymentTerms)footerParagraph('Pagamento: '+paymentTermsText(estimate.paymentTerms,estimate.requestedDeliveryDate))
  if(estimate.requestedDeliveryDate)footerParagraph('Consegna concordata: '+date(estimate.requestedDeliveryDate))
  if(estimate.notes)footerParagraph('Note: '+estimate.notes)
- if(y>274){pdf.addPage();y=20}
- y=Math.max(y+5,276);text('Firma per accettazione: __________________________________',110,y,8)
+ if(y>274){footerPage();y+=5}else y=Math.max(y+5,276)
+ text('Firma per accettazione: __________________________________',110,y,8)
  for(let page=1;page<=pdf.getNumberOfPages();page++){pdf.setPage(page);text(`${estimate.number} - ${estimate.plate}`,left,290,7);text(`Pagina ${page} di ${pdf.getNumberOfPages()}`,right,290,7,false,'right')}
  pdf.setProperties({title:`Preventivo ${estimate.number} - ${estimate.plate}`,subject:'Preventivo carrozzeria',author:company?.name||'Carrozzeria Elias'})
  return pdf
