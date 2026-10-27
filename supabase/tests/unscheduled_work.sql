@@ -13,8 +13,10 @@ insert into erp_snapshots(company_id,payload,updated_by) values('50000000-0000-0
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
 select production_bind_profile('50000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000002','a');
 select production_bind_profile('50000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000003','b');
-select production_prepare_job('50000000-0000-0000-0000-000000000005','off1',1,120,'[{"id":"a","name":"A","rate":20},{"id":"b","name":"B","rate":20}]');
-select production_prepare_job('50000000-0000-0000-0000-000000000005','off2',1,120,'[{"id":"a","name":"A","rate":20},{"id":"b","name":"B","rate":20}]');
+insert into production_live_jobs(company_id,job_id,plate,number,initial_budget,operator_rates,source_revision,approved_by)
+select '50000000-0000-0000-0000-000000000005','off'||n,'OFF'||n,'COMM-'||n,120,
+'[{"id":"a","name":"A","rate":20},{"id":"b","name":"B","rate":20}]',1,'00000000-0000-0000-0000-000000000001'::uuid
+from generate_series(1,2)n;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
 select production_timer_action('50000000-0000-0000-0000-000000000005','off1','start','p1');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
