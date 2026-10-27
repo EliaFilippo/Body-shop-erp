@@ -40,7 +40,7 @@ describe('profilo tablet', () => {
     expect(screen.getByLabelText('Cono 12')).toHaveTextContent('12')
     expect(screen.getByText('Le mie ore di oggi')).toBeInTheDocument()
     expect(screen.getByText('0h 01m')).toBeInTheDocument()
-    expect(screen.getByLabelText('Ore disponibili per te').textContent).toMatch(/^0:14:|^0:15:/)
+    expect(screen.getByLabelText('Tempo residuo condiviso').textContent).toMatch(/^0:14:|^0:15:/)
     fireEvent.click(screen.getByRole('button', { name: '✓ Completa Preparazione' }))
     await screen.findByText(/Visto di Mario/)
     expect(screen.getByLabelText('Fase da lavorare su AA123BB')).toHaveValue('p2')
@@ -105,10 +105,10 @@ it('shows the selected phase countdown separately from the whole vehicle', async
   })
   render(<LiveProductionPage />)
   await screen.findByText('PHASE123')
-  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:05:00')
+  expect(screen.getByLabelText('Tempo residuo condiviso')).toHaveTextContent('0:05:00')
   expect(screen.getByText('Residuo complessivo vettura: 0:30:00')).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('Fase da lavorare su PHASE123'), { target: { value: 'p1' } })
-  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:20:00')
+  expect(screen.getByLabelText('Tempo residuo condiviso')).toHaveTextContent('0:20:00')
 })
 
 it('keeps the shared standard allowance distinct from the economic countdown with two colleagues', async () => {
@@ -127,7 +127,7 @@ it('keeps the shared standard allowance distinct from the economic countdown wit
   render(<LiveProductionPage />)
   const standard=await screen.findByLabelText('Tempo standard della lavorazione')
   expect(standard).toHaveTextContent('Smontaggio / rimontaggio')
-  expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:20:00')
+  expect(screen.getByLabelText('Tempo residuo condiviso')).toHaveTextContent('0:20:00')
   expect(standard).toHaveTextContent('Totale condiviso: 90 min')
   expect(screen.getByText('Residuo economico della fase: 0:40:00')).toBeInTheDocument()
   expect(screen.getByText(/Stefania: al lavoro · Martin: al lavoro/)).toBeInTheDocument()
@@ -146,7 +146,7 @@ it('shows the remaining washing standard on a paused legacy job without blaming 
  })
  render(<LiveProductionPage />)
  await screen.findByText('HFIEJI')
- expect(screen.getByLabelText('Ore disponibili per te')).toHaveTextContent('0:15:00')
+ expect(screen.getByLabelText('Tempo residuo condiviso')).toHaveTextContent('0:15:00')
  expect(screen.getByLabelText('Tempo standard della lavorazione')).toHaveTextContent('Totale condiviso: 25 min')
  expect(screen.queryByText(/costo operatore mancante/)).not.toBeInTheDocument()
  expect(screen.getByRole('button',{name:'Riprendi'})).toBeEnabled()
@@ -282,4 +282,26 @@ it('explains why a car cannot start instead of hiding the phase constraint',asyn
  await screen.findByText('WAIT123')
  expect(screen.getByRole('button',{name:'Start'})).toBeDisabled()
  expect(screen.getByText('Avvio non disponibile: Attesa asciugatura fino alle 10:30')).toBeInTheDocument()
+})
+
+it('distinguishes a colleague timer from own active work without enabling colleague stop controls',async()=>{
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],jobs:[
+   {jobId:'other',plate:'GR737FD',number:'1',coneNumber:1,remainingSeconds:600,remainingPercent:19,activeCount:1,ownStatus:'finished',operators:[{name:'Filippo',status:'running'}]},
+   {jobId:'mine',plate:'GY419RX',number:'5',coneNumber:5,remainingSeconds:600,remainingPercent:100,activeCount:1,ownStatus:'running',operators:[{name:'Stefania',status:'running'}]}
+  ]}
+ })
+ render(<LiveProductionPage/>)
+ const other=await screen.findByLabelText('Stato del tuo timer su GR737FD')
+ expect(other).toHaveTextContent('Il tuo timer non è attivo')
+ expect(other).toHaveTextContent('Filippo al lavoro')
+ expect(other.closest('article')).not.toHaveClass('live-own','live-warning')
+ const own=screen.getByLabelText('Stato del tuo timer su GY419RX')
+ expect(own).toHaveTextContent('Il tuo timer è attivo')
+ expect(own.closest('article')).toHaveClass('live-own')
+ const otherCard=other.closest('article')!
+ const buttons=Array.from(otherCard.querySelectorAll('button'))
+ expect(buttons.find(b=>b.textContent==='Pausa')).toBeDisabled()
+ expect(buttons.find(b=>b.textContent==='Fine')).toBeDisabled()
 })
