@@ -405,7 +405,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
       <div>
         <span className="eyebrow">PIANIFICAZIONE REALE</span>
         <h2>Planner intelligente</h2>
-        <p>Priorità: 1. Consegna concordata · 2. Margine totale più alto · 3. Confermata da oltre 4 giorni. Sempre nel rispetto di mansioni, disponibilità e sequenza delle fasi.</p>
+        <p>Programmi operatori: prima il flusso delle cabine di verniciatura. All’interno della stessa priorità operativa: 1. Consegna concordata · 2. Margine totale più alto · 3. Confermata da oltre 4 giorni. Sempre nel rispetto di mansioni, disponibilità, asciugatura e sequenza delle fasi.</p>
       </div>
       <div className="planner-actions">
         <button className="secondary" onClick={() => setWeek(addDays(week, -7))}>← Settimana</button>
