@@ -102,7 +102,7 @@ export function buildEstimatePdf(data:ErpData,estimate:EstimateDocument){
  function footerParagraph(value:string){
   pdf.setFontSize(8)
   const lines=pdf.splitTextToSize(clean(value),width) as string[]
-  for(const line of lines){if(y>280)footerPage()text(line,left,y,8);y+=4}
+  for(const line of lines){if(y>280)footerPage();text(line,left,y,8);y+=4}
  }
  if(estimate.paymentTerms)footerParagraph('Pagamento: '+paymentTermsText(estimate.paymentTerms,estimate.requestedDeliveryDate))
  if(estimate.requestedDeliveryDate)footerParagraph('Consegna concordata: '+date(estimate.requestedDeliveryDate))
