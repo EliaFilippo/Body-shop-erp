@@ -783,7 +783,7 @@ export function PlannerSettingsPage({
       <div className="panel-head">
         <div>
           <span className="eyebrow">FERIE E ASSENZE</span>
-          <h3>Disponibilita operatori</h3>
+          <h3>Disponibilita operatori</h3><p>Lascia vuoto «Ore assenza» per indicare tutto il giorno. Per un’assenza parziale inserisci il numero di ore. Le date di inizio e fine sono comprese.</p>
         </div>
         <button
           className="secondary"

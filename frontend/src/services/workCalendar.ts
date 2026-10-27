@@ -166,8 +166,13 @@ export function getOperatorWorkingIntervals(date: string, settings: PlannerSetti
   ])
   const nominalMinutes = targetOperator.weeklySchedule?.length ? intervalsMinutes(companyIntervals)
     : Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)))
-  const absence = (settings.absences ?? []).find((entry: PlannerAbsence) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate)
-  const availableMinutes = Math.max(0, nominalMinutes - Math.round((absence?.hoursPerDay ?? 0) * 60))
+  const absences = (settings.absences ?? []).filter((entry: PlannerAbsence) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate)
+  // A blank hours field explicitly means the whole day, never zero absent hours.
+  // It also overrides extensions requested before the absence was entered.
+  if (absences.some(entry => entry.hoursPerDay == null)) return []
+  const absentMinutes = Math.max(0, ...absences.map(entry => Math.round(Math.max(0, entry.hoursPerDay ?? 0) * 60)))
+  if (nominalMinutes > 0 && absentMinutes >= nominalMinutes) return []
+  const availableMinutes = Math.max(0, nominalMinutes - absentMinutes)
   const ordinary=trimIntervalsToMinutes(companyIntervals, availableMinutes)
   const extra=(settings.operatorDayExtensions??[]).filter(entry=>entry.operatorId===targetOperator.id&&entry.date===date)
     .map(entry=>({startMinute:Math.max(0,entry.startMinute),endMinute:Math.min(1439,entry.endMinute)}))
