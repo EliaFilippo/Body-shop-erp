@@ -16,6 +16,8 @@ select production_bind_profile('60000000-0000-0000-0000-000000000006','00000000-
 insert into production_live_jobs(company_id,job_id,plate,number,initial_budget,operator_rates,source_revision,approved_by)
 select '60000000-0000-0000-0000-000000000006','manual'||n,'MAN'||n,'COMM-'||n,120,
 '[{"id":"a","name":"A","rate":20},{"id":"b","name":"B","rate":20}]',1,'00000000-0000-0000-0000-000000000001'::uuid from generate_series(1,2)n;
+insert into production_phase_checks(company_id,job_id,phase_id,phase_name,checked_by,operator_id,operator_name,checked_at,worked_seconds)
+values('60000000-0000-0000-0000-000000000006','manual1','p2','Lucidatura','00000000-0000-0000-0000-000000000003','b','B','2026-01-01T10:00:00Z',123);
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
 select production_timer_action('60000000-0000-0000-0000-000000000006','manual2','start','p1');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
@@ -49,8 +51,56 @@ do $$begin
  if (select count(*) from production_live_segments where company_id='60000000-0000-0000-0000-000000000006' and operator_id='a')<>3 then raise exception 'Duplicate/lost segment';end if;
  if (select count(*) from production_live_segments where company_id='60000000-0000-0000-0000-000000000006' and operator_id='a' and ended_at is null)<>1 then raise exception 'Duplicate timer';end if;
  if not exists(select 1 from production_live_segments where company_id='60000000-0000-0000-0000-000000000006' and operator_id='b' and ended_at is null) then raise exception 'Colleague stopped';end if;
- if exists(select 1 from production_phase_checks where company_id='60000000-0000-0000-0000-000000000006') then raise exception 'Invented phase completion';end if;
+ if (select count(*) from production_phase_checks where company_id='60000000-0000-0000-0000-000000000006')<>1 or not exists(select 1 from production_phase_checks where company_id='60000000-0000-0000-0000-000000000006' and phase_id='p2' and worked_seconds=123 and checked_at='2026-01-01T10:00:00Z') then raise exception 'Historical signature changed';end if;
  if not exists(select 1 from production_live_sessions where company_id='60000000-0000-0000-0000-000000000006' and operator_id='a' and phase_id='p2' and status='running') then raise exception 'Failed target lost active timer';end if;
+end $$;
+-- Capacity and rollback must still apply to explicit additional work.
+update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||(
+ select jsonb_agg(jsonb_build_object('id','manual-wash'||n,'status','Pianificata','phases',jsonb_build_array(
+ jsonb_build_object('id','wash','name','Lavaggio esterno','status','Completata')))) from generate_series(1,2)n))
+where company_id='60000000-0000-0000-0000-000000000006';
+insert into production_live_jobs(company_id,job_id,plate,number,initial_budget,operator_rates,source_revision,approved_by)
+select '60000000-0000-0000-0000-000000000006','manual-wash'||n,'WASH'||n,'WASH-'||n,120,
+'[{"id":"a","name":"A","rate":20},{"id":"b","name":"B","rate":20}]',1,'00000000-0000-0000-0000-000000000001'::uuid from generate_series(1,2)n;
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash1','wash');
+select production_timer_action('60000000-0000-0000-0000-000000000006','manual-wash1','pause');
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+do $$begin
+ begin
+  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash2','wash');raise exception 'Wash capacity bypass';
+ exception when raise_exception then if sqlerrm not like 'La sola postazione%' then raise;end if;end;
+ if not exists(select 1 from production_live_sessions where company_id='60000000-0000-0000-0000-000000000006' and operator_id='b' and job_id='manual2' and status='running') then raise exception 'Capacity failure stopped prior work';end if;
+end $$;
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
+select production_timer_action('60000000-0000-0000-0000-000000000006','manual-wash1','finish');
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash2','wash');
+-- Three manual paint interventions still occupy three bays after switching/pausing.
+update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||(
+ select jsonb_agg(jsonb_build_object('id','manual-paint'||n,'status','Pianificata','workflowCycle','elias-v1','phases',jsonb_build_array(
+ jsonb_build_object('id','paint','name','Verniciatura','status','Completata','completedAt','2026-01-01T10:00:00Z'),
+ jsonb_build_object('id','unmask','name','Scartatura','status','Da fare')))) from generate_series(1,4)n))
+where company_id='60000000-0000-0000-0000-000000000006';
+insert into production_live_jobs(company_id,job_id,plate,number,initial_budget,operator_rates,source_revision,approved_by)
+select '60000000-0000-0000-0000-000000000006','manual-paint'||n,'PAINT'||n,'PAINT-'||n,120,
+'[{"id":"a","name":"A","rate":20},{"id":"b","name":"B","rate":20}]',1,'00000000-0000-0000-0000-000000000001'::uuid from generate_series(1,4)n;
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint1','paint');
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint2','paint');
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint3','paint');
+do $$begin
+ begin
+  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint4','paint');raise exception 'Paint capacity bypass';
+ exception when raise_exception then if sqlerrm not like 'Le 3 postazioni%' then raise;end if;end;
+end $$;
+select production_timer_action('60000000-0000-0000-0000-000000000006','manual-paint3','finish');
+do $$begin
+ begin
+  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint3','unmask');raise exception 'Drying bypass';
+ exception when raise_exception then if sqlerrm<>'Attesa asciugatura prima di proseguire' then raise;end if;end;
+ begin
+  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint4','paint');raise exception 'Drying bay bypass';
+ exception when raise_exception then if sqlerrm not like 'Le 3 postazioni%' then raise;end if;end;
 end $$;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
 set local role authenticated;

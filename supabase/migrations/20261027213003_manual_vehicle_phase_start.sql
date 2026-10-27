@@ -151,11 +151,17 @@ begin
   where s.company_id=new.company_id and coalesce(j->>'status','') not in ('Annullata','Consegnata')
   and p->>'name' in ('Lavaggio esterno','Lavaggio interni','Lavaggio') and not coalesce((p->>'notRequired')::boolean,false)
   and (
-   (exists(select 1 from production_live_segments seg where seg.company_id=new.company_id and seg.job_id=j->>'id' and seg.phase_id=p->>'id' and seg.operator_id<>new.operator_id and seg.ended_at is null))
-   or ((j->>'id'<>new.job_id or p->>'id'<>new.phase_id)
-    and (exists(select 1 from production_live_sessions ss where ss.company_id=new.company_id and ss.job_id=j->>'id' and ss.phase_id=p->>'id' and ss.status='paused' and exists(select 1 from production_live_segments seg where seg.company_id=ss.company_id and seg.job_id=ss.job_id and seg.operator_id=ss.operator_id and seg.phase_id=ss.phase_id and seg.manual_start)) or (p->>'status'<>'Completata'
-    and not exists(select 1 from production_phase_checks c where c.company_id=new.company_id and c.job_id=j->>'id' and c.phase_id=p->>'id')
-    and exists(select 1 from production_live_segments seg where seg.company_id=new.company_id and seg.job_id=j->>'id' and seg.phase_id=p->>'id')))
+   exists(select 1 from production_live_segments seg where seg.company_id=new.company_id and seg.job_id=j->>'id' and seg.phase_id=p->>'id' and seg.operator_id<>new.operator_id and seg.ended_at is null)
+   or (
+    (j->>'id'<>new.job_id or p->>'id'<>new.phase_id)
+    and (
+     (p->>'status'<>'Completata'
+      and not exists(select 1 from production_phase_checks c where c.company_id=new.company_id and c.job_id=j->>'id' and c.phase_id=p->>'id')
+      and exists(select 1 from production_live_segments seg where seg.company_id=new.company_id and seg.job_id=j->>'id' and seg.phase_id=p->>'id'))
+     or exists(select 1 from production_live_sessions ss where ss.company_id=new.company_id and ss.job_id=j->>'id' and ss.phase_id=p->>'id' and ss.status='paused'
+      and exists(select 1 from production_live_segments seg where seg.company_id=ss.company_id and seg.job_id=ss.job_id and seg.operator_id=ss.operator_id and seg.phase_id=ss.phase_id and seg.manual_start))
+    )
+   )
   )
  ) into occupied;
  if occupied then raise exception 'La sola postazione di lavaggio è occupata. Attendi il completamento del lavaggio o lavora su un’altra fase abilitata.';end if;
