@@ -936,6 +936,8 @@ function normalizeData(value: unknown): ErpData {
   const dbRevision = Math.max(0, Number(candidate.dbRevision ?? 0))
   const dbUpdatedAt = String(candidate.dbUpdatedAt ?? '')
   const normalized: ErpData = {
+    nightlyPlanning: candidate.nightlyPlanning,
+    productionPlanningSampleAt: candidate.productionPlanningSampleAt,
     users,
     customers,
     vehicles,
