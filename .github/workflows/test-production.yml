@@ -77,6 +77,8 @@ jobs:
         run: psql -f supabase/tests/nightly_planning.sql
       - name: Owner remote timer stop, activities, stale clicks, audit and password
         run: psql -f supabase/tests/remote_timer_stop.sql
+      - name: Fast tablet feed preserves duties, cycle gates and tenant isolation
+        run: psql -f supabase/tests/fast_production_feed.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
