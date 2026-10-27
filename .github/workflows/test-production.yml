@@ -79,6 +79,8 @@ jobs:
         run: psql -f supabase/tests/remote_timer_stop.sql
       - name: Fast tablet feed preserves duties, cycle gates and tenant isolation
         run: psql -f supabase/tests/fast_production_feed.sql
+      - name: Cloud save array reuse retains owner, password, duplicate and economic guards
+        run: psql -f supabase/tests/cloud_save_arrays.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
