@@ -203,7 +203,7 @@ it('shows only permitted phases and keeps Start disabled on a revoked paused car
  expect(screen.queryByRole('option',{name:'Smontaggio'})).not.toBeInTheDocument()
 })
 
-it('mette in pausa la vettura con PULIZIE e richiede di terminare l’attività prima di riprendere',async()=>{
+it('mette in pausa la vettura con PULIZIE e permette il passaggio diretto alla ripresa',async()=>{
  let active=false
  mocked.rpc.mockImplementation(async(name:string)=>{
   if(name==='production_activity_action'){active=true;return null}
@@ -216,7 +216,7 @@ it('mette in pausa la vettura con PULIZIE e richiede di terminare l’attività 
  fireEvent.click(await screen.findByRole('button',{name:'PULIZIE'}))
  await screen.findByText('PULIZIE IN CORSO')
  expect(mocked.rpc).toHaveBeenCalledWith('production_activity_action',{p_company_id:'c1',p_kind:'cleaning'},expect.anything(),expect.anything())
- expect(screen.getByRole('button',{name:'Riprendi'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'Riprendi'})).toBeEnabled()
  expect(screen.getByRole('button',{name:'TERMINA ATTIVITÀ'})).toBeEnabled()
 })
 
@@ -253,4 +253,33 @@ it('finds an unplanned vehicle by cone and switches without stopping a colleague
  fireEvent.click(screen.getByRole('button',{name:'Passa a questa vettura'}))
  await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_start_selected_job',{p_company_id:'c1',p_job_id:'j2',p_phase_id:null},expect.anything(),expect.anything()))
  expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
+})
+
+it.each(['Stefania','Federica','Davide'])('allows %s to start an unplanned car directly from cleaning',async operatorName=>{
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_start_selected_job')return null
+  return {companyId:'c1',role:'production',operatorName,serverNow:new Date().toISOString(),members:[],program:[],
+   activity:{kind:'cleaning',elapsedSeconds:0,cleaningSeconds:0,coffeeSeconds:0},
+   jobs:[{jobId:'free',plate:'OUT123',number:'1',remainingSeconds:600,remainingPercent:100,activeCount:0,ownStatus:null,operators:[],
+    phases:[{id:'mask',name:'Incartatura',notRequired:false,status:'Da fare',canComplete:false}]}]}
+ })
+ render(<LiveProductionPage/>)
+ await screen.findByText('OUT123')
+ const start=screen.getByRole('button',{name:'Start'})
+ expect(start).toBeEnabled()
+ fireEvent.click(start)
+ await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_start_selected_job',{p_company_id:'c1',p_job_id:'free',p_phase_id:'mask'},expect.anything(),expect.anything()))
+})
+it('explains why a car cannot start instead of hiding the phase constraint',async()=>{
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  return {companyId:'c1',role:'production',operatorName:'Stefania',serverNow:new Date().toISOString(),members:[],program:[],
+   jobs:[{jobId:'blocked',plate:'WAIT123',number:'1',remainingSeconds:600,remainingPercent:100,activeCount:0,ownStatus:null,operators:[],
+    phases:[{id:'unmask',name:'Scartatura',notRequired:false,status:'Bloccata',blockedReason:'Attesa asciugatura fino alle 10:30',canComplete:false}]}]}
+ })
+ render(<LiveProductionPage/>)
+ await screen.findByText('WAIT123')
+ expect(screen.getByRole('button',{name:'Start'})).toBeDisabled()
+ expect(screen.getByText('Avvio non disponibile: Attesa asciugatura fino alle 10:30')).toBeInTheDocument()
 })

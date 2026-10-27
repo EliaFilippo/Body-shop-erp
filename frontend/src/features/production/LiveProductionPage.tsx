@@ -220,6 +220,8 @@ export function LiveProductionPage() {
           const selected = [phaseChoices[job.jobId], job.ownPhaseId, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
           const requiresPhase = job.dutiesFiltered || (job.phases ?? []).some(p => !p.notRequired)
           const selectedPhase = availablePhases.find(p => p.id === selected)
+          const switchesWork=Boolean(feed.activity?.kind || ownRunning && (ownRunning.jobId!==job.jobId || (ownRunning.ownPhaseId??'')!==selected))
+          const startBlockedReason=!selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
           const permissionRemoved = job.dutiesFiltered && !job.phases?.some(p => p.id === job.ownPhaseId) && ['running','paused'].includes(job.ownStatus ?? '')
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
           const standardClock = selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
@@ -241,12 +243,14 @@ export function LiveProductionPage() {
             </details>
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
-            {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy || job.ownStatus === 'running'}
+            {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy}
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
               {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}</option>)}</select></label>}
-            <div className="live-controls"><button disabled={busy || stale || !!feed.activity?.kind || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected)}
-              onClick={() => void act(ownRunning && ownRunning.jobId !== job.jobId ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(ownRunning && ownRunning.jobId !== job.jobId ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
+            {startBlockedReason&&<p role="status">Avvio non disponibile: {startBlockedReason}</p>}
+            {feed.activity?.kind&&selected&&<p>Premendo Start termini {feed.activity.kind==='cleaning'?'Pulizie':'Pausa caffè'} e avvii questa vettura. Se l’avvio non riesce, l’attività precedente continua.</p>}
+            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected)}
+              onClick={() => void act(switchesWork ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(switchesWork ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
             {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{panelTaskDescription(task.description, task.panel)}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}
