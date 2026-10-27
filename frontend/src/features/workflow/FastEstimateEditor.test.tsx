@@ -1,6 +1,8 @@
 import { fireEvent,render,screen } from '@testing-library/react'
 import { describe,it,expect,vi } from 'vitest'
 import { emptyData } from '../../services/erp'
+import { downloadEstimatePdf,estimatePdfFile } from '../../services/estimatePdf'
+vi.mock('../../services/estimatePdf',()=>({estimatePdfFile:vi.fn(()=>new File(['pdf'],'AB123CD.pdf',{type:'application/pdf'})),downloadEstimatePdf:vi.fn()}))
 import { FastEstimateEditor } from './FastEstimateEditor'
 describe('percorso fast in ufficio',()=>{
  it('bastano targa, cliente, pezzo e lavorazione per salvare un preventivo',()=>{
@@ -49,6 +51,8 @@ describe('percorso fast in ufficio',()=>{
   expect(url.searchParams.get('phone')).toBe('393331234567')
   expect(url.searchParams.get('text')).toContain('Totale IVA inclusa:')
   expect(url.searchParams.get('text')).not.toContain('margine')
+  expect(estimatePdfFile).toHaveBeenCalled()
+  expect(downloadEstimatePdf).toHaveBeenCalledWith(expect.objectContaining({name:'AB123CD.pdf'}))
   open.mockRestore()
  })
  it('numero mancante impedisce apertura e salvataggio parziale',()=>{
