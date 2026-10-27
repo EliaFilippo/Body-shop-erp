@@ -36,6 +36,7 @@ export function LiveProductionPage() {
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [selectionMode,setSelectionMode] = useState<'automatic'|'manual'>('automatic')
   const [vehicleSearch,setVehicleSearch]=useState('')
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
@@ -133,7 +134,7 @@ export function LiveProductionPage() {
     setBusy(true)
     try { await signOutCloud(session, config); setError('') }
     catch (e) { setError(e instanceof Error ? e.message : 'Disconnessione non riuscita.') }
-    finally { sessionStorage.removeItem(sessionKey); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false) }
+    finally { sessionStorage.removeItem(sessionKey); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setSelectionMode('automatic'); setPhaseChoices({}) }
   }
   useEffect(()=>{
     if(!session||!config||!companyId||!feed||!['owner','office'].includes(feed.role))return
@@ -166,7 +167,7 @@ export function LiveProductionPage() {
       if(!pairing)return
       generation.current++
       setTabletPairing(pairing)
-      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('')
+      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('');setSelectionMode('automatic');setPhaseChoices({})
     }
     window.addEventListener('hashchange',activate)
     return()=>window.removeEventListener('hashchange',activate)
@@ -201,24 +202,27 @@ export function LiveProductionPage() {
       {feed.operatorName && <ContinueDay feed={feed} busy={busy} stale={stale} onContinue={until=>void act('production_continue_day',{p_until:until})}/>}
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
-      {feed.operatorName && <section className="live-day-hours"><h2>I miei lavori assegnati</h2>
+      {feed.operatorName && <section className="live-day-hours"><h2>Programma automatico · i miei lavori assegnati</h2><p>Proposte secondo le priorità di consegna, margine e attesa. Puoi scegliere il lavoro manualmente qui sotto senza modificare il programma.</p>
         {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.coneNumber!=null&&<span className="live-program-cone">CONO {task.coneNumber}</span>}{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
           <p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
-          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}>Apri vettura e fase</a>
+          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => {setSelectionMode('automatic');setVehicleSearch('');setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}}>Apri vettura e fase</a>
             : <p>Pubblicazione automatica in corso. Se il lavoro non compare, l’ufficio può verificare i dati mancanti in Produzione.</p>}</li>)}</ol>
           : <p>Nessun lavoro assegnato nel Programma operatori. Puoi consultare le vetture disponibili qui sotto.</p>}
       </section>}
       {publicationWarning&&['owner','office'].includes(feed.role)&&<p role="status">Pubblicazione automatica: {publicationWarning}</p>}
       {['owner', 'office'].includes(feed.role) && <ProductionControlPanel connection={{ companyId, session, config: config! }} />}
       <p>Ogni fase ha una quota del budget della vettura. I colleghi sulla stessa fase consumano la stessa quota. Pausa e Fine fermano soltanto il tuo timer.</p>
-      <section className="live-day-hours"><h2>Scegli una vettura · anche fuori programma</h2><label>Cerca targa o cono<input type="search" value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} /></label><p>Puoi avviare qualsiasi commessa disponibile per le tue mansioni. Passando a una diversa vettura, il tuo lavoro precedente va in pausa senza completare la fase. Il piano si aggiorna dal gestionale ufficio aperto.</p></section>
+      <section className="live-day-hours"><h2>Scegli una vettura · anche fuori programma</h2><label>Cerca targa o cono<input type="search" value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} /></label><p>Tutti vedono le vetture aperte. In manuale scegli una fase prevista, anche fuori mansione, fuori sequenza o già completata per un intervento aggiuntivo. Passando a un altro lavoro, il tuo timer precedente va in pausa. Il programma automatico mantiene le priorità e il ricalcolo serale.</p>{feed.manualSelection && <label>Scelta del lavoro<select aria-label="Modalità scelta lavoro" value={selectionMode} disabled={busy} onChange={e=>{setSelectionMode(e.target.value as 'automatic'|'manual');setPhaseChoices({})}}>
+        <option value="automatic">Automatica · fasi abilitate e programma</option><option value="manual">Manuale · scegli vettura e fase</option>
+      </select></label>}</section>
       <section className="live-job-grid" aria-label="Vetture disponibili">
         {feed.jobs.filter(job=>!vehicleSearch.trim()||`${job.plate} ${job.coneNumber??''} ${job.number}`.replace(/\s/g,'').toLowerCase().includes(vehicleSearch.replace(/\s/g,'').toLowerCase())).map(job => {
           const totalClock = liveCountdown(job, (performance.now() - lastSample.current) / 1000)
-          const availablePhases = (job.phases ?? []).filter(p => !p.notRequired && !['Completata', 'Bloccata'].includes(p.status))
-          const selected = [phaseChoices[job.jobId], job.ownPhaseId, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
-          const requiresPhase = job.dutiesFiltered || (job.phases ?? []).some(p => !p.notRequired)
+          const manual = selectionMode === 'manual' && feed.manualSelection
+          const availablePhases = (job.phases ?? []).filter(p => !p.notRequired && p.name !== 'Consegna' && (manual || (p.automaticAllowed !== false && !['Completata', 'Bloccata'].includes(p.status))))
+          const selected = [phaseChoices[job.jobId], job.ownStatus === 'running' || job.ownStatus === 'paused' ? job.ownPhaseId : undefined, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
+          const requiresPhase = job.dutiesFiltered || (job.phases ?? []).length > 0
           const selectedPhase = availablePhases.find(p => p.id === selected)
           const switchesWork=Boolean(feed.activity?.kind || ownRunning && (ownRunning.jobId!==job.jobId || (ownRunning.ownPhaseId??'')!==selected))
           const startBlockedReason=!selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
@@ -255,11 +259,12 @@ export function LiveProductionPage() {
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy}
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
-              {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}</option>)}</select></label>}
-            {startBlockedReason&&<p role="status">Avvio non disponibile: {startBlockedReason}</p>}
+              {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}{manual && p.status === 'Completata' ? ' · intervento aggiuntivo' : ''}</option>)}</select></label>}
+            {manual && selectedPhase?.status === 'Completata' && <p>Intervento aggiuntivo: il visto precedente resta nello storico; il nuovo tempo si aggiunge alle ore lavorate.</p>}
+            {startBlockedReason&&<p role="status">Avvio non disponibile: {startBlockedReason}{!manual && feed.manualSelection ? ' Puoi passare alla scelta manuale.' : ''}</p>}
             {feed.activity?.kind&&selected&&<p>Premendo Start termini {feed.activity.kind==='cleaning'?'Pulizie':'Pausa caffè'} e avvii questa vettura. Se l’avvio non riesce, l’attività precedente continua.</p>}
-            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected)}
-              onClick={() => void act(switchesWork ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(switchesWork ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
+            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected) || (manual && job.manualStartAllowed === false)}
+              onClick={() => void act(manual ? 'production_manual_start' : switchesWork ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(manual || switchesWork ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : manual ? 'Avvia manualmente' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
             {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{panelTaskDescription(task.description, task.panel)}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}

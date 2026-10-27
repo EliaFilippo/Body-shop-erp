@@ -305,3 +305,30 @@ it('distinguishes a colleague timer from own active work without enabling collea
  expect(buttons.find(b=>b.textContent==='Pausa')).toBeDisabled()
  expect(buttons.find(b=>b.textContent==='Fine')).toBeDisabled()
 })
+
+it('preserves automatic duties while manual mode selects blocked and completed phases',async()=>{
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_manual_start')return null
+  return {companyId:'c1',role:'production',operatorName:'Stefania',manualSelection:true,members:[],program:[],jobs:[{
+   jobId:'manual',plate:'MANUAL',number:'1',manualStartAllowed:true,remainingSeconds:900,remainingPercent:100,activeCount:0,ownStatus:'finished',operators:[],
+   phases:[{id:'blocked',name:'Lattoneria',status:'Bloccata',automaticAllowed:false,notRequired:false,canComplete:false},
+    {id:'done',name:'Lucidatura',status:'Completata',automaticAllowed:false,notRequired:false,canComplete:false},
+    {id:'delivery',name:'Consegna',status:'Da fare',automaticAllowed:false,notRequired:false,canComplete:false}]}]}
+ })
+ render(<LiveProductionPage/>);
+ await screen.findByText('MANUAL')
+ expect(screen.getByRole('button',{name:'Start'})).toBeDisabled()
+ fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'manual'}})
+ const phases=screen.getByLabelText('Fase da lavorare su MANUAL')
+ expect(phases).toHaveValue('blocked')
+ expect(phases.querySelector('option[value="delivery"]')).toBeNull()
+ fireEvent.change(phases,{target:{value:'done'}})
+ expect(screen.getByText(/Intervento aggiuntivo: il visto precedente/)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Avvia manualmente'}))
+ await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_manual_start',{p_company_id:'c1',p_job_id:'manual',p_phase_id:'done'},expect.anything(),expect.anything()))
+ await waitFor(()=>expect(screen.getByLabelText('Modalità scelta lavoro')).toBeEnabled())
+ fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'automatic'}})
+ expect(screen.getByRole('button',{name:'Start'})).toBeDisabled()
+ expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
+})

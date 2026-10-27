@@ -8,10 +8,10 @@ export interface LiveClock {
   remainingPercent: number; activeCount: number; ownStatus: 'running' | 'paused' | 'finished' | null;
   operators: { name: string; status: string }[];
   overrunSeconds?: number; ownRemainingSeconds?: number | null; ownBurnFactor?: number; ownPhaseId?: string | null;
-  dutiesFiltered?: boolean; phases?: LivePhase[];
+  manualStartAllowed?: boolean; dutiesFiltered?: boolean; phases?: LivePhase[];
   tasks?: { id: string; description: string; panel?: string; quantity: number }[];
 }
-export interface LivePhase { standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
+export interface LivePhase { automaticAllowed?: boolean; standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
 export interface HoursDay { date: string; workedSeconds: number; plannedSeconds: number | null; ordinarySeconds: number | null; extraSeconds: number | null; running: boolean }
 export interface HoursReport {
   operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];
@@ -20,6 +20,7 @@ export interface HoursReport {
 export interface OperatorActivity { kind: 'cleaning' | 'coffee' | null; elapsedSeconds: number; cleaningSeconds: number; coffeeSeconds: number }
 export interface DayContinuation { canContinue:boolean; ordinaryEndMinute:number|null; untilMinute:number|null; date:string }
 export interface LiveFeed {
+  manualSelection?: boolean;
   dayContinuation?: DayContinuation | null;
   activity?: OperatorActivity | null;
   companyId: string; serverNow: string; role: 'owner' | 'office' | 'production';
