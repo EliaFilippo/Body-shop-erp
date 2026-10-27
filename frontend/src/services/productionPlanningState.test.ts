@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest'
 import {emptyData} from './erp'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
 import type {RepairJob} from '../types'
-const fixture=()=>({...structuredClone(emptyData),jobs:[{id:'j',status:'Pianificata',phases:[{id:'p',name:'Lattoneria',status:'Da fare',operatorAssignments:[],estimatedMinutes:60,actualMinutes:0}]} as RepairJob]})
+const fixture=()=>({...structuredClone(emptyData),jobs:[{id:'j',number:'COMM-1',customerId:'c',plate:'AA111AA',coneNumber:1,entryDate:'2026-10-27',expectedDeliveryDate:'2026-10-28',priority:'Normale',responsible:'',status:'Pianificata',companyName:'',contactName:'',notes:'',blocks:[],lines:[],qualityChecklist:[],taxableAmount:100,vatAmount:22,total:122,progressPercent:0,createdAt:'',updatedAt:'',history:[],phases:[{id:'p',name:'Lattoneria',status:'Da fare',operatorAssignments:[],estimatedMinutes:60,actualMinutes:0,notes:'',blockedReason:''}]} satisfies RepairJob]})
 const state:ProductionPlanningState={serverNow:'2026-10-27T08:15:00Z',entries:[{jobId:'j',phaseId:'p',operatorId:'a',operatorName:'Mario',closedSeconds:600,runningSince:'2026-10-27T08:10:00Z',firstStartedAt:'2026-10-27T07:00:00Z',lastEndedAt:'2026-10-27T07:10:00Z'}]}
 describe('canonical operational replanning',()=>{
  it('imports actual running work without completing, signing or changing the technical allowance',()=>{
