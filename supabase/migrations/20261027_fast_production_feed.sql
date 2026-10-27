@@ -119,8 +119,7 @@ begin
   jobs:=jobs||jsonb_build_array(item||jsonb_build_object('phases',phases));
  end loop;
  return result||jsonb_build_object('jobs',jobs);
-end $function$
-
+end $function$;
 revoke all on function public.production_live_feed_before_duties(uuid) from public,anon,authenticated;
 
 notify pgrst,'reload schema';
