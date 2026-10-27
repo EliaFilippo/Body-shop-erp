@@ -169,5 +169,12 @@ begin
 end $$;
 revoke all on function public.guard_wash_station_capacity() from public,anon,authenticated;
 
+-- Some installations have the function but missed the wash trigger update.
+do $$begin
+ if not exists(select 1 from pg_trigger where tgrelid='public.production_live_segments'::regclass and tgname='wash_station_capacity_start' and not tgisinternal) then
+  create trigger wash_station_capacity_start before insert on public.production_live_segments
+   for each row execute function public.guard_wash_station_capacity();
+ end if;
+end $$;
 notify pgrst,'reload schema';
 commit;
