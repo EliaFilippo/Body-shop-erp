@@ -61,3 +61,12 @@ describe('autenticazione cloud', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 })
+
+it('treats an expired cloud session as already signed out',async()=>{
+ const fetcher=vi.fn(async()=>new Response(null,{status:401}))
+ await expect(signOutCloud({accessToken:'expired'},config,fetcher)).resolves.toBeUndefined()
+})
+it('does not claim server logout on a service error',async()=>{
+ const fetcher=vi.fn(async()=>new Response(null,{status:503}))
+ await expect(signOutCloud({accessToken:'token'},config,fetcher)).rejects.toThrow('server non confermata')
+})

@@ -25,11 +25,18 @@ export function tabletLink(pairing:TabletPairing, baseUrl = new URL('production.
   return `${baseUrl}#${new URLSearchParams({ company:pairing.companyId,operator:pairing.operatorId,tablet:pairing.pairing })}`
 }
 async function callPin<T>(body:Record<string,unknown>,config:CloudAuthConfig,session?:CloudAuthSession,fetcher:typeof fetch=fetch):Promise<T> {
+  try {
   const res=await fetcher(`${config.url}/functions/v1/operator-pin`,{ method:'POST',headers:{ 'Content-Type':'application/json',apikey:config.anonKey,
-    Authorization:`Bearer ${session?.accessToken ?? config.anonKey}` },body:JSON.stringify(body),signal:AbortSignal.timeout(15000) })
+    Authorization:`Bearer ${session?.accessToken ?? config.anonKey}` },body:JSON.stringify(body),signal:AbortSignal.timeout(30000) })
   const payload=await res.json()
   if (!res.ok) throw new Error(payload.message || 'Accesso PIN non ancora attivato. Contatta il titolare.')
   return payload as T
+  } catch(error) {
+    const failure=error as {name?:string;message?:string}|null
+    if(failure && (['AbortError','TimeoutError'].includes(failure.name??'') || /fetch is aborted/i.test(failure.message??''))) throw new Error('Il cloud sta impiegando troppo tempo. Verifica la connessione e riprova: non è una conferma di PIN errato.')
+    if(error instanceof TypeError) throw new Error('Collegamento al cloud non disponibile. Verifica Wi-Fi o rete mobile e riprova.')
+    throw error
+  }
 }
 export const identifyTablet=(pairing:TabletPairing,config:CloudAuthConfig) => callPin<{name:string}>({ action:'identify',...pairing },config)
 export async function signInWithPin(pairing:TabletPairing,pin:string,config:CloudAuthConfig,fetcher:typeof fetch=fetch) {

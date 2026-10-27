@@ -185,7 +185,7 @@ export function LiveProductionPage() {
         {feed && ['owner','office'].includes(feed.role) && <a href={import.meta.env.BASE_URL}>Gestionale</a>}</div></header>
     {!config && <p role="alert">Collegamento Supabase non configurato.</p>}
     {error && <p className="live-alert" role="alert">{error}</p>}
-    {config && !session && tabletPairing && <OperatorPinLogin pairing={tabletPairing} config={config} onLogin={result=>{sessionStorage.setItem(sessionKey,JSON.stringify(result));setSession(result)}} />}
+    {config && !session && tabletPairing && <OperatorPinLogin pairing={tabletPairing} config={config} onLogin={result=>{setError('');sessionStorage.setItem(sessionKey,JSON.stringify(result));setSession(result)}} />}
     {config && !session && <details open={!tabletPairing}><summary>Accesso titolare o account con email</summary><form className="live-login" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError('')
       try { const result = await signInWithPassword(email, password, config); sessionStorage.setItem(sessionKey, JSON.stringify(result)); setPassword(''); setSession(result) }

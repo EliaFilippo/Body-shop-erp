@@ -8,7 +8,8 @@ export function OperatorPinLogin({ pairing,config,onLogin }:{pairing:TabletPairi
   const [pin,setPin]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
-  useEffect(()=>{ let cancelled=false; void identifyTablet(pairing,config).then(r=>{if(!cancelled)setName(r.name)}).catch(()=>{if(!cancelled)setError('Tablet non collegato o accesso PIN non ancora attivato. Contatta il titolare.')}); return()=>{cancelled=true} },[pairing,config])
+  const [identifyAttempt,setIdentifyAttempt]=useState(0)
+  useEffect(()=>{ let cancelled=false; setName('');setError(''); void identifyTablet(pairing,config).then(r=>{if(!cancelled)setName(r.name)}).catch(problem=>{if(!cancelled)setError(problem instanceof Error?problem.message:'Collegamento non disponibile. Riprova.')}); return()=>{cancelled=true} },[pairing,config,identifyAttempt])
   return <form className="live-login" onSubmit={async e=>{
     e.preventDefault();if(busy)return;setBusy(true);setError('')
     try { onLogin(await signInWithPin(pairing,pin,config)) }
@@ -16,7 +17,7 @@ export function OperatorPinLogin({ pairing,config,onLogin }:{pairing:TabletPairi
     finally{setPin('');setBusy(false)}
   }}><h2>{name || 'Accesso operatore'}</h2><p>Produzione e programma lavorativo personale.</p>
     <label>PIN personale <input type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{6}" maxLength={6} minLength={6} value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} required /></label>
-    {error && <p role="alert">{error}</p>}<button disabled={busy || !name}>{busy?'Accesso…':'Inizia giornata'}</button></form>
+    {error && <p role="alert">{error}</p>}{!name&&error&&<button type="button" onClick={()=>setIdentifyAttempt(n=>n+1)}>Riprova collegamento</button>}<button disabled={busy || !name}>{busy?'Accesso…':'Inizia giornata'}</button></form>
 }
 export function OperatorPinAdmin({companyId,operators,session,config}:{companyId:string;operators:PlannerOperator[];session:CloudAuthSession;config:CloudAuthConfig}) {
   const [operatorId,setOperatorId]=useState('')

@@ -40,3 +40,14 @@ it('un collegamento valido funziona anche quando il browser blocca la memoria lo
  expect(location.hash).toBe(hash)
  storage.mockRestore()
 })
+
+it('explains an aborted request and never retries a submitted PIN automatically',async()=>{
+ const fetcher=vi.fn(async()=>{throw new DOMException('Fetch is aborted','AbortError')})
+ await expect(signInWithPin(pairing,'483927',config,fetcher)).rejects.toThrow('non è una conferma di PIN errato')
+ expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it('distinguishes an unavailable connection from an invalid PIN',async()=>{
+ const fetcher=vi.fn(async()=>{throw new TypeError('Failed to fetch')})
+ await expect(signInWithPin(pairing,'483927',config,fetcher)).rejects.toThrow('Verifica Wi-Fi o rete mobile')
+ expect(fetcher).toHaveBeenCalledTimes(1)
+})
