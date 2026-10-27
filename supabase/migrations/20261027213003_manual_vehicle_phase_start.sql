@@ -122,7 +122,7 @@ begin
   select job_id from phases where
    case when exists(select 1 from production_live_sessions ss
     where ss.company_id=new.company_id and ss.job_id=phases.job_id and ss.phase_id=p->>'id' and ss.status in ('running','paused')
-    and exists(select 1 from production_live_segments seg where seg.company_id=ss.company_id and seg.job_id=ss.job_id and seg.operator_id=ss.operator_id and seg.phase_id=ss.phase_id and seg.manual_start)) then true
+    and exists(select 1 from production_live_segments seg where seg.company_id=ss.company_id and seg.job_id=ss.job_id and seg.operator_id=ss.operator_id and seg.phase_id=ss.phase_id and seg.manual_start and seg.started_at>coalesce(checked_at,'-infinity'::timestamptz))) then true
    when exists(select 1 from production_live_segments seg where seg.company_id=new.company_id and seg.job_id=phases.job_id and seg.phase_id=p->>'id' and seg.manual_start and seg.ended_at+interval '1 hour'>clock_timestamp()) then true
    when checked_at is not null or p->>'status'='Completata' then
     coalesce(checked_at,nullif(p->>'completedAt','')::timestamptz,nullif(p->>'endedAt','')::timestamptz)
@@ -159,7 +159,7 @@ begin
       and not exists(select 1 from production_phase_checks c where c.company_id=new.company_id and c.job_id=j->>'id' and c.phase_id=p->>'id')
       and exists(select 1 from production_live_segments seg where seg.company_id=new.company_id and seg.job_id=j->>'id' and seg.phase_id=p->>'id'))
      or exists(select 1 from production_live_sessions ss where ss.company_id=new.company_id and ss.job_id=j->>'id' and ss.phase_id=p->>'id' and ss.status='paused'
-      and exists(select 1 from production_live_segments seg where seg.company_id=ss.company_id and seg.job_id=ss.job_id and seg.operator_id=ss.operator_id and seg.phase_id=ss.phase_id and seg.manual_start))
+      and exists(select 1 from production_live_segments seg where seg.company_id=ss.company_id and seg.job_id=ss.job_id and seg.operator_id=ss.operator_id and seg.phase_id=ss.phase_id and seg.manual_start and seg.started_at>coalesce((select c.checked_at from production_phase_checks c where c.company_id=ss.company_id and c.job_id=ss.job_id and c.phase_id=ss.phase_id),'-infinity'::timestamptz)))
     )
    )
   )
