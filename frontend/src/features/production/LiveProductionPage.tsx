@@ -227,10 +227,19 @@ export function LiveProductionPage() {
           const standardClock = selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
           const clock = selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
           const workClock = standardClock ?? clock
-          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && workClock.warning ? 'live-warning' : ''}`}>
+          const myTimerRunning = job.ownStatus === 'running'
+          const activeNames = job.operators.filter(o => o.status === 'running').map(o => o.name)
+          return <article key={job.jobId} id={`vettura-${job.jobId}`} className={`live-job ${!stale && myTimerRunning ? 'live-own' : ''} ${!stale && myTimerRunning && workClock.warning ? 'live-warning' : ''}`}>
             <div className="live-cone-identity">{job.coneNumber!=null?<><span>CONO</span><strong aria-label={`Cono ${job.coneNumber}`}>{job.coneNumber}</strong></>:<span>Cono non assegnato</span>}<h2>{job.plate}</h2></div><p>Commessa {job.number}</p>{permissionRemoved && <p role="alert">La mansione precedente non è più abilitata. Puoi mettere in pausa o terminare il timer; chiedi all’ufficio per la riassegnazione.</p>}
+            <section className={`live-timer-identity ${!stale && myTimerRunning ? 'is-own' : 'is-other'}`} aria-label={`Stato del tuo timer su ${job.plate}`}>
+              <strong>{stale ? 'Stato del timer da aggiornare' : myTimerRunning ? 'Il tuo timer è attivo' : job.ownStatus === 'paused' ? 'Il tuo timer è in pausa' : 'Il tuo timer non è attivo'}</strong>
+              {!stale && !myTimerRunning && !!activeNames.length && <p>{activeNames.map(name => `${name} al lavoro`).join(' · ')}</p>}
+              {!stale && !myTimerRunning && !!activeNames.length && <p>Sta lavorando un collega. Pausa e Fine fermano soltanto il tuo timer.</p>}
+            </section>
+            <p className="live-shared-label">Tempo residuo condiviso della vettura / fase</p>
             <p>{standardClock && workClock.overrunSeconds > 0 ? `Tempo oltre il previsto · ${selectedPhase?.standardClock?.label}` : standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
-            <strong className="live-clock" aria-label={feed.operatorName ? 'Ore disponibili per te' : 'Tempo residuo squadra'}>{stale ? 'Da aggiornare' : standardClock && workClock.overrunSeconds > 0 ? `+${clockText(workClock.overrunSeconds)}` : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
+            <strong className="live-clock" aria-label="Tempo residuo condiviso">{stale ? 'Da aggiornare' : standardClock && workClock.overrunSeconds > 0 ? `+${clockText(workClock.overrunSeconds)}` : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
+            <p>Questo conto alla rovescia usa il tempo condiviso della lavorazione. Le tue ore personali sono in «Le mie ore di oggi».</p>
             {standardClock ? standardClock.individualSeconds === null && <p>Tempo standard non impostato su questa commessa: richiedi la configurazione all’ufficio.</p> : selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
             {standardClock && <section aria-label="Tempo standard della lavorazione"><p>Tempo standard · {selectedPhase?.standardClock?.label}</p>
               <p>Totale condiviso: {selectedPhase?.standardClock?.totalMinutes} min. Ogni minuto lavorato da ciascun operatore consuma questo tempo.</p>

@@ -11,3 +11,10 @@
 .live-cone-identity>strong {font-size:clamp(5rem,18vw,9rem);font-weight:900;line-height:1;color:#ffe19a}
 .live-cone-identity h2 {font-size:clamp(1.8rem,6vw,3rem);margin:.5rem 0;word-break:break-word}
 .live-program-cone {display:block;font-size:2.5rem;line-height:1.2;color:#ffe19a;font-weight:900}
+
+.live-timer-identity{padding:14px;border:1px solid #a2afc8;border-radius:12px;margin:14px 0;background:#1b2538}
+.live-timer-identity strong{display:block;font-size:1.25rem}
+.live-timer-identity p{margin:8px 0 0}
+.live-timer-identity.is-own{border:2px solid #83e4af;background:#183c32}
+.live-job.live-own:not(.live-warning){border-color:#83e4af}
+.live-shared-label{font-weight:700;color:#dfc691}
