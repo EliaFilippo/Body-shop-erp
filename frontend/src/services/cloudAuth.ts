@@ -93,7 +93,7 @@ export async function signOutCloud(session: Pick<CloudAuthSession, 'accessToken'
     method: 'POST',
     headers: { apikey: config.anonKey, Authorization: `Bearer ${session.accessToken}` },
   })
-  if (!response.ok && ![401,403].includes(response.status)) throw new Error('Uscita dal dispositivo completata, ma disconnessione dal server non confermata. Verifica la connessione.')
+  if (!response.ok && ![401,403].includes(response.status)) throw new Error('Disconnessione dal server non confermata. Verifica la connessione.')
 }
 
 export async function bootstrapCloudCompany(
