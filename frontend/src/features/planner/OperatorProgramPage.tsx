@@ -1,3 +1,4 @@
+import { RemoteTimers } from '../production/RemoteTimers'
 import { DailyEmployeeHours } from '../production/DailyEmployeeHours'
 import { RunningTaskCard, useOperatorStatus } from './operatorLiveStatus'
 import type { NoticesConnection } from '../production/PhaseNotices'
@@ -13,7 +14,8 @@ const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-d
 
 export function OperatorProgramPage({ data, onChange, connection }: { data: ErpData; onChange: (next: ErpData) => void; connection?:NoticesConnection }) {
   const [showHours,setShowHours]=useState(false)
-  const {running,message}=useOperatorStatus(showHours?undefined:connection)
+  const [showTimers,setShowTimers]=useState(false)
+  const {running,message}=useOperatorStatus(showHours||showTimers?undefined:connection)
   const [date, setDate] = useState(todayKey)
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id) ?? { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date])
@@ -37,6 +39,8 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
     return vehicle && isVehicleWaitingForCone(vehicle) ? 'In attesa cono (Nessun cono disponibile)' : '—'
   }
 
+  if(showTimers&&connection)return <RemoteTimers connection={connection} onBack={()=>setShowTimers(false)}/>
+
   if(showHours&&connection)return <DailyEmployeeHours connection={connection} onBack={()=>setShowHours(false)}/>
 
   return <>
@@ -48,6 +52,7 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
         <p>Prima il flusso delle cabine: scartare le vetture già verniciate e asciutte, verniciare quelle pronte, incartare e preparare le prossime. Poi gli altri lavori, con precedenza per consegna, margine e anzianità. Mansioni e disponibilità restano vincolanti.</p>
       </div>
       <div className="planner-actions">
+        <button className="primary" disabled={!connection} onClick={()=>setShowTimers(true)}>Timer attivi</button>
         <button className="primary" disabled={!connection} onClick={()=>setShowHours(true)}>Monte ore giornaliero</button>
         <button className="primary" onClick={() => onChange(recalculateOperatorPrograms(data, todayKey(), 'Ricalcolo piano manuale'))}>Ricalcola piano</button>
       </div>
