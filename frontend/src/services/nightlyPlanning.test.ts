@@ -1,3 +1,4 @@
+import {createEstimate,approveEstimateAndCreateJob} from './workflow'
 import {describe,it,expect,vi} from 'vitest'
 import {emptyData} from './erp'
 import {buildNightlyPlan,handleNightlyRequest} from './nightlyPlanning'
@@ -29,4 +30,17 @@ describe('nightly planning',()=>{
   expect((await res.json()).status).toBe('retry')
   expect(rpc.mock.calls[1][0]).toBe('production_nightly_commit')
  })
+})
+
+it('uses real evening signatures to prioritize clearing a painted car without completing its next phase',()=>{
+ let data=structuredClone(emptyData)
+ data.plannerSettings.operators=[{id:'a',name:'Stefania',active:true,dailyHours:8,skillsConfigured:true,skills:['incartatura','scartatura']}]
+ data=createEstimate(data,{customerId:'c',plate:'AA111AA',companyName:'Cliente',contactName:'',date:'2026-10-26',notes:'',selectedPhases:[],lines:[{description:'Paraurti',category:'verniciatura',quantity:1,unitPrice:150,discount:0,vatRate:22,manualPhaseTimes:[{phase:'Incartatura',minutes:10},{phase:'Verniciatura',minutes:60},{phase:'Scartatura',minutes:20}]}]})
+ data=approveEstimateAndCreateJob(data,data.estimates![0].id)
+ const job=data.jobs![0],before=JSON.stringify(data)
+ const checks=job.phases.filter(p=>['Stuccatura','Incartatura','Verniciatura'].includes(p.name)).map(p=>({jobId:job.id,phaseId:p.id,checkedBy:'Martin',checkedAt:'2026-10-26T21:00:00Z',workedSeconds:600}))
+ const plan=buildNightlyPlan(data,{serverNow:'2026-10-27T02:00:00Z',entries:[]},checks,'2026-10-27')
+ expect(plan.operatorPrograms?.find(p=>p.operatorId==='a')?.tasks[0]?.phaseName).toBe('Scartatura')
+ expect(plan.jobs![0].phases.find(p=>p.name==='Scartatura')?.status).toBe('Da fare')
+ expect(JSON.stringify(data)).toBe(before)
 })
