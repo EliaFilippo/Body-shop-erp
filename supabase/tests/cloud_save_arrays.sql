@@ -36,6 +36,6 @@ do $$begin
   update erp_snapshots set payload=jsonb_set(payload,'{vehicles,0,expectedRevenue}','500') where company_id='10000000-0000-0000-0000-000000000001';
   raise exception 'Vehicle value unprotected';
  exception when insufficient_privilege then null;end;
- update erp_snapshots set payload=jsonb_set(payload,'{jobs,0,status}','Da fare') where company_id='10000000-0000-0000-0000-000000000001';
+ update erp_snapshots set payload=jsonb_set(payload,'{jobs,0,status}','"Da fare"') where company_id='10000000-0000-0000-0000-000000000001';
 end $$;
 rollback;

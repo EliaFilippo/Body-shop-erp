@@ -32,7 +32,8 @@ async function callPin<T>(body:Record<string,unknown>,config:CloudAuthConfig,ses
   if (!res.ok) throw new Error(payload.message || 'Accesso PIN non ancora attivato. Contatta il titolare.')
   return payload as T
   } catch(error) {
-    if(error instanceof Error && (['AbortError','TimeoutError'].includes(error.name) || /fetch is aborted/i.test(error.message))) throw new Error('Il cloud sta impiegando troppo tempo. Verifica la connessione e riprova: non è una conferma di PIN errato.')
+    const failure=error as {name?:string;message?:string}|null
+    if(failure && (['AbortError','TimeoutError'].includes(failure.name??'') || /fetch is aborted/i.test(failure.message??''))) throw new Error('Il cloud sta impiegando troppo tempo. Verifica la connessione e riprova: non è una conferma di PIN errato.')
     if(error instanceof TypeError) throw new Error('Collegamento al cloud non disponibile. Verifica Wi-Fi o rete mobile e riprova.')
     throw error
   }
