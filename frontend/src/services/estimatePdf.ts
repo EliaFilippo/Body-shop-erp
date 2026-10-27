@@ -1,5 +1,4 @@
 import { jsPDF } from 'jspdf'
-import { paymentTermsText } from './paymentTerms'
 import type { ErpData, EstimateDocument } from '../types'
 const clean=(text:unknown)=>String(text??'').replace(/[\u2018\u2019]/g,"'").replace(/[\u201c\u201d]/g,'"').replace(/[\u2013\u2014]/g,'-').replace(/\u00a0/g,' ')
 const amount=(value:number)=>value.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})
@@ -41,7 +40,7 @@ export function buildEstimatePdf(data:ErpData,estimate:EstimateDocument){
   }
   text('Cliente:',116,39,8)
   let b=paragraph(customer?.name||estimate.companyName||estimate.contactName,116,44,85,9,true)
-  for(const value of [customer?.address,customer?.taxId?`P.IVA / C.F.: ${customer.taxId}`:'',customer?.phone?`Telefono: ${customer.phone}`:'',customer?.email?`Email: ${customer.email}`:'']){
+  for(const value of [customer?.address,[customer?.postalCode,customer?.city,customer?.province].filter(Boolean).join(' '),customer?.country,customer?.vatId?`P.IVA: ${customer.vatId}`:'',customer?.taxCode?`C.F.: ${customer.taxCode}`:'',!customer?.vatId&&!customer?.taxCode&&customer?.taxId?`P.IVA / C.F.: ${customer.taxId}`:'',customer?.contactName?`Referente: ${customer.contactName}`:'',customer?.phone?`Telefono: ${customer.phone}`:'',customer?.mobile?`Cellulare: ${customer.mobile}`:'',customer?.email?`Email: ${customer.email}`:'',customer?.pec?`PEC: ${customer.pec}`:'',customer?.sdiCode?`SDI: ${customer.sdiCode}`:'']){
    if(value)b=paragraph(value,116,b,85)+.8
   }
   a=Math.max(74,a+5);text('Sinistro: __________________________',left,a);text('Perito: ___________________________',left,a+9);text('Compagnia: ______________________',left,a+18)
@@ -104,7 +103,7 @@ export function buildEstimatePdf(data:ErpData,estimate:EstimateDocument){
   const lines=pdf.splitTextToSize(clean(value),width) as string[]
   for(const line of lines){if(y>280)footerPage();text(line,left,y,8);y+=4}
  }
- if(estimate.paymentTerms)footerParagraph('Pagamento: '+paymentTermsText(estimate.paymentTerms,estimate.requestedDeliveryDate))
+ if(estimate.paymentTerms)footerParagraph('Pagamento: '+`${estimate.paymentTerms.atDelivery?'Bonifico alla consegna':estimate.paymentTerms.method}${estimate.paymentTerms.atDelivery?'':` · ${estimate.paymentTerms.days} giorni${estimate.paymentTerms.endOfMonth?' fine mese':''}`}`)
  if(estimate.requestedDeliveryDate)footerParagraph('Consegna concordata: '+date(estimate.requestedDeliveryDate))
  if(estimate.notes)footerParagraph('Note: '+estimate.notes)
  if(y>274){footerPage();y+=5}else y=Math.max(y+5,276)

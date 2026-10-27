@@ -28,6 +28,15 @@ describe('customer estimate PDF',()=>{
   expect(JSON.stringify(data)).toBe(before)
   expect(estimatePdfFile(data,estimate)).toMatchObject({name:'GL587FB.pdf',type:'application/pdf'})
  })
+ it('prints complete editable customer data and payment terms without collection forecasts',()=>{
+  const {data,estimate}=fixture()
+  Object.assign(data.customers[0],{postalCode:'31020',city:'San Vendemiano',province:'TV',country:'Italia',vatId:'VAT-SEPARATE',taxCode:'CF-SEPARATE',pec:'pec@example.test',sdiCode:'ABC1234',contactName:'Referente Test',mobile:'3330001111'})
+  estimate.paymentTerms={method:'R.I.B.A.',days:75,endOfMonth:true,expectedInvoiceDate:'2026-10-27',expectedCollectionDate:'2027-01-31'}
+  const output=buildEstimatePdf(data,estimate).output()
+  for(const value of ['31020','San Vendemiano','VAT-SEPARATE','CF-SEPARATE','pec@example.test','ABC1234','Referente Test','3330001111','75 giorni fine mese'])expect(output).toContain(value)
+  expect(output).not.toContain('incasso previsto');expect(output).not.toContain('31/01/2027')
+  expect(estimate.paymentTerms.expectedCollectionDate).toBe('2027-01-31')
+ })
  it('paginates long descriptions, many rows and long notes without losing the last row or totals',()=>{
   const {data,estimate}=fixture()
   estimate.lines=Array.from({length:70},(_,i)=>({...estimate.lines[0],id:String(i),description:`Riga ${i+1}: `+'lavorazione dettagliata '.repeat(i===20?100:4)}))
