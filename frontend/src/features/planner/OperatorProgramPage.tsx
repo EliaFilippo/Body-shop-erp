@@ -40,6 +40,7 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
   if(showHours&&connection)return <DailyEmployeeHours connection={connection} onBack={()=>setShowHours(false)}/>
 
   return <>
+    {data.nightlyPlanning?.enabled&&<p role="status">Piano notturno: preparato per {data.nightlyPlanning.plannedFor} alle {new Date(data.nightlyPlanning.generatedAt).toLocaleString('it-IT',{timeZone:'Europe/Rome'})}. Il calendario resta stabile durante il giorno; i timer e le firme restano operativi. Il server riprogramma alle 03:00.</p>}
     <section className="welcome">
       <div>
         <span className="eyebrow">PROGRAMMA OPERATORI</span>

@@ -683,6 +683,8 @@ function App() {
   const acceptanceAutosaveTimerRef = useRef<number | null>(null)
   const cloudRevisionRef = useRef<number | null>(null)
   const cloudReadyRef = useRef(false)
+  const nightlyModeRef=useRef(false)
+  nightlyModeRef.current=Boolean(data.nightlyPlanning?.enabled)
   const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
@@ -713,7 +715,7 @@ function App() {
       }finally{running=false}
     }
     void publish()
-    const timer=setInterval(()=>void publish(),15000)
+    const timer=setInterval(()=>{if(!nightlyModeRef.current)void publish()},15000)
     const online=()=>void publish()
     window.addEventListener('online',online)
     return()=>{stopped=true;clearInterval(timer);window.removeEventListener('online',online)}
@@ -739,8 +741,8 @@ function App() {
         const checks = await productionRpc<PhaseCheckUpdate[]>('production_phase_updates', { p_company_id: cloudMembership.companyId }, cloudSession, cloudConfig)
         if (!cancelled && checks.length) setData(current => applyLivePhaseChecks(current, checks))
         try {
-          const actual=await productionRpc<ProductionPlanningState>('production_planning_state',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
-          if(!cancelled)setData(current=>applyProductionPlanningState(current,actual))
+          if(!nightlyModeRef.current){const actual=await productionRpc<ProductionPlanningState>('production_planning_state',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
+          if(!cancelled)setData(current=>applyProductionPlanningState(current,actual))}
         } catch { /* Available after installing the operational replanning update. */ }
         try {
           const extensions=await productionRpc<OperatorDayExtension[]>('production_day_extensions',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
@@ -925,6 +927,11 @@ function App() {
     }
     const syncedFromJobs = syncOperationalStateFromJobs(data)
     const syncedForProduction = syncVehicleWorkedHoursFromProduction(syncProductionJobsFromVehicles(syncedFromJobs))
+    if(data.nightlyPlanning?.enabled){
+      if(JSON.stringify(syncedForProduction.jobs)!==JSON.stringify(data.jobs)||JSON.stringify(syncedForProduction.vehicles)!==JSON.stringify(data.vehicles)||JSON.stringify(syncedForProduction.production)!==JSON.stringify(data.production))
+        setData(current=>({...current,jobs:syncedForProduction.jobs,vehicles:syncedForProduction.vehicles,production:syncedForProduction.production}))
+      return
+    }
     const delayControlAtIso = data.dbUpdatedAt || undefined
     const withDelayControl = runProductionDelayControl(syncedForProduction, 'Controllo tempi vista responsabile', delayControlAtIso)
     const result = calculatePlanner(withDelayControl.vehicles, withDelayControl.plannerSettings)

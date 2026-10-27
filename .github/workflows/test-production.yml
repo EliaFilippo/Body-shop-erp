@@ -73,6 +73,8 @@ jobs:
         run: psql -f supabase/tests/daily_employee_hours.sql
       - name: Unscheduled vehicle switch, rollback, colleague isolation and planning facts
         run: psql -f supabase/tests/unscheduled_work.sql
+      - name: Nightly planning isolation, leases, stale timer guard and once-daily commit
+        run: psql -f supabase/tests/nightly_planning.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
@@ -110,3 +112,4 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/operator-pin/index.ts
+      - run: deno check supabase/functions/nightly-planner/index.ts

@@ -1224,6 +1224,7 @@ export interface JobWorkflowKpis {
 }
 
 export interface ErpData {
+  nightlyPlanning?: {enabled:boolean;plannedFor:string;generatedAt:string;hour:number}
   productionPlanningSampleAt?: string
   users?: AppUser[]
   customers: Customer[]
