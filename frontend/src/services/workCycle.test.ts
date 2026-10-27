@@ -94,7 +94,7 @@ it('detrarre 55 minuti di preparazione lascia 35 minuti alla verniciatura dello 
 })
 
 it('includes transport only when requested, with its own manual time before office delivery',()=>{
- const lines=[{...input.lines[0],category:'altre' as const,standardWorkName:'Trasporto',estimatedMinutes:45,lineTotalMinutes:45}]
+ const lines=[{...input.lines[0],id:'transport',taxableAmount:150,vatAmount:33,total:183,category:'altre' as const,standardWorkName:'Trasporto',estimatedMinutes:45,lineTotalMinutes:45}]
  const phases=buildSelectedWorkCycle(lines,[])
  expect(phases.filter(p=>!p.notRequired).map(p=>p.name)).toEqual(['Trasporto','Consegna'])
  expect(phases.find(p=>p.name==='Trasporto')).toMatchObject({estimatedMinutes:45,requiredSkill:'Trasporto',notRequired:false})
