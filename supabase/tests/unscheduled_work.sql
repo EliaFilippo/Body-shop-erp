@@ -46,25 +46,25 @@ do $$declare facts jsonb;begin
 end $$;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
 select production_activity_action('50000000-0000-0000-0000-000000000005','cleaning');
-do $begin
+do $$begin
  begin
   perform production_start_selected_job('50000000-0000-0000-0000-000000000005','off1','missing');
   raise exception 'Invalid target allowed from cleaning';
  exception when raise_exception then if sqlerrm='Invalid target allowed from cleaning' then raise;end if;end;
  if not exists(select 1 from production_operator_activities where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and kind='cleaning' and ended_at is null) then raise exception 'Failed Start ended cleaning';end if;
-end $;
+end $$;
 select production_start_selected_job('50000000-0000-0000-0000-000000000005','off1','p1');
-do $begin
+do $$begin
  if exists(select 1 from production_operator_activities where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and ended_at is null) then raise exception 'Cleaning overlaps work';end if;
  if (select count(*) from production_live_segments where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and ended_at is null)<>1 then raise exception 'Missing selected work';end if;
-end $;
+end $$;
 select production_activity_action('50000000-0000-0000-0000-000000000005','coffee');
 select production_start_selected_job('50000000-0000-0000-0000-000000000005','off2','p2');
-do $begin
+do $$begin
  if exists(select 1 from production_operator_activities where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and ended_at is null) then raise exception 'Coffee overlaps work';end if;
  if not exists(select 1 from production_live_segments where company_id='50000000-0000-0000-0000-000000000005' and operator_id='b' and ended_at is null) then raise exception 'Colleague stopped';end if;
  if exists(select 1 from production_phase_checks where company_id='50000000-0000-0000-0000-000000000005') then raise exception 'Phase completed automatically';end if;
-end $;
+end $$;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
 do $$begin
  begin

@@ -203,7 +203,7 @@ it('shows only permitted phases and keeps Start disabled on a revoked paused car
  expect(screen.queryByRole('option',{name:'Smontaggio'})).not.toBeInTheDocument()
 })
 
-it('mette in pausa la vettura con PULIZIE e richiede di terminare l’attività prima di riprendere',async()=>{
+it('mette in pausa la vettura con PULIZIE e permette il passaggio diretto alla ripresa',async()=>{
  let active=false
  mocked.rpc.mockImplementation(async(name:string)=>{
   if(name==='production_activity_action'){active=true;return null}
@@ -216,7 +216,7 @@ it('mette in pausa la vettura con PULIZIE e richiede di terminare l’attività 
  fireEvent.click(await screen.findByRole('button',{name:'PULIZIE'}))
  await screen.findByText('PULIZIE IN CORSO')
  expect(mocked.rpc).toHaveBeenCalledWith('production_activity_action',{p_company_id:'c1',p_kind:'cleaning'},expect.anything(),expect.anything())
- expect(screen.getByRole('button',{name:'Riprendi'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'Riprendi'})).toBeEnabled()
  expect(screen.getByRole('button',{name:'TERMINA ATTIVITÀ'})).toBeEnabled()
 })
 
