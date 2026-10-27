@@ -1,5 +1,5 @@
 import type { EstimateLine, JobPhase, MinorDamageTimes } from '../types'
-export const WORK_CYCLE = ['Lavaggio esterno','Smontaggio','Riparazione grandine','Lattoneria','Stuccatura','Incartatura','Verniciatura','Scartatura','Rimontaggio','Meccanica / gommista','Lucidatura','Lavaggio interni','Ritocchi','Consegna'] as const
+export const WORK_CYCLE = ['Lavaggio esterno','Smontaggio','Riparazione grandine','Lattoneria','Stuccatura','Incartatura','Verniciatura','Scartatura','Rimontaggio','Meccanica / gommista','Lucidatura','Lavaggio interni','Ritocchi','Trasporto','Consegna'] as const
 export const phaseDisplayName = (name: string) => name === 'Stuccatura' ? 'Stuccatura e carteggiatura' : name
 const normal=(s:string)=>s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 export function cyclePhaseForLine(line:Partial<EstimateLine>) {

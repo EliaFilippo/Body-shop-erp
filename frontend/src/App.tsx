@@ -1,3 +1,4 @@
+import { enableFilippoTransport } from './services/transportDutySetup'
 import { applyProductionPlanningState, type ProductionPlanningState } from './services/productionPlanningState'
 import { applyDayExtensions } from './services/operatorDayExtensions'
 import type { OperatorDayExtension } from './types'
@@ -961,6 +962,10 @@ function App() {
     }))
   }, [data, data.vehicles, data.plannerSettings, data.plannerAssignments, databaseLoaded, databaseReady, cloudConfig, cloudReady])
 
+  useEffect(()=>{
+    if(!databaseReady||!cloudReady||cloudMembership?.role!=='owner')return
+    setData(current=>enableFilippoTransport(current,cloudMembership.companyId))
+  },[databaseReady,cloudReady,cloudMembership])
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
   const filteredCustomers = data.customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.email}`.toLowerCase().includes(query.toLowerCase()))

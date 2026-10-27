@@ -92,3 +92,11 @@ it('detrarre 55 minuti di preparazione lascia 35 minuti alla verniciatura dello 
  expect(phases.reduce((sum,p)=>sum+p.estimatedMinutes,0)).toBe(90)
  expect(phases.find(p=>p.name==='Incartatura')!.sharedTimeKey).not.toBe('v')
 })
+
+it('includes transport only when requested, with its own manual time before office delivery',()=>{
+ const lines=[{...input.lines[0],category:'altre' as const,standardWorkName:'Trasporto',estimatedMinutes:45,lineTotalMinutes:45}]
+ const phases=buildSelectedWorkCycle(lines,[])
+ expect(phases.filter(p=>!p.notRequired).map(p=>p.name)).toEqual(['Trasporto','Consegna'])
+ expect(phases.find(p=>p.name==='Trasporto')).toMatchObject({estimatedMinutes:45,requiredSkill:'Trasporto',notRequired:false})
+ expect(buildSelectedWorkCycle([],[]).find(p=>p.name==='Trasporto')?.notRequired).toBe(true)
+})
