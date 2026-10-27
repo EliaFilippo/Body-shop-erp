@@ -18,7 +18,7 @@ export function fastEstimateWhatsAppLink(estimate: EstimateDocument, phone: stri
   const message=[
     `Buongiorno ${estimate.contactName||estimate.companyName},`,
     `ecco il preventivo ${estimate.number} di Carrozzeria Elias per la vettura ${estimate.plate}:`,
-    ...estimate.lines.map(line=>`• ${line.description} × ${line.quantity}: ${euro(line.unitPrice*line.quantity)} + IVA`),
+    ...estimate.lines.map(line=>`• ${line.description} × ${line.quantity}: ${euro(line.taxableAmount)} + IVA`),
     `Imponibile: ${euro(estimate.taxableAmount)}`,
     `IVA: ${euro(estimate.vatAmount)}`,
     `Totale IVA inclusa: ${euro(estimate.total)}`,
