@@ -1,6 +1,8 @@
 \set ON_ERROR_STOP on
 \ir ../migrations/20261027_unscheduled_work.sql
 \ir ../migrations/20261027_unscheduled_work.sql
+\ir ../migrations/20261027_free_start.sql
+\ir ../migrations/20261027_free_start.sql
 begin;
 insert into companies(id,name) values('50000000-0000-0000-0000-000000000005','Off-program fixture');
 insert into company_members(company_id,user_id,display_name,role) values
@@ -42,6 +44,27 @@ do $$declare facts jsonb;begin
  if jsonb_array_length(facts->'entries')<>3 then raise exception 'Missing real work: %',facts;end if;
  if facts::text like '%rate%' or facts::text like '%budget%' then raise exception 'Economic data leak';end if;
 end $$;
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
+select production_activity_action('50000000-0000-0000-0000-000000000005','cleaning');
+do $begin
+ begin
+  perform production_start_selected_job('50000000-0000-0000-0000-000000000005','off1','missing');
+  raise exception 'Invalid target allowed from cleaning';
+ exception when raise_exception then if sqlerrm='Invalid target allowed from cleaning' then raise;end if;end;
+ if not exists(select 1 from production_operator_activities where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and kind='cleaning' and ended_at is null) then raise exception 'Failed Start ended cleaning';end if;
+end $;
+select production_start_selected_job('50000000-0000-0000-0000-000000000005','off1','p1');
+do $begin
+ if exists(select 1 from production_operator_activities where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and ended_at is null) then raise exception 'Cleaning overlaps work';end if;
+ if (select count(*) from production_live_segments where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and ended_at is null)<>1 then raise exception 'Missing selected work';end if;
+end $;
+select production_activity_action('50000000-0000-0000-0000-000000000005','coffee');
+select production_start_selected_job('50000000-0000-0000-0000-000000000005','off2','p2');
+do $begin
+ if exists(select 1 from production_operator_activities where company_id='50000000-0000-0000-0000-000000000005' and operator_id='a' and ended_at is null) then raise exception 'Coffee overlaps work';end if;
+ if not exists(select 1 from production_live_segments where company_id='50000000-0000-0000-0000-000000000005' and operator_id='b' and ended_at is null) then raise exception 'Colleague stopped';end if;
+ if exists(select 1 from production_phase_checks where company_id='50000000-0000-0000-0000-000000000005') then raise exception 'Phase completed automatically';end if;
+end $;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
 do $$begin
  begin
