@@ -75,6 +75,8 @@ jobs:
         run: psql -f supabase/tests/unscheduled_work.sql
       - name: Nightly planning isolation, leases, stale timer guard and once-daily commit
         run: psql -f supabase/tests/nightly_planning.sql
+      - name: Owner remote timer stop, activities, stale clicks, audit and password
+        run: psql -f supabase/tests/remote_timer_stop.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
