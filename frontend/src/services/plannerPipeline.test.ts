@@ -128,11 +128,13 @@ it('rimuove i lavori già programmati quando si salva un’assenza di tutto il g
  data.plannerSettings.operators.push({...data.plannerSettings.operators[0],id:'colleague',name:'Collega',hourlyCost:30})
  data.jobs![0].phases=data.jobs![0].phases.filter(p=>p.name==='Lavaggio esterno')
  const before=recalculateOperatorPrograms(data,'2026-10-26','prima','2026-10-26T06:00:00Z')
- expect(before.operatorPrograms!.filter(p=>p.operatorId==='wash'&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
- const absent={...before,plannerSettings:{...before.plannerSettings,absences:[{id:'absence',operatorId:'wash',startDate:'2026-10-26',endDate:'2026-10-26',hoursPerDay:null,reason:'Assente'}]}}
+ const assigned=before.operatorPrograms!.find(p=>p.date==='2026-10-26'&&p.tasks.length>0)!.operatorId
+ const replacement=data.plannerSettings.operators.find(op=>op.id!==assigned)!.id
+ expect(before.operatorPrograms!.filter(p=>p.operatorId===assigned&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
+ const absent={...before,plannerSettings:{...before.plannerSettings,absences:[{id:'absence',operatorId:assigned,startDate:'2026-10-26',endDate:'2026-10-26',hoursPerDay:null,reason:'Assente'}]}}
  const jobs=JSON.stringify(absent.jobs)
  const after=recalculateOperatorPrograms(absent,'2026-10-26','assenza','2026-10-26T06:00:00Z')
- expect(after.operatorPrograms!.filter(p=>p.operatorId==='wash'&&p.date==='2026-10-26').flatMap(p=>p.tasks)).toHaveLength(0)
- expect(after.operatorPrograms!.filter(p=>p.operatorId==='colleague'&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
+ expect(after.operatorPrograms!.filter(p=>p.operatorId===assigned&&p.date==='2026-10-26').flatMap(p=>p.tasks)).toHaveLength(0)
+ expect(after.operatorPrograms!.filter(p=>p.operatorId===replacement&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
  expect(JSON.stringify(after.jobs)).toBe(jobs)
 })
