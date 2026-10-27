@@ -26,7 +26,7 @@ export function buildEstimatePdf(data:ErpData,estimate:EstimateDocument){
  }
  const tableHead=()=>{
   pdf.setDrawColor(155);pdf.setLineWidth(.15)
-  pdf.setFillColor(245);pdf.rect(left,tableTop,width,6,'FD')
+  pdf.setFillColor('#f5f5f5');pdf.rect(left,tableTop,width,6,'FD')
   const titles=['N.','Descrizione','SR','LA','VE','ME','Q.ta','Prezzo EUR','Sconto EUR','Totale EUR']
   titles.forEach((t,i)=>text(t,xs[i]+1,tableTop+4,6.3,true))
   y=tableTop+6
