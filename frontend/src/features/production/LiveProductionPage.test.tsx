@@ -236,3 +236,21 @@ it('riconosce il link personale aperto in una pagina di Produzione già caricata
  fireEvent(window,new HashChangeEvent('hashchange'))
  expect(screen.getByLabelText('PIN personale')).toBeInTheDocument()
 })
+
+it('finds an unplanned vehicle by cone and switches without stopping a colleague or completing a phase',async()=>{
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_start_selected_job')return null
+  return {companyId:'c1',role:'production',operatorName:'Mario',serverNow:new Date().toISOString(),members:[],program:[],jobs:[
+   {jobId:'j1',plate:'AA111AA',number:'1',coneNumber:1,remainingSeconds:600,remainingPercent:100,activeCount:1,ownStatus:'running',operators:[]},
+   {jobId:'j2',plate:'BB222BB',number:'2',coneNumber:22,remainingSeconds:600,remainingPercent:100,activeCount:0,ownStatus:null,operators:[]},
+  ]}
+ })
+ render(<LiveProductionPage/>)
+ await screen.findByText('BB222BB')
+ fireEvent.change(screen.getByLabelText('Cerca targa o cono'),{target:{value:'22'}})
+ expect(screen.queryByText('AA111AA')).not.toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Passa a questa vettura'}))
+ await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_start_selected_job',{p_company_id:'c1',p_job_id:'j2',p_phase_id:null},expect.anything(),expect.anything()))
+ expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
+})

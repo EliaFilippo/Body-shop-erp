@@ -71,6 +71,8 @@ jobs:
         run: psql -f supabase/tests/wash_station.sql
       - name: Daily staff hours, cleaning, Rome midnight and password-protected audited corrections
         run: psql -f supabase/tests/daily_employee_hours.sql
+      - name: Unscheduled vehicle switch, rollback, colleague isolation and planning facts
+        run: psql -f supabase/tests/unscheduled_work.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

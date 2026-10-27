@@ -1,3 +1,4 @@
+import { applyProductionPlanningState, type ProductionPlanningState } from './services/productionPlanningState'
 import { applyDayExtensions } from './services/operatorDayExtensions'
 import type { OperatorDayExtension } from './types'
 import { ConfirmedWorkOverview } from './features/dashboard/ConfirmedWorkOverview'
@@ -737,6 +738,10 @@ function App() {
         const checks = await productionRpc<PhaseCheckUpdate[]>('production_phase_updates', { p_company_id: cloudMembership.companyId }, cloudSession, cloudConfig)
         if (!cancelled && checks.length) setData(current => applyLivePhaseChecks(current, checks))
         try {
+          const actual=await productionRpc<ProductionPlanningState>('production_planning_state',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
+          if(!cancelled)setData(current=>applyProductionPlanningState(current,actual))
+        } catch { /* Available after installing the operational replanning update. */ }
+        try {
           const extensions=await productionRpc<OperatorDayExtension[]>('production_day_extensions',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
           if(!cancelled)setData(current=>applyDayExtensions(current,extensions,todayKey(),new Date().toISOString()))
         } catch { /* Older installations keep their normal calendar until the update is installed. */ }
@@ -939,7 +944,7 @@ function App() {
       ...withDelayControl,
       vehicles,
       plannerAssignments: result.assignments,
-    }, undefined, 'Ricalcolo automatico per variazione dati')
+    }, undefined, 'Ricalcolo automatico per variazione dati', data.productionPlanningSampleAt)
     const unchangedAssignments = JSON.stringify(result.assignments) === JSON.stringify(data.plannerAssignments)
     const unchangedPrograms = JSON.stringify(withOperatorProgram.operatorPrograms) === JSON.stringify(data.operatorPrograms)
     const unchangedProgramHistory = JSON.stringify(withOperatorProgram.operatorProgramHistory) === JSON.stringify(data.operatorProgramHistory)

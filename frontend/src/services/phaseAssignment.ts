@@ -7,6 +7,8 @@ import { addWorkingMinutes, getOperatorWorkingIntervals, nextWorkingInstant } fr
 export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt: string }>(
   data: ErpData, job: RepairJob, phase: JobPhase, candidates: T[], minutes: number, floor: string, ready: string,
 ): { operators: T[]; reason: string } {
+  const tabletNames=(phase.operatorAssignments??[]).filter(a=>a.id.startsWith('tablet:')&&a.activityStatus==='Attivo'&&!a.endedAt).map(a=>a.operatorName)
+  if(tabletNames.length)return {operators:candidates.filter(c=>tabletNames.includes(c.operator.name)),reason:'Prosegue il lavoro reale già avviato sul tablet'}
   const support = candidates.find(c => c.operator.id === phase.supportOperatorId && c.operator.id !== phase.preferredOperatorId)
   if (phase.supportOperatorId && !support) {
     const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: undefined }, candidates, minutes, floor, ready)

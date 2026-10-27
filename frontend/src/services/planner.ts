@@ -514,7 +514,7 @@ function phaseManWorkedMinutes(phase: JobPhase, atIso: string) {
     if (assignment.endedAt) return sum + Math.max(0, assignment.workedMinutes)
     if (assignment.activityStatus === 'Attivo') {
       const elapsed = Math.max(0, Math.round((new Date(atIso).getTime() - new Date(assignment.startedAt).getTime()) / 60000))
-      return sum + Math.max(assignment.workedMinutes, elapsed)
+      return sum + (assignment.id.startsWith('tablet:') ? Math.max(0,assignment.workedMinutes)+elapsed : Math.max(assignment.workedMinutes, elapsed))
     }
     return sum + Math.max(0, assignment.workedMinutes)
   }, 0)
@@ -1016,9 +1016,9 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const earliestSlot=(candidate:typeof candidates[number])=>{
       if(candidate.blocked)return '~'
       let states=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,candidate.phase))
-      if(candidate.phase.preferredOperatorId)states=states.filter(state=>state.operator.id===candidate.phase.preferredOperatorId)
       const running=(candidate.phase.operatorAssignments??[]).filter(a=>a.activityStatus==='Attivo'&&!a.endedAt).map(a=>a.operatorName)
       if(running.length)states=states.filter(state=>running.includes(state.operator.name))
+      else if(candidate.phase.preferredOperatorId)states=states.filter(state=>state.operator.id===candidate.phase.preferredOperatorId)
       if(!states.length)return '~'
       let start=states.map(state=>[state.nextAt,candidate.readyAt,schedulingFloor].sort().at(-1)!).sort()[0]
       const support=operatorState.get(candidate.phase.supportOperatorId??'')
@@ -1050,7 +1050,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       remainingByPhase.set(phaseKey,Math.max(1,Math.ceil(phaseResidualMinutes(item.phase,now,item.job)/Math.max(1,groupMembers))))
     }
     const residual = remainingByPhase.get(phaseKey)!
-    const desiredOperators = isWashingPhase(item.phase.name) ? 1 : item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1)
+    const desiredOperators = activeAssignments.length || (isWashingPhase(item.phase.name) ? 1 : item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1))
 
     let eligible=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,item.phase))
     // Automatic choices do not queue behind a busy colleague while another qualified employee can start.

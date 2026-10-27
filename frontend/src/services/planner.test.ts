@@ -1515,3 +1515,20 @@ it('segna Pianificata solo una commessa con attività assegnate e non la conside
  const waiting=recalculateOperatorPrograms(blocked,'2026-07-27','Test','2026-07-27T05:00:00.000Z')
  expect(waiting.jobs!.every(job=>job.status==='Da pianificare')).toBe(true)
 })
+
+it('replans the remaining day around a real out-of-program timer despite a different manually preferred worker',()=>{
+ const data=makeProgramData(),now='2026-07-27T09:00:00.000Z'
+ data.plannerSettings={...settings,operators:[{id:'op-1',name:'Filippo',dailyHours:8,active:true,skills:['lattoneria']},{id:'op-2',name:'Giorgio',dailyHours:8,active:true,skills:['lattoneria']}]}
+ const phase=data.jobs![1].phases[1]
+ phase.preferredOperatorId='op-2'
+ phase.operatorAssignments=[{id:'tablet:op-1',operatorName:'Filippo',startedAt:'2026-07-27T08:50:00.000Z',workedMinutes:10,activityStatus:'Attivo'}]
+ phase.status='In lavorazione'
+ const before=JSON.stringify(data)
+ const result=generateOperatorPrograms(data,'2026-07-27','Vettura scelta dal tablet',now)
+ const tasks=result.programs.find(p=>p.operatorId==='op-1')!.tasks
+ expect(tasks[0].jobId).toBe('j2')
+ expect(tasks[0].startAt>=now).toBe(true)
+ for(let i=1;i<tasks.length;i++)expect(tasks[i].startAt>=tasks[i-1].endAt).toBe(true)
+ expect(JSON.stringify(data)).toBe(before)
+ expect(phase.status).toBe('In lavorazione')
+})

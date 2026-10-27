@@ -36,6 +36,7 @@ export function LiveProductionPage() {
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [vehicleSearch,setVehicleSearch]=useState('')
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
   const sessionRef = useRef(session)
@@ -211,8 +212,9 @@ export function LiveProductionPage() {
       {publicationWarning&&['owner','office'].includes(feed.role)&&<p role="status">Pubblicazione automatica: {publicationWarning}</p>}
       {['owner', 'office'].includes(feed.role) && <ProductionControlPanel connection={{ companyId, session, config: config! }} />}
       <p>Ogni fase ha una quota del budget della vettura. I colleghi sulla stessa fase consumano la stessa quota. Pausa e Fine fermano soltanto il tuo timer.</p>
+      <section className="live-day-hours"><h2>Scegli una vettura · anche fuori programma</h2><label>Cerca targa o cono<input type="search" value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} /></label><p>Puoi avviare qualsiasi commessa disponibile per le tue mansioni. Passando a una diversa vettura, il tuo lavoro precedente va in pausa senza completare la fase. Il piano si aggiorna dal gestionale ufficio aperto.</p></section>
       <section className="live-job-grid" aria-label="Vetture disponibili">
-        {feed.jobs.map(job => {
+        {feed.jobs.filter(job=>!vehicleSearch.trim()||`${job.plate} ${job.coneNumber??''} ${job.number}`.replace(/\s/g,'').toLowerCase().includes(vehicleSearch.replace(/\s/g,'').toLowerCase())).map(job => {
           const totalClock = liveCountdown(job, (performance.now() - lastSample.current) / 1000)
           const availablePhases = (job.phases ?? []).filter(p => !p.notRequired && !['Completata', 'Bloccata'].includes(p.status))
           const selected = [phaseChoices[job.jobId], job.ownPhaseId, availablePhases[0]?.id].find(id => availablePhases.some(p => p.id === id)) ?? ''
@@ -243,8 +245,8 @@ export function LiveProductionPage() {
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
               {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}</option>)}</select></label>}
-            <div className="live-controls"><button disabled={busy || stale || !!feed.activity?.kind || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected) || !!(ownRunning && ownRunning.jobId !== job.jobId)}
-              onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'start', p_phase_id: selected || null })}>{job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
+            <div className="live-controls"><button disabled={busy || stale || !!feed.activity?.kind || !feed.operatorName || job.ownStatus === 'running' || (requiresPhase && !selected)}
+              onClick={() => void act(ownRunning && ownRunning.jobId !== job.jobId ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(ownRunning && ownRunning.jobId !== job.jobId ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
             {!!job.tasks?.length && <details open><summary>Lavori da fare</summary><ul>{job.tasks.map(task => <li key={task.id}>{panelTaskDescription(task.description, task.panel)}{task.quantity > 1 ? ` × ${task.quantity}` : ''}</li>)}</ul></details>}

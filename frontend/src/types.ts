@@ -1223,6 +1223,7 @@ export interface JobWorkflowKpis {
 }
 
 export interface ErpData {
+  productionPlanningSampleAt?: string
   users?: AppUser[]
   customers: Customer[]
   vehicles: Vehicle[]
