@@ -21,7 +21,7 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
   const attendanceMinutes=(id:string)=>workingMinutesForDate(date,data.plannerSettings,data.plannerSettings.operators.find(o=>o.id===id))
   const idleReason=(id:string)=>{
     const op=data.plannerSettings.operators.find(o=>o.id===id)!
-    if(attendanceMinutes(id)<=0)return 'Nessuna presenza lavorativa configurata per questa data.'
+    if(attendanceMinutes(id)<=0)return (data.plannerSettings.absences??[]).some(a=>a.operatorId===id&&date>=a.startDate&&date<=a.endDate)?'Assente in questa giornata. Nessuna lavorazione pianificabile.':'Nessuna presenza lavorativa configurata per questa data.'
     const open=(data.jobs??[]).filter(j=>!['Consegnata','Annullata'].includes(j.status))
     if(!open.length)return 'Non ci sono commesse aperte da assegnare.'
     const compatible=open.filter(j=>j.phases.some(p=>!p.notRequired&&p.status!=='Completata'&&p.name!=='Consegna'&&supportsOperatorDuty(op,p.requiredSkill||p.name)))

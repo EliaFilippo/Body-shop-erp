@@ -1,7 +1,7 @@
 import { describe,it,expect } from 'vitest'
 import { emptyData } from './erp'
 import { createEstimate,approveEstimateAndCreateJob } from './workflow'
-import { generateOperatorPrograms } from './planner'
+import { generateOperatorPrograms,recalculateOperatorPrograms } from './planner'
 import type { ErpData, Vehicle } from '../types'
 
 function fixture(count=4) {
@@ -120,4 +120,19 @@ it('una sola postazione di lavaggio e un solo addetto anche con affiancamento ma
  const tasks=generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z').programs.flatMap(p=>p.tasks).sort((a,b)=>a.startAt.localeCompare(b.startAt))
  expect(tasks).toHaveLength(3)
  for(let i=1;i<tasks.length;i++)expect(tasks[i].startAt>=tasks[i-1].endAt).toBe(true)
+})
+
+it('rimuove i lavori già programmati quando si salva un’assenza di tutto il giorno e usa un collega abilitato',()=>{
+ const data=fixture(1)
+ data.plannerSettings.operators=data.plannerSettings.operators.filter(op=>op.id==='wash')
+ data.plannerSettings.operators.push({...data.plannerSettings.operators[0],id:'colleague',name:'Collega',hourlyCost:30})
+ data.jobs![0].phases=data.jobs![0].phases.filter(p=>p.name==='Lavaggio esterno')
+ const before=recalculateOperatorPrograms(data,'2026-10-26','prima','2026-10-26T06:00:00Z')
+ expect(before.operatorPrograms!.filter(p=>p.operatorId==='wash'&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
+ const absent={...before,plannerSettings:{...before.plannerSettings,absences:[{id:'absence',operatorId:'wash',startDate:'2026-10-26',endDate:'2026-10-26',hoursPerDay:null,reason:'Assente'}]}}
+ const jobs=JSON.stringify(absent.jobs)
+ const after=recalculateOperatorPrograms(absent,'2026-10-26','assenza','2026-10-26T06:00:00Z')
+ expect(after.operatorPrograms!.filter(p=>p.operatorId==='wash'&&p.date==='2026-10-26').flatMap(p=>p.tasks)).toHaveLength(0)
+ expect(after.operatorPrograms!.filter(p=>p.operatorId==='colleague'&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
+ expect(JSON.stringify(after.jobs)).toBe(jobs)
 })
