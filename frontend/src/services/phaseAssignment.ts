@@ -7,8 +7,8 @@ import { addWorkingMinutes, getOperatorWorkingIntervals, nextWorkingInstant } fr
 export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt: string }>(
   data: ErpData, job: RepairJob, phase: JobPhase, candidates: T[], minutes: number, floor: string, ready: string,
 ): { operators: T[]; reason: string } {
-  const workingNames = (phase.operatorAssignments ?? []).filter(a => a.activityStatus === 'Attivo' && !a.endedAt).map(a => a.operatorName)
-  if (workingNames.length) return { operators: candidates.filter(c => workingNames.includes(c.operator.name)), reason: 'Prosegue il lavoro degli operatori già attivi' }
+  const tabletNames=(phase.operatorAssignments??[]).filter(a=>a.id.startsWith('tablet:')&&a.activityStatus==='Attivo'&&!a.endedAt).map(a=>a.operatorName)
+  if(tabletNames.length)return {operators:candidates.filter(c=>tabletNames.includes(c.operator.name)),reason:'Prosegue il lavoro reale già avviato sul tablet'}
   const support = candidates.find(c => c.operator.id === phase.supportOperatorId && c.operator.id !== phase.preferredOperatorId)
   if (phase.supportOperatorId && !support) {
     const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: undefined }, candidates, minutes, floor, ready)
@@ -21,6 +21,8 @@ export function rankPhaseOperators<T extends { operator: PlannerOperator; nextAt
   if (phase.preferredOperatorId) return {
     operators: candidates.filter(c => c.operator.id === phase.preferredOperatorId), reason: 'Operatore scelto dall’ufficio',
   }
+  const workingNames = (phase.operatorAssignments ?? []).filter(a => a.activityStatus === 'Attivo' && !a.endedAt).map(a => a.operatorName)
+  if (workingNames.length) return { operators: candidates.filter(c => workingNames.includes(c.operator.name)), reason: 'Prosegue il lavoro degli operatori già attivi' }
   const day = [floor, ready].sort().at(-1)!.slice(0, 10)
   const present = candidates.filter(c => getOperatorWorkingIntervals(day, data.plannerSettings, c.operator).length > 0
     && nextWorkingInstant([floor, ready].sort().at(-1)!, data.plannerSettings, c.operator).slice(0, 10) === day)
