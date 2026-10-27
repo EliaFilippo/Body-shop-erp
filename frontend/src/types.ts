@@ -199,6 +199,16 @@ export interface CompanyProfile {
 }
 
 export interface Customer {
+  postalCode?: string
+  city?: string
+  province?: string
+  country?: string
+  vatId?: string
+  taxCode?: string
+  pec?: string
+  sdiCode?: string
+  contactName?: string
+  mobile?: string
   id: string
   type: CustomerType
   category?: CustomerType

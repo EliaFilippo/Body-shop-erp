@@ -49,7 +49,7 @@ describe('percorso fast in ufficio',()=>{
   const url=new URL(chat.location.href)
   expect(url.hostname).toBe('web.whatsapp.com')
   expect(url.searchParams.get('phone')).toBe('393331234567')
-  expect(url.searchParams.get('text')).toContain('Totale IVA inclusa:')
+  expect(url.searchParams.get('text')).toContain('in allegato il preventivo')
   expect(url.searchParams.get('text')).not.toContain('margine')
   expect(estimatePdfFile).toHaveBeenCalled()
   expect(downloadEstimatePdf).toHaveBeenCalledWith(expect.objectContaining({name:'AB123CD.pdf'}))
