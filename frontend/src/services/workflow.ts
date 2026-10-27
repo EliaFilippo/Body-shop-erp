@@ -60,6 +60,7 @@ function normalizeWorkName(value: string) {
 function phaseForWorkName(name: string) {
 	const normalized = normalizeWorkName(name)
 	if (!normalized) return ''
+	if (normalized === 'trasporto') return 'Trasporto'
 	if (normalized === 'smontaggio') return 'Smontaggio'
 	if (normalized === 'rimontaggio') return 'Rimontaggio'
 	if (normalized === 'incartatura') return 'Preparazione'

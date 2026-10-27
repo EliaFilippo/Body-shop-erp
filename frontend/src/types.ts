@@ -313,6 +313,7 @@ export interface Vehicle {
 }
 
 export interface PlannerOperator {
+  transportDutySetupVersion?: number
   id: string
   name: string
   dailyHours: number
