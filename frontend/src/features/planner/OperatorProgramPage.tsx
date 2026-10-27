@@ -44,7 +44,7 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
       <div>
         <span className="eyebrow">PROGRAMMA OPERATORI</span>
         <h2>Piano giornaliero autonomo</h2>
-        <p>Sequenza attivita per operatore calcolata da priorita, consegne, stato fase, compatibilita e disponibilita.</p>
+        <p>Prima il flusso delle cabine: scartare le vetture già verniciate e asciutte, verniciare quelle pronte, incartare e preparare le prossime. Poi gli altri lavori, con precedenza per consegna, margine e anzianità. Mansioni e disponibilità restano vincolanti.</p>
       </div>
       <div className="planner-actions">
         <button className="primary" disabled={!connection} onClick={()=>setShowHours(true)}>Monte ore giornaliero</button>

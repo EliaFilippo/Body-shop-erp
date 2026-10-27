@@ -1,3 +1,4 @@
+import { paintFlowPriority } from './paintFlowPriority'
 import { isWashingPhase, findWashStationStart, currentWashReservations } from './washStation'
 import { findPaintStationStart, type PaintReservation } from './paintStations'
 import { rankPhaseOperators } from './phaseAssignment'
@@ -942,6 +943,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const revision = Number(data.operatorProgramRevision ?? 0) + 1
   const horizonEndDate = addDays(effectiveDate, 30)
   const operators = data.plannerSettings.operators.filter((operator) => operator.active)
+  const originalJobs=new Map((data.jobs??[]).map(job=>[job.id,job]))
+  const paintPriority=(candidate:{job:RepairJob;phase:JobPhase})=>paintFlowPriority(candidate.job,candidate.phase,originalJobs.get(candidate.job.id))
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
   const openJobs = (data.jobs ?? []).filter((job) => isJobActive(job) && job.vehicleId)
   const candidates = openJobs
@@ -977,7 +980,9 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .sort((a, b) => {
       if (Number(a.blocked) !== Number(b.blocked)) return Number(a.blocked) - Number(b.blocked)
-      // Prima la consegna concordata, poi il margine totale, poi l'attesa di almeno quattro giorni.
+      const boothOrder=paintPriority(a).rank-paintPriority(b).rank
+      if(boothOrder)return boothOrder
+      // Dentro la stessa priorità operativa: consegna, margine, attesa di oltre quattro giorni.
       if (a.score.dueDate !== b.score.dueDate) return a.score.dueDate.localeCompare(b.score.dueDate)
       if (a.score.totalMargin !== b.score.totalMargin) return b.score.totalMargin - a.score.totalMargin
       const aAge = Math.max(0, betweenDays(a.job.createdAt.slice(0, 10), effectiveDate))
@@ -1027,7 +1032,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const a=candidates[index],b=candidates[nextIndex]
       const ageA=Math.max(0,betweenDays(a.job.createdAt.slice(0,10),effectiveDate))
       const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
-      const priorityOrder=a.score.dueDate.localeCompare(b.score.dueDate)
+      const priorityOrder=paintPriority(a).rank-paintPriority(b).rank
+        || a.score.dueDate.localeCompare(b.score.dueDate)
         || b.score.totalMargin-a.score.totalMargin
         || Number(ageB>4)-Number(ageA>4)
         || ((ageA>4&&ageB>4)?ageB-ageA:0)
@@ -1120,7 +1126,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         endAt:workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
+        reason: `${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,

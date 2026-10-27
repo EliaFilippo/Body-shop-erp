@@ -138,3 +138,37 @@ it('rimuove i lavori già programmati quando si salva un’assenza di tutto il g
  expect(after.operatorPrograms!.filter(p=>p.operatorId===replacement&&p.date==='2026-10-26').flatMap(p=>p.tasks).length).toBeGreaterThan(0)
  expect(JSON.stringify(after.jobs)).toBe(jobs)
 })
+
+it('prima scarta le vetture verniciate ieri, anche se altre incartature hanno consegna e margine migliori',()=>{
+ const data=fixture(3),[paintedA,paintedB,next]=data.jobs!
+ data.plannerSettings.operators=data.plannerSettings.operators.filter(o=>o.id==='mask')
+ data.plannerSettings.operators.push({...data.plannerSettings.operators[0],id:'mask2',name:'Seconda preparatrice'})
+ for(const job of [paintedA,paintedB]){
+  job.phases=job.phases.filter(p=>['Verniciatura','Scartatura'].includes(p.name)).map(p=>p.name==='Verniciatura'
+   ?{...p,status:'Completata' as const,notRequired:false,completedAt:'2026-10-26T21:00:00Z',endedAt:'2026-10-26T21:00:00Z',technicalWaitMinutes:60,technicalWaitBlocksPhaseNames:['Scartatura']}
+   :{...p,status:'Da fare' as const,notRequired:false,estimatedMinutes:20,sharedTimeKey:undefined,sharedTimeMinutes:undefined})
+  job.expectedDeliveryDate='2026-11-10';job.agreedDeliveryDate='2026-11-10';job.taxableAmount=100
+ }
+ next.phases=next.phases.filter(p=>['Incartatura','Verniciatura'].includes(p.name)).map(p=>({...p,notRequired:false,status:'Da fare' as const,estimatedMinutes:60,sharedTimeKey:undefined,sharedTimeMinutes:undefined}))
+ next.expectedDeliveryDate='2026-10-27';next.agreedDeliveryDate='2026-10-27';next.taxableAmount=1000
+ const before=JSON.stringify(data)
+ const tasks=generateOperatorPrograms(data,'2026-10-27','test','2026-10-27T06:00:00Z').programs.filter(p=>p.date==='2026-10-27').flatMap(p=>p.tasks)
+ const first=tasks.filter(t=>t.startAt==='2026-10-27T08:00:00.000Z')
+ expect(new Set(first.map(t=>t.jobId))).toEqual(new Set([paintedA.id,paintedB.id]))
+ expect(first.every(t=>t.phaseName==='Scartatura'&&t.reason.includes('Priorità cabine'))).toBe(true)
+ const masking=tasks.find(t=>t.jobId===next.id)!
+ expect(masking.startAt>='2026-10-27T08:20:00.000Z').toBe(true)
+ expect(JSON.stringify(data)).toBe(before)
+})
+
+it('non anticipa la scartatura prima dell’asciugatura e non promuove una verniciatura ancora incompleta',()=>{
+ const data=fixture(1),job=data.jobs![0]
+ data.plannerSettings.operators=data.plannerSettings.operators.filter(o=>o.id==='mask')
+ job.phases=job.phases.filter(p=>['Verniciatura','Scartatura'].includes(p.name)).map(p=>p.name==='Verniciatura'
+  ?{...p,status:'Completata' as const,notRequired:false,completedAt:'2026-10-26T07:45:00Z',endedAt:'2026-10-26T07:45:00Z',technicalWaitMinutes:60,technicalWaitBlocksPhaseNames:['Scartatura']}
+  :{...p,status:'Da fare' as const,notRequired:false,estimatedMinutes:20,sharedTimeKey:undefined,sharedTimeMinutes:undefined})
+ const planned=()=>generateOperatorPrograms(data,'2026-10-26','test','2026-10-26T06:00:00Z').programs.flatMap(p=>p.tasks)
+ expect(planned()[0].startAt>='2026-10-26T08:45:00.000Z').toBe(true)
+ job.phases[0].status='Da fare';job.phases[0].completedAt=undefined;job.phases[0].endedAt=undefined
+ expect(planned()).toHaveLength(0)
+})
