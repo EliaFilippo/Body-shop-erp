@@ -3,7 +3,8 @@ export interface PlanningEntry {
  jobId:string;phaseId:string;operatorId:string;operatorName:string;closedSeconds:number;
  runningSince:string|null;firstStartedAt:string;lastEndedAt:string|null
 }
-export interface ProductionPlanningState { serverNow:string;entries:PlanningEntry[] }
+export interface DailyProductionWork {date:string;operatorId:string;productiveSeconds:number;paidSeconds:number}
+export interface ProductionPlanningState { serverNow:string;entries:PlanningEntry[];dailyWork?:DailyProductionWork[] }
 /** Canonical timer facts never create signatures or complete a phase. */
 export function applyProductionPlanningState(data:ErpData,state:ProductionPlanningState):ErpData {
  if(!Array.isArray(state.entries)||!Number.isFinite(Date.parse(state.serverNow)))return data

@@ -1223,8 +1223,16 @@ export interface JobWorkflowKpis {
   onTimeCompletionRate: number
 }
 
+export interface NightlyEconomicSnapshot {
+ monthKey:string;plannedFor:string;asOf:string;monthlyGoal:number;realizedNetRevenue:number;residualRevenue:number
+ productiveHours:number;paidHours:number;accruedOperatingCosts:number;payrollInMonthlyCosts:boolean
+ realHourlyCost:number|null;targetHourlyRate:number|null;remainingProductiveHours:number;utilizationPercent:number
+ capacitySource:'observed'|'configured';dailyGoal:number|null
+ dailyGoals:Array<{date:string;productiveHours:number;revenueGoal:number|null}>;warnings:string[]
+}
+
 export interface ErpData {
-  nightlyPlanning?: {enabled:boolean;plannedFor:string;generatedAt:string;hour:number}
+  nightlyPlanning?: {enabled:boolean;plannedFor:string;generatedAt:string;hour:number;economics?:NightlyEconomicSnapshot;economicsHistory?:NightlyEconomicSnapshot[]}
   productionPlanningSampleAt?: string
   users?: AppUser[]
   customers: Customer[]

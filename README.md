@@ -18,3 +18,15 @@ Applicare `supabase/migrations/20261027213003_manual_vehicle_phase_start.sql` pr
 La scelta Manuale mostra tutte le lavorazioni del ciclo, comprese le fasi escluse dal preventivo e quelle assenti nelle vecchie commesse. Le voci extra sono indicate come “non prevista nel preventivo”. Start/Riprendi registrano tempo reale sulla vettura senza cambiare preventivi, prezzi, programma automatico o tempi congelati. Anche i report per fase includono questi interventi con tempo assegnato zero; non viene inventato un tempo standard e non viene firmato automaticamente un completamento. I limiti delle postazioni e l’asciugatura si applicano anche agli interventi extra.
 
 Applicare `supabase/migrations/20261028072111_manual_unquoted_phases.sql` prima del frontend.
+
+### Tariffe e obiettivo nel piano notturno (28 ottobre 2026)
+
+Il ricalcolo delle 03:00 salva in `nightlyPlanning.economics` due indicatori separati: costo operativo per ora produttiva registrata e tariffa di fatturato residuo necessaria per l’obiettivo del mese. Dashboard e Planner mostrano l’obiettivo della giornata preparata, le ore effettive e la capacità residua. Preventivi, prezzi, tariffe degli operatori e budget dei timer già congelati restano conservati.
+
+Il costo consuntivo usa i costi mensili configurati maturati pro rata di calendario e il personale da ore registrate solo quando non è già compreso nei costi mensili. Gli operatori esterni extra sono aggiunti a parte; materiali e ricambi sono separati. Non è una misura di utile netto o una ricostruzione contabile di spese non registrate. In assenza di ore o costi sufficienti il dato è non disponibile.
+
+La tariffa obiettivo divide il fatturato mensile ancora da emettere (IVA esclusa, escluse bozze, fatture stornate e date future) per la capacità residua. La capacità usa turni, assenze e resa produttiva effettivamente registrata nei giorni trascorsi, limitata alla presenza configurata; senza storico usa l’efficienza impostata. Le ore extra e fuori preventivo sono comprese nel consuntivo. Il residuo è distribuito proporzionalmente alle ore disponibili di ogni giornata, con arrotondamento che conserva l’importo totale.
+
+Il piano conserva la priorità dei box: scartatura reale dopo asciugatura, verniciatura pronta, incartatura e preparazione; poi consegna, margine e attesa. Il commit conserva esclusione tra aziende, token privato, blocco turno attivo, revisione e watermark. Le ore sono estratte sul server con confini di mese e giorni Europe/Rome, inclusi i cambi d’ora.
+
+Applicare `supabase/migrations/20261028080641_nightly_economics.sql`, poi pubblicare il bundle `nightly-planner` generato da `node scripts/build-nightly-planner.mjs`, mantenendo la sua autenticazione privata esistente. Nessun dato economico è aggiunto al feed tablet degli operatori.
