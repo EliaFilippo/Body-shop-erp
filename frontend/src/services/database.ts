@@ -1125,7 +1125,7 @@ export function saveDatabase(data: ErpData, options: SaveDatabaseOptions = {}): 
   return saveQueue
 }
 
-export async function restoreCloudDatabase(payload: ErpData, expectedLocalRevision: number): Promise<ErpData> {
+export async function restoreCloudDatabase(payload: ErpData, expectedLocalRevision: number, options: { archiveLocalAndUseCloud?: boolean } = {}): Promise<ErpData> {
   // dbRevision appartiene al dispositivo che ha scritto il payload: non è la
   // revisione dello snapshot Supabase e non va confrontata con un altro PC.
   const restored = normalizeData({ ...payload, dbRevision: expectedLocalRevision })
@@ -1133,8 +1133,8 @@ export async function restoreCloudDatabase(payload: ErpData, expectedLocalRevisi
     expectedLocalRevision,
     mergeOnConflict: false,
     allowCountReduction: true,
-    checkpointReason: 'prima-sincronizzazione-cloud',
-    protectCloudRestore: true,
+    checkpointReason: options.archiveLocalAndUseCloud ? 'prima-riapertura-manuale' : 'prima-sincronizzazione-cloud',
+    protectCloudRestore: !options.archiveLocalAndUseCloud,
   })
   return restored
 }
