@@ -28,7 +28,7 @@ do $$declare f jsonb;begin
  f:=production_live_feed('91000000-0000-0000-0000-000000000009');
  if f->'jobs'->0->'phases'->0->>'status' is distinct from 'Completata' then raise exception 'Tablet ignored current save';end if;
  if f->'program'->0->>'phaseId' is distinct from 'polish' then raise exception 'Automatic assignment used obsolete phase';end if;
- begin perform production_live_feed('10000000-0000-0000-0000-000000000001');raise exception 'Cross-company projection leaked';exception when raise_exception then if sqlerrm<>'Accesso aziendale richiesto' then raise;end if;end;
+ begin perform production_live_feed('92000000-0000-0000-0000-000000000009');raise exception 'Cross-company projection leaked';exception when raise_exception then if sqlerrm<>'Accesso aziendale richiesto' then raise;end if;end;
 end $$;
 select production_manual_start('91000000-0000-0000-0000-000000000009','new-car','polish');
 select production_complete_phase('91000000-0000-0000-0000-000000000009','new-car','polish');
