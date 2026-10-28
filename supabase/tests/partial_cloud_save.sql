@@ -2,6 +2,8 @@
 \ir ../migrations/20261028134614_partial_cloud_save.sql
 \ir ../migrations/20261028134614_partial_cloud_save.sql
 begin;
+-- Supabase grants this schema usage to authenticated; mirror it in bare Postgres.
+grant usage on schema auth to authenticated;
 insert into companies(id,name) values('93000000-0000-0000-0000-000000000009','Partial save fixture');
 insert into company_members(company_id,user_id,display_name,role) values
 ('93000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-000000000001','Owner','owner'),
