@@ -34,6 +34,23 @@ function normalizeRow(row: CloudSnapshotRow): CloudSnapshot {
   return { companyId: row.company_id, revision: Math.max(0, Number(row.revision ?? 0)), payload: row.payload, updatedAt: String(row.updated_at ?? '') }
 }
 
+// Cache only acknowledged versions; never diff against an optimistic local save.
+const acknowledged = new Map<string, CloudSnapshot>()
+const archiveKey = (company: string, session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig) => `${config.url}|${company}|${session.accessToken}`
+export function clearCloudSnapshotCache() { acknowledged.clear() }
+function remember(key: string, snapshot: CloudSnapshot) {
+  acknowledged.set(key, structuredClone(snapshot))
+  if (acknowledged.size > 4) acknowledged.delete(acknowledged.keys().next().value!)
+}
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v,i) => sameJson(v,b[i]))
+  const aa=a as Record<string,unknown>, bb=b as Record<string,unknown>
+  const keys=Object.keys(aa).filter(k=>aa[k]!==undefined), other=Object.keys(bb).filter(k=>bb[k]!==undefined)
+  return keys.length===other.length && keys.every(k=>Object.hasOwn(bb,k) && sameJson(aa[k],bb[k]))
+}
+
 async function responseMessage(response: Response) {
   let code: unknown
   try {
@@ -52,7 +69,10 @@ export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAu
   const response = await fetcher(`${config.url}/rest/v1/erp_snapshots?${query}`, { headers: headers(session, config) })
   if (!response.ok) throw new Error(await responseMessage(response))
   const rows = await response.json() as CloudSnapshotRow[]
-  return rows[0] ? normalizeRow(rows[0]) : null
+  if (!rows[0]) return null
+  const snapshot=normalizeRow(rows[0])
+  remember(archiveKey(companyId,session,config),snapshot)
+  return snapshot
 }
 
 export async function createCloudSnapshot(companyId: string, data: ErpData, session: Pick<CloudAuthSession, 'accessToken' | 'userId'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot> {
@@ -65,20 +85,33 @@ export async function createCloudSnapshot(companyId: string, data: ErpData, sess
   if (!response.ok) throw new Error(await responseMessage(response))
   const rows = await response.json() as CloudSnapshotRow[]
   if (!rows[0]) throw new Error('Supabase non ha restituito lo snapshot creato.')
-  return normalizeRow(rows[0])
+  const snapshot=normalizeRow(rows[0])
+  remember(archiveKey(companyId,session,config),snapshot)
+  return snapshot
 }
 
 export async function updateCloudSnapshot(companyId: string, expectedRevision: number, data: ErpData, session: Pick<CloudAuthSession, 'accessToken' | 'userId'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot> {
-  const query = new URLSearchParams({ company_id: `eq.${companyId}`, revision: `eq.${expectedRevision}` })
-  const response = await fetcher(`${config.url}/rest/v1/erp_snapshots?${query}`, {
-    method: 'PATCH',
-    headers: { ...headers(session, config), Prefer: 'return=representation' },
-    body: JSON.stringify({ revision: expectedRevision + 1, payload: data, updated_by: session.userId, updated_at: new Date().toISOString() }),
+  const key=archiveKey(companyId,session,config)
+  const baseline=acknowledged.get(key)
+  const sent=structuredClone(data)
+  const values=sent as unknown as Record<string,unknown>
+  const base=baseline?.revision===expectedRevision ? baseline.payload as unknown as Record<string,unknown> : undefined
+  const changes: Record<string,unknown>=Object.create(null)
+  for (const field of Object.keys(values)) {
+    if(values[field]!==undefined && (!base || !sameJson(values[field],base[field]))) changes[field]=values[field]
+  }
+  const removeKeys=base ? Object.keys(base).filter(field=>values[field]===undefined) : []
+  const response=await fetcher(`${config.url}/rest/v1/rpc/erp_update_snapshot_sections`,{
+    method:'POST',headers:headers(session,config),
+    body:JSON.stringify({p_company_id:companyId,p_expected_revision:expectedRevision,p_changes:changes,p_remove_keys:removeKeys}),
   })
   if (!response.ok) throw new Error(await responseMessage(response))
-  const rows = await response.json() as CloudSnapshotRow[]
+  const rows=await response.json() as CloudSnapshotRow[]
   if (!rows[0]) throw new CloudSnapshotConflictError()
-  return normalizeRow(rows[0])
+  if(rows[0].company_id!==companyId || Number(rows[0].revision)!==expectedRevision+1) throw new Error('Conferma del salvataggio cloud non valida. I dati locali sono conservati.')
+  const saved: CloudSnapshot={companyId,revision:expectedRevision+1,payload:sent,updatedAt:String(rows[0].updated_at??'')}
+  remember(key,saved)
+  return saved
 }
 
 const pendingKey = (companyId: string) => `body-shop-erp.pending-cloud-save.v1:${companyId}`
