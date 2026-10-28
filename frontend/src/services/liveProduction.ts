@@ -11,7 +11,7 @@ export interface LiveClock {
   manualStartAllowed?: boolean; dutiesFiltered?: boolean; phases?: LivePhase[];
   tasks?: { id: string; description: string; panel?: string; quantity: number }[];
 }
-export interface LivePhase { automaticAllowed?: boolean; standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
+export interface LivePhase { manualWorkTracked?:boolean;manualExtra?:boolean;remainingTimeUnknown?:boolean; automaticAllowed?: boolean; standardClock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'> & { label: string; totalMinutes: number }; clock?: Pick<LiveClock, 'remainingSeconds' | 'remainingPercent' | 'activeCount' | 'overrunSeconds' | 'ownRemainingSeconds' | 'ownBurnFactor'>; id: string; name: string; status: string; notRequired: boolean; checkedBy: string | null; checkedAt: string | null; canComplete: boolean; blockedReason?: string }
 export interface HoursDay { date: string; workedSeconds: number; plannedSeconds: number | null; ordinarySeconds: number | null; extraSeconds: number | null; running: boolean }
 export interface HoursReport {
   operatorId: string; name: string; serverNow: string; from: string; to: string; days: HoursDay[];
@@ -28,7 +28,7 @@ export interface LiveFeed {
   members: { userId: string; name: string; operatorId: string | null }[];
   today?: HoursReport | null;
   staff?: { operatorId: string; name: string; today: HoursReport }[];
-  program?: { id: string; jobId: string; coneNumber?: number | null; plate: string; phaseId: string; phaseName: string; startAt: string; endAt: string; ready: boolean; panels: string[] }[];
+  program?: { updatedFromManual?:boolean; id: string; jobId: string; coneNumber?: number | null; plate: string; phaseId: string; phaseName: string; startAt: string; endAt: string; ready: boolean; panels: string[] }[];
 }
 
 export async function refreshProductionSession(session: CloudAuthSession, config: CloudAuthConfig): Promise<CloudAuthSession> {

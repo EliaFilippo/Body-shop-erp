@@ -66,3 +66,23 @@ it('stores separate nightly rates and daily goals once per planned date without 
  const twice=buildNightlyPlan(plan,state,[],'2026-10-28')
  expect(twice.nightlyPlanning.economicsHistory).toHaveLength(1)
 })
+
+it('assigns the next automatic phase after a manual signature, and keeps an unsigned manual phase open',()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-27T08:00:00Z'))
+ let data=structuredClone(emptyData)
+ data.plannerSettings.operators=[{id:'b',name:'Federica',active:true,dailyHours:8,skillsConfigured:true,skills:['Lucidatura']}]
+ data=createEstimate(data,{customerId:'c',plate:'HANDOFF',companyName:'Cliente',contactName:'',date:'2026-10-27',notes:'',selectedPhases:[],lines:[{description:'Ripristino',category:'carrozzeria',quantity:1,unitPrice:300,discount:0,vatRate:22,manualPhaseTimes:[{phase:'Lattoneria',minutes:60},{phase:'Lucidatura',minutes:30}]}]})
+ data=approveEstimateAndCreateJob(data,data.estimates![0].id)
+ const job=data.jobs![0];job.vehicleId='v'
+ data.vehicles=[{id:'v',customerId:'c',plate:'HANDOFF',make:'',model:'',color:'',year:'',vin:'',mileage:'',status:'Accettata',coneNumber:1,estimatedHours:1.5,workedHours:0,plannedEntryDate:'2026-10-27',requestedDeliveryDate:'2026-10-28',calculatedDeliveryDate:'',expectedRevenue:300,expectedMargin:100,partsStatus:'Disponibili',blockReason:'',manualPlanningDate:'',createdAt:'2026-10-27T08:00:00Z'}]
+ const body=job.phases.find(p=>p.name==='Lattoneria')!
+ const completed={...body,status:'Completata' as const,serverWorkTracked:true,manualWorkTracked:true,notRequired:false,completedAt:'2026-10-27T18:00:00Z',endedAt:'2026-10-27T18:00:00Z',completedByName:'Filippo',tabletWorkedSeconds:3600}
+ const state={serverNow:'2026-10-28T02:00:00Z',entries:[],phaseStates:[{jobId:job.id,phase:completed}]}
+ const plan=buildNightlyPlan(data,state,[],'2026-10-28')
+ expect(plan.operatorPrograms?.find(p=>p.operatorId==='b')?.tasks[0]?.phaseName).toBe('Lucidatura')
+ expect(job.phases.find(p=>p.id===body.id)?.status).toBe('Da fare')
+ const unfinished={...completed,status:'In lavorazione' as const,completedAt:undefined,endedAt:undefined,completedByName:undefined}
+ const pending=buildNightlyPlan(data,{...state,phaseStates:[{jobId:job.id,phase:unfinished}]},[],'2026-10-28')
+ expect(pending.operatorPrograms?.find(p=>p.operatorId==='b')?.tasks).toHaveLength(0)
+ expect(pending.jobs![0].phases.find(p=>p.id===body.id)?.status).toBe('In lavorazione')
+})

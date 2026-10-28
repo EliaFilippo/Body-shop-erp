@@ -887,6 +887,7 @@ function phaseReadyAt(job, phase) {
   return readyAt;
 }
 function selectSchedulablePhase(job) {
+  if (job.phases.some((p) => p.remainingTimeUnknown && p.status !== "Completata" && !(p.estimatedMinutes > 0 || (p.sharedTimeMinutes ?? 0) > 0))) return null;
   const active = job.phases.find((phase) => phase.status === "In lavorazione");
   if (active) return { phase: active, readyAt: completedAtForPhase(active) || `${job.entryDate || todayKey()}T00:00:00.000Z` };
   const todo = job.phases.filter((phase) => phase.status === "Da fare" && !phase.notRequired && (job.workflowCycle !== "elias-v1" || phase.name !== "Consegna" && (phase.estimatedMinutes > 0 || (phase.sharedTimeMinutes ?? 0) > 0))).map((phase) => ({ phase, readyAt: phaseReadyAt(job, phase) })).filter((entry) => Boolean(entry.readyAt)).sort((a, b) => a.readyAt.localeCompare(b.readyAt) || phaseTemplateIndex(a.phase.name) - phaseTemplateIndex(b.phase.name));
@@ -1514,14 +1515,75 @@ function applyLivePhaseChecks(data, checks) {
 }
 
 // frontend/src/services/productionPlanningState.ts
+var sameJson = (a, b) => {
+  const stable = (v) => JSON.stringify(v, (_key, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a2], [b2]) => a2.localeCompare(b2))) : value);
+  return stable(a) === stable(b);
+};
 function applyProductionPlanningState(data, state) {
-  if (!Array.isArray(state.entries) || !Number.isFinite(Date.parse(state.serverNow))) return data;
+  if (!Array.isArray(state.entries) || !Number.isFinite(Date.parse(state.serverNow)) || Date.parse(state.serverNow) < Date.parse(data.productionPlanningSampleAt ?? "")) return data;
   let changed = false;
   const sample = new Date(Math.floor(Date.parse(state.serverNow) / 6e4) * 6e4).toISOString();
   const jobs = (data.jobs ?? []).map((job) => {
     if (["Consegnata", "Annullata"].includes(job.status)) return job;
     let jobChanged = false;
-    const phases = job.phases.map((phase) => {
+    let phases = [...job.phases];
+    const history = [...job.history ?? []];
+    for (const definition of state.phaseStates ?? []) {
+      const p = definition.phase;
+      if (definition.jobId !== job.id || !p?.id || !p.name || !p.serverWorkTracked || !["Da fare", "In lavorazione", "Completata", "Bloccata"].includes(p.status)) continue;
+      const index = phases.findIndex((phase) => phase.id === p.id), base = index >= 0 ? phases[index] : void 0;
+      const merged = {
+        ...p,
+        ...base,
+        estimatedMinutes: base?.estimatedMinutes ?? p.estimatedMinutes ?? 0,
+        notes: base?.notes ?? p.notes ?? "",
+        blockedReason: base?.blockedReason ?? p.blockedReason ?? "",
+        operatorAssignments: base?.operatorAssignments ?? p.operatorAssignments ?? [],
+        id: p.id,
+        name: p.name,
+        requiredSkill: base?.requiredSkill || p.requiredSkill || p.name,
+        status: p.status,
+        notRequired: false,
+        manualWorkTracked: p.manualWorkTracked,
+        manualExtra: p.manualExtra,
+        serverWorkTracked: true,
+        remainingTimeUnknown: !!p.remainingTimeUnknown && !(Number(base?.estimatedMinutes ?? p.estimatedMinutes) > 0 || Number(base?.sharedTimeMinutes ?? p.sharedTimeMinutes) > 0),
+        actualMinutes: Math.max(base?.actualMinutes ?? 0, p.actualMinutes ?? 0),
+        startedAt: p.startedAt,
+        technicalWaitMinutes: Math.max(base?.technicalWaitMinutes ?? 0, p.technicalWaitMinutes ?? 0),
+        technicalWaitBlocksPhaseNames: [.../* @__PURE__ */ new Set([...base?.technicalWaitBlocksPhaseNames ?? [], ...p.technicalWaitBlocksPhaseNames ?? []])]
+      };
+      if (p.status === "Completata") {
+        merged.completedAt = p.completedAt;
+        merged.endedAt = p.endedAt;
+        merged.completedByName = p.completedByName;
+        merged.tabletWorkedSeconds = p.tabletWorkedSeconds;
+        if (p.completedAt && p.completedByName) {
+          const id2 = `tablet:${job.id}:${p.id}:${p.completedAt}`;
+          if (!history.some((h) => h.id === id2)) {
+            history.unshift({ id: id2, at: p.completedAt, actor: p.completedByName, message: `Fase ${p.name} completata da tablet.` });
+            jobChanged = true;
+            changed = true;
+          }
+        }
+      } else {
+        delete merged.completedAt;
+        delete merged.endedAt;
+        delete merged.completedByName;
+        delete merged.tabletWorkedSeconds;
+      }
+      if (!base || !sameJson(base, merged)) {
+        if (index >= 0) phases[index] = merged;
+        else phases.push(merged);
+        jobChanged = true;
+        changed = true;
+      }
+    }
+    if (phases.length !== job.phases.length) {
+      const order = (p) => p.cycleOrder ?? WORK_CYCLE.indexOf(p.name) + 1;
+      phases.sort((a, b) => order(a) - order(b));
+    }
+    phases = phases.map((phase) => {
       if (phase.status === "Completata") return phase;
       const entries = state.entries.filter((e) => e.jobId === job.id && e.phaseId === phase.id && Number.isFinite(e.closedSeconds) && e.closedSeconds >= 0);
       if (!entries.length) return phase;
@@ -1533,23 +1595,23 @@ function applyProductionPlanningState(data, state) {
         workedMinutes: e.closedSeconds / 60,
         activityStatus: e.runningSince ? "Attivo" : "Concluso"
       }));
-      const operatorAssignments = [...phase.operatorAssignments.filter((a) => !a.id.startsWith("tablet:")), ...assignments];
+      const operatorAssignments = [...(phase.operatorAssignments ?? []).filter((a) => !a.id.startsWith("tablet:")), ...assignments];
       const next = { ...phase, operatorAssignments, status: phase.status === "Da fare" ? "In lavorazione" : phase.status };
-      if (JSON.stringify(next) === JSON.stringify(phase)) return phase;
+      if (sameJson(next, phase)) return phase;
       changed = true;
       jobChanged = true;
       return next;
     });
-    return jobChanged ? { ...job, phases } : job;
+    return jobChanged ? { ...job, phases, history } : job;
   });
-  const running = state.entries.some((e) => e.runningSince);
+  const running = !data.nightlyPlanning?.enabled && state.entries.some((e) => e.runningSince);
   if (!changed && (!running || data.productionPlanningSampleAt?.slice(0, 16) === sample.slice(0, 16))) return data;
   return { ...data, jobs, productionPlanningSampleAt: state.serverNow };
 }
 
 // frontend/src/services/nightlyPlanning.ts
 function buildNightlyPlan(data, state, checks, day) {
-  let actual = applyProductionPlanningState(applyLivePhaseChecks(data, checks), state);
+  let actual = applyLivePhaseChecks(applyProductionPlanningState(data, state), state.checks ?? checks);
   let target = day;
   for (let n = 0; n < 60 && !isWorkingDate(target, actual.plannerSettings); n++) target = addDays(target, 1);
   if (!isWorkingDate(target, actual.plannerSettings)) throw Error("Nessun giorno lavorativo configurato nei prossimi 60 giorni.");

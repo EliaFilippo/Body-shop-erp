@@ -87,6 +87,8 @@ jobs:
         run: psql -f supabase/tests/manual_unquoted_phases.sql
       - name: Nightly economics hours, Rome month and DST, private facts and immutable finance
         run: psql -f supabase/tests/nightly_economics.sql
+      - name: Manual work updates automatic phases, extra signatures, reopens and assignment freshness
+        run: psql -f supabase/tests/manual_phase_progress.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

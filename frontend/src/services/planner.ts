@@ -884,6 +884,8 @@ function phaseReadyAt(job: RepairJob, phase: JobPhase) {
 }
 
 export function selectSchedulablePhase(job: RepairJob) {
+  // Actual extra work remains open until signed; a missing allowance is never invented.
+  if(job.phases.some(p=>p.remainingTimeUnknown&&p.status!=='Completata'&&!(p.estimatedMinutes>0||(p.sharedTimeMinutes??0)>0)))return null
   const active = job.phases.find((phase) => phase.status === 'In lavorazione')
   if (active) return { phase: active, readyAt: completedAtForPhase(active) || `${job.entryDate || todayKey()}T00:00:00.000Z` }
   const todo = job.phases
