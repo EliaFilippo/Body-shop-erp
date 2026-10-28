@@ -83,6 +83,8 @@ jobs:
         run: psql -f supabase/tests/cloud_save_arrays.sql
       - name: Manual vehicle and phase choice preserves automatic duties, history and timer isolation
         run: psql -f supabase/tests/manual_vehicle_phase_start.sql
+      - name: Unquoted manual phases, legacy catalog, real hours and physical stations
+        run: psql -f supabase/tests/manual_unquoted_phases.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

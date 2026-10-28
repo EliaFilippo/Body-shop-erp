@@ -332,3 +332,25 @@ it('preserves automatic duties while manual mode selects blocked and completed p
  expect(screen.getByRole('button',{name:'Start'})).toBeDisabled()
  expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
 })
+
+
+it('lets manual mode start an unquoted phase while the automatic option excludes it',async()=>{
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_manual_start')return null
+  return {companyId:'c1',role:'production',operatorName:'Stefania',manualSelection:true,members:[],program:[],jobs:[{
+   jobId:'extra',plate:'EXTRA',number:'1',manualStartAllowed:true,remainingSeconds:900,remainingPercent:100,activeCount:0,ownStatus:null,operators:[],
+   phases:[{id:'quoted',name:'Lattoneria',status:'Da fare',automaticAllowed:true,notRequired:false,canComplete:false},
+    {id:'manual-phase:polishing',name:'Lucidatura',status:'Non prevista',automaticAllowed:false,notRequired:true,canComplete:false}]}]}
+ })
+ render(<LiveProductionPage/>);
+ await screen.findByText('EXTRA')
+ const select=screen.getByLabelText('Fase da lavorare su EXTRA')
+ expect(select.querySelector('option[value="manual-phase:polishing"]')).toBeNull()
+ fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'manual'}})
+ fireEvent.change(select,{target:{value:'manual-phase:polishing'}})
+ expect(screen.getByText(/Fase non prevista nel preventivo: le ore effettive/)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Avvia manualmente'}))
+ await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_manual_start',{p_company_id:'c1',p_job_id:'extra',p_phase_id:'manual-phase:polishing'},expect.anything(),expect.anything()))
+ expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
+})
