@@ -85,4 +85,8 @@ it('assigns the next automatic phase after a manual signature, and keeps an unsi
  const pending=buildNightlyPlan(data,{...state,phaseStates:[{jobId:job.id,phase:unfinished}]},[],'2026-10-28')
  expect(pending.operatorPrograms?.find(p=>p.operatorId==='b')?.tasks).toHaveLength(0)
  expect(pending.jobs![0].phases.find(p=>p.id===body.id)?.status).toBe('In lavorazione')
+ const polish=job.phases.find(p=>p.name==='Lucidatura')!
+ const advanced={...polish,status:'In lavorazione' as const,serverWorkTracked:true,manualWorkTracked:true}
+ const notReady=buildNightlyPlan(data,{...state,phaseStates:[{jobId:job.id,phase:advanced}]},[],'2026-10-28')
+ expect(notReady.operatorPrograms?.find(p=>p.operatorId==='b')?.tasks).toHaveLength(0)
 })

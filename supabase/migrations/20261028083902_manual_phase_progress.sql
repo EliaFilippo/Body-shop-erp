@@ -40,7 +40,7 @@ returns jsonb language sql stable security definer set search_path=public,pg_tem
  select coalesce(jsonb_agg(jsonb_build_object('jobId',j->>'id','phase',ph)),'[]')
  from erp_snapshots s,jsonb_array_elements(coalesce(s.payload->'jobs','[]')) j,
  jsonb_array_elements(production_effective_phases(p_company_id,j)) ph
- where s.company_id=p_company_id and coalesce((ph->>'serverWorkTracked')::boolean,false);
+ where s.company_id=p_company_id and coalesce(j->>'status','') not in ('Consegnata','Annullata') and coalesce((ph->>'serverWorkTracked')::boolean,false);
 $$;
 revoke all on function production_phase_definitions(uuid) from public,anon,authenticated,service_role;
 -- Entry identity and company locks stay in the existing Start RPC.
