@@ -1,5 +1,6 @@
 import {createEstimate,approveEstimateAndCreateJob} from './workflow'
-import {describe,it,expect,vi} from 'vitest'
+import {describe,it,expect,vi,afterEach} from 'vitest'
+afterEach(()=>vi.useRealTimers())
 import {emptyData} from './erp'
 import {buildNightlyPlan,handleNightlyRequest} from './nightlyPlanning'
 describe('nightly planning',()=>{
@@ -33,6 +34,7 @@ describe('nightly planning',()=>{
 })
 
 it('uses real evening signatures to prioritize clearing a painted car without completing its next phase',()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-26T08:00:00Z'))
  let data=structuredClone(emptyData)
  data.plannerSettings.operators=[{id:'a',name:'Stefania',active:true,dailyHours:8,skillsConfigured:true,skills:['incartatura','scartatura']}]
  data=createEstimate(data,{customerId:'c',plate:'AA111AA',companyName:'Cliente',contactName:'',date:'2026-10-26',notes:'',selectedPhases:[],lines:[{description:'Paraurti',category:'verniciatura',quantity:1,unitPrice:150,discount:0,vatRate:22,manualPhaseTimes:[{phase:'Incartatura',minutes:10},{phase:'Verniciatura',minutes:60},{phase:'Scartatura',minutes:20}]}]})
