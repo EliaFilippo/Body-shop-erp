@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { emptyData } from './services/erp'
-import { DB_NAME, loadDatabase, saveDatabase } from './services/database'
+import { listLocalCheckpoints, readLocalCheckpoint, DB_NAME, loadDatabase, saveDatabase } from './services/database'
 import { markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot, type CloudSnapshot } from './services/cloudSync'
 
 const pendingSaves = vi.hoisted(() => [] as Promise<void>[])
@@ -122,6 +122,24 @@ describe('avvio e salvataggio cloud', () => {
     markPendingCloudSave('company-1')
     render(<App />)
     expect(await screen.findByText('Archivio sincronizzato dal cloud.')).toBeInTheDocument()
+  })
+
+  it('apre il gestionale per il reinserimento manuale e conserva automaticamente i dati locali in una copia',async()=>{
+    const local=await loadDatabase()
+    local.customers.push({...customer,id:'missing-morning',name:'Da conservare nella copia'})
+    await saveDatabase(local)
+    markPendingCloudSave('company-1')
+    render(<App />)
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button',{name:'Apri gestionale e reinserisci le vetture'}))
+    expect(await screen.findByText(/Gestionale pronto: puoi reinserire/)).toBeInTheDocument()
+    expect(screen.getByRole('button',{name:'Nuova vettura'})).toBeInTheDocument()
+    const copies=await listLocalCheckpoints()
+    const archived=copies.find(copy=>copy.key.includes('prima-riapertura-manuale'))
+    expect(archived).toBeDefined()
+    expect((await readLocalCheckpoint(archived!.key)).customers.some(c=>c.id==='missing-morning')).toBe(true)
+    expect((await loadDatabase()).customers.some(c=>c.id===customer.id)).toBe(true)
+    expect(vi.mocked(updateCloudSnapshot).mock.calls.every(([, , payload])=>!payload.customers.some(c=>c.id==='missing-morning'))).toBe(true)
   })
 
   it('attende il caricamento cloud prima di aprire le modifiche e avviare autosave', async () => {

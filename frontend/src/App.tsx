@@ -662,6 +662,7 @@ function App() {
   const [cloudReady, setCloudReady] = useState(false)
   const [cloudInitializationError, setCloudInitializationError] = useState('')
   const [cloudSyncAttempt, setCloudSyncAttempt] = useState(0)
+  const [openingCloud, setOpeningCloud] = useState(false)
   const [data, setData] = useState<ErpData>(emptyData)
   const [databaseReady, setDatabaseReady] = useState(false)
   const [databaseLoaded, setDatabaseLoaded] = useState(false)
@@ -688,6 +689,33 @@ function App() {
   const nightlyModeRef=useRef(false)
   nightlyModeRef.current=Boolean(data.nightlyPlanning?.enabled)
   const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const openCloudForManualEntry = async () => {
+    if (!cloudConfig || !cloudSession || !cloudMembership || openingCloud) return
+    setOpeningCloud(true)
+    try {
+      const remote = await loadCloudSnapshot(cloudMembership.companyId, cloudSession, cloudConfig)
+      if (!remote) throw new Error('Archivio cloud non disponibile. Riprova tra poco.')
+      const local = await loadDatabase()
+      const pending = pendingCloudSaveToken(cloudMembership.companyId)
+      // Explicit user choice: the locked restore archives the complete local
+      // snapshot before replacing it. If archiving fails, nothing is replaced.
+      const restored = await restoreCloudDatabase(remote.payload, local.dbRevision ?? 0, { archiveLocalAndUseCloud: true })
+      if (pending) clearPendingCloudSave(cloudMembership.companyId, pending)
+      cloudRevisionRef.current = remote.revision
+      cloudReadyRef.current = true
+      nextPersistenceActionRef.current = 'skip'
+      skipNextHeavySyncRef.current = true
+      setData(restored)
+      setCloudInitializationError('')
+      setError('')
+      setView('vehicles')
+      setCloudReady(true)
+      setNotice('Gestionale pronto: puoi reinserire le vetture mancanti. La copia dei dati locali è conservata.')
+    } catch (problem) {
+      setCloudInitializationError(problem instanceof Error ? problem.message : 'Riapertura non riuscita. I dati locali sono conservati.')
+    } finally { setOpeningCloud(false) }
+  }
+
   const recoverLocalInsertions = async (source: ErpData) => {
     const local = await loadDatabase()
     if (cloudConfig && cloudSession && cloudMembership) {
@@ -1080,6 +1108,8 @@ function App() {
             setCloudSyncAttempt((attempt) => attempt + 1)
           }}>Riprova sincronizzazione</button></>
           : <p role="status">Sto sincronizzando i dati prima di aprire il gestionale…</p>}
+        {problem && <button type="button" className="primary" disabled={openingCloud} onClick={() => void openCloudForManualEntry()}>{openingCloud ? 'Apertura in corso…' : 'Apri gestionale e reinserisci le vetture'}</button>}
+        {problem && <p>La copia dei dati locali viene conservata automaticamente.</p>}
         <LocalRecoveryPanel onRecover={recoverLocalInsertions} />
         <button type="button" className="cloud-logout" onClick={() => void logoutCloud()}>Esci</button>
       </section>
