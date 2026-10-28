@@ -36,7 +36,7 @@ export function LiveProductionPage() {
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [selectionMode,setSelectionMode] = useState<'automatic'|'manual'>('automatic')
+  const [selectionMode,setSelectionMode] = useState<'automatic'|'manual'>('manual')
   const [vehicleSearch,setVehicleSearch]=useState('')
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
@@ -134,7 +134,7 @@ export function LiveProductionPage() {
     setBusy(true)
     try { await signOutCloud(session, config); setError('') }
     catch (e) { setError(e instanceof Error ? e.message : 'Disconnessione non riuscita.') }
-    finally { sessionStorage.removeItem(sessionKey); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setSelectionMode('automatic'); setPhaseChoices({}) }
+    finally { sessionStorage.removeItem(sessionKey); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setSelectionMode('manual'); setPhaseChoices({}) }
   }
   useEffect(()=>{
     if(!session||!config||!companyId||!feed||!['owner','office'].includes(feed.role))return
@@ -167,7 +167,7 @@ export function LiveProductionPage() {
       if(!pairing)return
       generation.current++
       setTabletPairing(pairing)
-      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('');setSelectionMode('automatic');setPhaseChoices({})
+      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('');setSelectionMode('manual');setPhaseChoices({})
     }
     window.addEventListener('hashchange',activate)
     return()=>window.removeEventListener('hashchange',activate)
@@ -225,7 +225,7 @@ export function LiveProductionPage() {
           const requiresPhase = job.dutiesFiltered || (manual ? (job.phases ?? []).length > 0 : (job.phases ?? []).some(p => !p.notRequired))
           const selectedPhase = availablePhases.find(p => p.id === selected)
           const switchesWork=Boolean(feed.activity?.kind || ownRunning && (ownRunning.jobId!==job.jobId || (ownRunning.ownPhaseId??'')!==selected))
-          const startBlockedReason=!selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
+          const startBlockedReason=!selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.automaticAllowed!==false&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
           const permissionRemoved = job.dutiesFiltered && !job.phases?.some(p => p.id === job.ownPhaseId) && ['running','paused'].includes(job.ownStatus ?? '')
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
           const standardClock = !selectedPhase?.notRequired && selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
@@ -256,6 +256,7 @@ export function LiveProductionPage() {
             </details>
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
+            {!manual && feed.manualSelection && <button type="button" disabled={busy} aria-label={`Mostra tutte le fasi su ${job.plate}`} onClick={()=>{setSelectionMode('manual');setPhaseChoices(current=>({...current,[job.jobId]:''}))}}>Mostra tutte le fasi</button>}
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy}
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}

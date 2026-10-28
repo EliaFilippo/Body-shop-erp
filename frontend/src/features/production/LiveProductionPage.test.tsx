@@ -318,6 +318,8 @@ it('preserves automatic duties while manual mode selects blocked and completed p
  })
  render(<LiveProductionPage/>);
  await screen.findByText('MANUAL')
+ expect(screen.getByLabelText('Modalità scelta lavoro')).toHaveValue('manual')
+ fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'automatic'}})
  expect(screen.getByRole('button',{name:'Start'})).toBeDisabled()
  fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'manual'}})
  const phases=screen.getByLabelText('Fase da lavorare su MANUAL')
@@ -334,7 +336,7 @@ it('preserves automatic duties while manual mode selects blocked and completed p
 })
 
 
-it('lets manual mode start an unquoted phase while the automatic option excludes it',async()=>{
+it('shows unquoted phases by default and restores them directly from a vehicle in automatic mode',async()=>{
  mocked.rpc.mockImplementation(async(name:string)=>{
   if(name==='production_phase_notices_action')return []
   if(name==='production_manual_start')return null
@@ -346,8 +348,12 @@ it('lets manual mode start an unquoted phase while the automatic option excludes
  render(<LiveProductionPage/>);
  await screen.findByText('EXTRA')
  const select=screen.getByLabelText('Fase da lavorare su EXTRA')
+ expect(screen.getByLabelText('Modalità scelta lavoro')).toHaveValue('manual')
+ expect(select.querySelector('option[value="manual-phase:polishing"]')).not.toBeNull()
+ fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'automatic'}})
  expect(select.querySelector('option[value="manual-phase:polishing"]')).toBeNull()
- fireEvent.change(screen.getByLabelText('Modalità scelta lavoro'),{target:{value:'manual'}})
+ fireEvent.click(screen.getByRole('button',{name:'Mostra tutte le fasi su EXTRA'}))
+ expect(screen.getByLabelText('Modalità scelta lavoro')).toHaveValue('manual')
  fireEvent.change(select,{target:{value:'manual-phase:polishing'}})
  expect(screen.getByText(/Fase non prevista nel preventivo: le ore effettive/)).toBeInTheDocument()
  fireEvent.click(screen.getByRole('button',{name:'Avvia manualmente'}))
