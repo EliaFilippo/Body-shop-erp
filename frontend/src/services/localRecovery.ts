@@ -31,3 +31,17 @@ export function recoverMissingBusinessRecords(current: ErpData,source: ErpData):
  result.documentCounters={quote:Math.max(current.documentCounters?.quote??0,source.documentCounters?.quote??0),invoice:current.documentCounters?.invoice??0}
  return result
 }
+
+/** A response can be committed before the browser clears its pending flag. */
+export function sameCloudArchive(local: ErpData,remote: ErpData): boolean {
+ const clean=(data: ErpData)=>{const {dbRevision:_revision,dbUpdatedAt:_updated,...rest}=data;return rest}
+ const equal=(a:unknown,b:unknown):boolean=>{
+  if(a===b)return true
+  if(!a||!b||typeof a!=='object'||typeof b!=='object')return false
+  if(Array.isArray(a)||Array.isArray(b))return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>equal(v,b[i]))
+  const aa=a as Record<string,unknown>,bb=b as Record<string,unknown>
+  const keys=Object.keys(aa).filter(k=>aa[k]!==undefined),other=Object.keys(bb).filter(k=>bb[k]!==undefined)
+  return keys.length===other.length&&keys.every(k=>Object.hasOwn(bb,k)&&equal(aa[k],bb[k]))
+ }
+ return equal(clean(local),clean(remote))
+}

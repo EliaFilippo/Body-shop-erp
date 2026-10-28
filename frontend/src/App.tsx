@@ -1,5 +1,5 @@
 import { LocalRecoveryPanel } from './features/settings/LocalRecoveryPanel'
-import { recoverMissingBusinessRecords } from './services/localRecovery'
+import { sameCloudArchive, recoverMissingBusinessRecords } from './services/localRecovery'
 import { enableFilippoTransport } from './services/transportDutySetup'
 import { applyProductionPlanningState, type ProductionPlanningState } from './services/productionPlanningState'
 import { applyDayExtensions } from './services/operatorDayExtensions'
@@ -22,7 +22,7 @@ import { Modal } from './components/Modal'
 import { DocumentCapturePanel, queueDocumentCaptureFile } from './components/DocumentCapturePanel'
 import { parseMoneyDraft } from './components/money'
 import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, isVehicleWaitingForCone, TOTAL_CONES, emptyData, normalizePlate, updateCustomer } from './services/erp'
-import { createDatabaseCheckpoint, loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
+import { normalizeData, createDatabaseCheckpoint, loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
 import { analyzeDatabaseIntegrity, prepareDuplicateResolution, resolveDuplicatePlate, type DatabaseIntegrityReport, type DuplicateResolutionResult } from './services/database'
 import { removePriceListItem, setPriceListItemActive, upsertPriceListItem } from './services/priceList'
 import { PlannerPage } from './features/planner/PlannerPage.tsx'
@@ -55,7 +55,7 @@ import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, u
 import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
 import { LiveProductionPage } from './features/production/LiveProductionPage'
 import { applyLivePhaseChecks, productionRpc, type PhaseCheckUpdate } from './services/liveProduction'
-import { clearPendingCloudSave, hasPendingCloudSave, markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
+import { clearPendingCloudSave, pendingCloudSaveToken, markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, EstimateLine, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
@@ -814,11 +814,13 @@ function App() {
           return
         }
 
-        if (hasPendingCloudSave(cloudMembership.companyId)) {
+        const pending = pendingCloudSaveToken(cloudMembership.companyId)
+        if (pending && !sameCloudArchive(localSnapshot, normalizeData(remote.payload))) {
           throw new Error('Ci sono modifiche locali non confermate dal cloud. I dati del dispositivo sono conservati. Scarica la copia locale e verifica il recupero prima di continuare.')
         }
         const restored = await restoreCloudDatabase(remote.payload, localSnapshot.dbRevision ?? 0)
         if (cancelled) return
+        if (pending) clearPendingCloudSave(cloudMembership.companyId, pending)
         cloudRevisionRef.current = remote.revision
         cloudReadyRef.current = true
         setCloudReady(true)

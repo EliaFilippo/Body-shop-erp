@@ -464,7 +464,7 @@ function openDatabase(): Promise<IDBDatabase> {
   })
 }
 
-function normalizeData(value: unknown): ErpData {
+export function normalizeData(value: unknown): ErpData {
   if (!value || typeof value !== 'object') return structuredClone(emptyData)
   const candidate = value as Partial<ErpData>
   const users: NonNullable<ErpData['users']> = Array.isArray(candidate.users) && candidate.users.length

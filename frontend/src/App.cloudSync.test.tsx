@@ -113,6 +113,17 @@ describe('avvio e salvataggio cloud', () => {
     expect(updateCloudSnapshot).not.toHaveBeenCalled()
   })
 
+  it('riconosce una conferma cloud già riuscita prima della chiusura del browser',async()=>{
+    const local=await loadDatabase()
+    local.customers=[customer]
+    await saveDatabase(local)
+    const persisted=await loadDatabase()
+    vi.mocked(loadCloudSnapshot).mockResolvedValue({companyId:'company-1',revision:14,updatedAt:'',payload:{...persisted,dbRevision:1}})
+    markPendingCloudSave('company-1')
+    render(<App />)
+    expect(await screen.findByText('Archivio sincronizzato dal cloud.')).toBeInTheDocument()
+  })
+
   it('attende il caricamento cloud prima di aprire le modifiche e avviare autosave', async () => {
     let resolveRemote!: (value: CloudSnapshot | null) => void
     vi.mocked(loadCloudSnapshot).mockReturnValue(new Promise((resolve) => { resolveRemote = resolve }))
@@ -151,6 +162,7 @@ describe('avvio e salvataggio cloud', () => {
       request.onsuccess = () => resolve()
       request.onerror = () => reject(request.error)
     })
+    localStorage.removeItem('body-shop-erp.pending-cloud-save.v1:company-1')
     render(<App />)
     expect(await screen.findByText('Archivio sincronizzato dal cloud.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Clienti' }))
@@ -211,6 +223,8 @@ describe('avvio e salvataggio cloud', () => {
       request.onsuccess = () => resolve()
       request.onerror = () => reject(request.error)
     })
+    // A different device has its own pending-save metadata as well as its own IndexedDB.
+    localStorage.removeItem('body-shop-erp.pending-cloud-save.v1:company-1')
     render(<App />)
     await screen.findByText('Archivio sincronizzato dal cloud.')
     fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))

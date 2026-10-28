@@ -87,8 +87,11 @@ export function markPendingCloudSave(companyId: string): string {
   localStorage.setItem(pendingKey(companyId), token)
   return token
 }
+export function pendingCloudSaveToken(companyId: string): string | null {
+  return localStorage.getItem(pendingKey(companyId))
+}
 export function hasPendingCloudSave(companyId: string): boolean {
-  return Boolean(localStorage.getItem(pendingKey(companyId)))
+  return Boolean(pendingCloudSaveToken(companyId))
 }
 export function clearPendingCloudSave(companyId: string, token?: string) {
   if (!token || localStorage.getItem(pendingKey(companyId)) === token) localStorage.removeItem(pendingKey(companyId))
