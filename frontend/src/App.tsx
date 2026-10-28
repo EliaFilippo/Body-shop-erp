@@ -695,9 +695,10 @@ function App() {
       if (!remote) throw new Error('Archivio cloud non disponibile. Le copie locali sono conservate.')
       const merged = recoverMissingBusinessRecords(recoverMissingBusinessRecords(remote.payload, local), source)
       await createDatabaseCheckpoint(local, 'prima-recupero-cloud')
+      const recoveryToken = markPendingCloudSave(cloudMembership.companyId)
       const saved = await updateCloudSnapshot(cloudMembership.companyId, remote.revision, merged, cloudSession, cloudConfig)
       const restored = await restoreCloudDatabase(saved.payload, local.dbRevision ?? 0)
-      clearPendingCloudSave(cloudMembership.companyId)
+      clearPendingCloudSave(cloudMembership.companyId, recoveryToken)
       cloudRevisionRef.current = saved.revision
       cloudReadyRef.current = true
       nextPersistenceActionRef.current = 'skip'
