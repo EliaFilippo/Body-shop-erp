@@ -28,3 +28,27 @@ describe('canonical operational replanning',()=>{
   expect(applyProductionPlanningState(data,state).jobs![0].phases[0]).toBe(data.jobs[0].phases[0])
  })
 })
+
+it('activates an extra manual phase and imports a real signature without changing quote prices or allowance',()=>{
+ const data=fixture(),before=JSON.stringify(data)
+ const extra={id:'manual-phase:painting',name:'Verniciatura',status:'Completata' as const,notRequired:false,serverWorkTracked:true,manualWorkTracked:true,manualExtra:true,remainingTimeUnknown:false,
+  estimatedMinutes:0,actualMinutes:5,notes:'',blockedReason:'',operatorAssignments:[],technicalWaitMinutes:60,technicalWaitBlocksPhaseNames:['Rimontaggio'],
+  completedAt:'2026-10-27T08:12:00Z',completedByName:'Mario',tabletWorkedSeconds:300}
+ const next=applyProductionPlanningState(data,{...state,entries:[],phaseStates:[{jobId:'j',phase:extra}]})
+ const imported=next.jobs![0].phases.find(p=>p.id===extra.id)!
+ expect(imported).toMatchObject({status:'Completata',notRequired:false,estimatedMinutes:0,manualExtra:true,technicalWaitMinutes:60})
+ expect(next.jobs![0].history).toHaveLength(1)
+ expect(next.jobs![0].total).toBe(122)
+ expect(JSON.stringify(data)).toBe(before)
+ expect(applyProductionPlanningState(next,{...state,entries:[],phaseStates:[{jobId:'j',phase:extra}]})).toBe(next)
+})
+it('reopens only a phase with authoritative manual work, retains history and rejects an older sample',()=>{
+ const data=fixture();const original=data.jobs[0].phases[0]
+ original.status='Completata';original.completedAt='2026-10-27T07:00:00Z';original.completedByName='Mario'
+ const reopened={...original,status:'In lavorazione' as const,completedAt:undefined,completedByName:undefined,serverWorkTracked:true,manualWorkTracked:true}
+ const next=applyProductionPlanningState(data,{...state,phaseStates:[{jobId:'j',phase:reopened}]})
+ expect(next.jobs![0].phases[0].status).toBe('In lavorazione')
+ expect(next.jobs![0].phases[0].completedAt).toBeUndefined()
+ expect(original.completedAt).toBe('2026-10-27T07:00:00Z')
+ expect(applyProductionPlanningState(next,{...state,serverNow:'2026-10-27T07:59:00Z'})).toBe(next)
+})

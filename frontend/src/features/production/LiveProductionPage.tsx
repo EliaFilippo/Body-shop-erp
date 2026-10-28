@@ -204,7 +204,7 @@ export function LiveProductionPage() {
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
       {feed.operatorName && <section className="live-day-hours"><h2>Programma automatico · i miei lavori assegnati</h2><p>Proposte secondo le priorità di consegna, margine e attesa. Puoi scegliere il lavoro manualmente qui sotto senza modificare il programma.</p>
         {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.coneNumber!=null&&<span className="live-program-cone">CONO {task.coneNumber}</span>}{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
-          <p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
+          {task.updatedFromManual&&<p>Fase aggiornata dalle lavorazioni manuali.</p>}<p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
           {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => {setSelectionMode('automatic');setVehicleSearch('');setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}}>Apri vettura e fase</a>
             : <p>Pubblicazione automatica in corso. Se il lavoro non compare, l’ufficio può verificare i dati mancanti in Produzione.</p>}</li>)}</ol>
@@ -228,8 +228,8 @@ export function LiveProductionPage() {
           const startBlockedReason=!selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.automaticAllowed!==false&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
           const permissionRemoved = job.dutiesFiltered && !job.phases?.some(p => p.id === job.ownPhaseId) && ['running','paused'].includes(job.ownStatus ?? '')
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
-          const standardClock = !selectedPhase?.notRequired && selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
-          const clock = !selectedPhase?.notRequired && selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
+          const standardClock = !(selectedPhase?.notRequired||selectedPhase?.manualExtra) && selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
+          const clock = !(selectedPhase?.notRequired||selectedPhase?.manualExtra) && selectedPhase?.clock ? liveCountdown({ ...job, ...selectedPhase.clock }, (performance.now() - lastSample.current) / 1000) : totalClock
           const workClock = standardClock ?? clock
           const myTimerRunning = job.ownStatus === 'running'
           const activeNames = job.operators.filter(o => o.status === 'running').map(o => o.name)
@@ -241,16 +241,16 @@ export function LiveProductionPage() {
               {!stale && !myTimerRunning && !!activeNames.length && <p>Sta lavorando un collega. Pausa e Fine fermano soltanto il tuo timer.</p>}
             </section>
             <p className="live-shared-label">Tempo residuo condiviso della vettura / fase</p>
-            <p>{selectedPhase?.notRequired ? 'Tempo complessivo residuo della vettura · fase extra senza tempo preventivato' : standardClock && workClock.overrunSeconds > 0 ? `Tempo oltre il previsto · ${selectedPhase?.standardClock?.label}` : standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
+            <p>{(selectedPhase?.notRequired||selectedPhase?.manualExtra) ? 'Tempo complessivo residuo della vettura · fase extra senza tempo preventivato' : standardClock && workClock.overrunSeconds > 0 ? `Tempo oltre il previsto · ${selectedPhase?.standardClock?.label}` : standardClock ? `Tempo da rispettare · ${selectedPhase?.standardClock?.label}` : selectedPhase?.clock ? `Tempo disponibile · ${selectedPhase.name}` : 'Tempo complessivo residuo della vettura'}</p>
             <strong className="live-clock" aria-label="Tempo residuo condiviso">{stale ? 'Da aggiornare' : standardClock && workClock.overrunSeconds > 0 ? `+${clockText(workClock.overrunSeconds)}` : clockText(feed.operatorName ? workClock.individualSeconds : workClock.seconds)}</strong>
             <p>Questo conto alla rovescia usa il tempo condiviso della lavorazione. Le tue ore personali sono in «Le mie ore di oggi».</p>
-            {selectedPhase?.notRequired ? null : standardClock ? standardClock.individualSeconds === null && <p>Tempo standard non impostato su questa commessa: richiedi la configurazione all’ufficio.</p> : selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
+            {(selectedPhase?.notRequired||selectedPhase?.manualExtra) ? null : standardClock ? standardClock.individualSeconds === null && <p>Tempo standard non impostato su questa commessa: richiedi la configurazione all’ufficio.</p> : selectedPhase?.clock && selectedPhase.clock.ownRemainingSeconds === null && <p>Tempo della fase da configurare oppure costo operatore mancante.</p>}
             {standardClock && <section aria-label="Tempo standard della lavorazione"><p>Tempo standard · {selectedPhase?.standardClock?.label}</p>
               <p>Totale condiviso: {selectedPhase?.standardClock?.totalMinutes} min. Ogni minuto lavorato da ciascun operatore consuma questo tempo.</p>
               {!stale && standardClock.warning && <p role="status">{standardClock.exhausted ? 'Tempo standard superato. Il timer continua su questa fase e l’ufficio riceve un avviso nel gestionale.' : 'Attenzione: rimane meno del 20% del tempo standard.'}</p>}
             </section>}
             <details><summary>Limite economico · non aumenta il tempo di lavorazione</summary>
-              {!selectedPhase?.notRequired && <p>Residuo economico della fase: {stale ? 'Da aggiornare' : clockText(clock.individualSeconds)}</p>}
+              {!(selectedPhase?.notRequired||selectedPhase?.manualExtra) && <p>Residuo economico della fase: {stale ? 'Da aggiornare' : clockText(clock.individualSeconds)}</p>}
             <p>Residuo complessivo vettura: {stale ? 'Da aggiornare' : clockText(totalClock.individualSeconds)}</p>
             {clock.seconds !== null && phaseActiveCount > 0 && feed.operatorName && <p>{`${selectedPhase?.clock ? 'Tempo residuo fase con' : 'Tempo residuo con'} ${phaseActiveCount} operatori attivi`}: <strong>{stale ? 'Da aggiornare' : clockText(clock.seconds)}</strong></p>}
             </details>
@@ -260,9 +260,11 @@ export function LiveProductionPage() {
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy}
               onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
-              {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}{manual && p.notRequired ? ' · non prevista nel preventivo' : manual && p.status === 'Completata' ? ' · intervento aggiuntivo' : ''}</option>)}</select></label>}
-            {manual && selectedPhase?.notRequired && <p>Fase non prevista nel preventivo: le ore effettive vengono registrate sulla vettura. Non viene aggiunto un tempo preventivato.</p>}
-            {manual && !selectedPhase?.notRequired && selectedPhase?.status === 'Completata' && <p>Intervento aggiuntivo: il visto precedente resta nello storico; il nuovo tempo si aggiunge alle ore lavorate.</p>}
+              {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}{manual && (p.notRequired||p.manualExtra) ? ' · non prevista nel preventivo' : manual && p.status === 'Completata' ? ' · intervento aggiuntivo' : ''}</option>)}</select></label>}
+            {manual && (selectedPhase?.notRequired||selectedPhase?.manualExtra) && <p>Fase non prevista nel preventivo: le ore effettive vengono registrate sulla vettura. Non viene aggiunto un tempo preventivato.</p>}
+            {manual && !(selectedPhase?.notRequired||selectedPhase?.manualExtra) && selectedPhase?.status === 'Completata' && <p>Intervento aggiuntivo: il visto precedente resta nello storico; il nuovo tempo si aggiunge alle ore lavorate.</p>}
+            {selectedPhase?.remainingTimeUnknown&&<p>Fase extra aperta: l’ufficio deve indicare il tempo residuo prima della pianificazione automatica. Puoi continuarla e completarla manualmente.</p>}
+            {selectedPhase?.manualWorkTracked&&selectedPhase.status!=='Completata'&&<p>Premi «✓ Completa {phaseDisplayName(selectedPhase.name)}» per aggiornare anche il processo automatico. Il comando ferma il tuo timer sulla fase; Pausa e Fine fermano solo il conteggio.</p>}
             {startBlockedReason&&<p role="status">Avvio non disponibile: {startBlockedReason}{!manual && feed.manualSelection ? ' Puoi passare alla scelta manuale.' : ''}</p>}
             {feed.activity?.kind&&selected&&<p>Premendo Start termini {feed.activity.kind==='cleaning'?'Pulizie':'Pausa caffè'} e avvii questa vettura. Se l’avvio non riesce, l’attività precedente continua.</p>}
             <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected) || (manual && job.manualStartAllowed === false)}
@@ -273,12 +275,12 @@ export function LiveProductionPage() {
             {!!job.phases?.length && <section className="live-phases" aria-label={`Fasi di ${job.plate}`}><h3>Avanzamento fasi</h3>
               <p>{availablePhases[0] ? `Prossima fase da completare: ${phaseDisplayName(availablePhases[0].name)}` : 'Nessuna fase aperta e disponibile'}</p>
               <ol>{job.phases.filter(p => !p.notRequired || (manual && p.id === selected) || (p.id === job.ownPhaseId && ['running','paused'].includes(job.ownStatus ?? ''))).map(phase => <li key={phase.id}>
-                <strong>{phase.status === 'Completata' ? '✓ ' : ''}{phaseDisplayName(phase.name)}{phase.notRequired ? ' · non prevista nel preventivo' : ''}</strong>
-                {!phase.notRequired && phase.clock && phase.name !== 'Consegna' && <p>{phase.standardClock ? 'Tempo standard residuo' : 'Tempo residuo per te'}: {!stale && phase.standardClock && liveCountdown({ ...job, ...phase.standardClock }, (performance.now() - lastSample.current) / 1000).overrunSeconds > 0 ? `+${clockText(liveCountdown({ ...job, ...phase.standardClock }, (performance.now() - lastSample.current) / 1000).overrunSeconds)} oltre il previsto` : stale ? 'Da aggiornare' : (liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds === null ? 'Da configurare' : clockText(liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds))}</p>}
+                <strong>{phase.status === 'Completata' ? '✓ ' : ''}{phaseDisplayName(phase.name)}{phase.notRequired||phase.manualExtra ? ' · non prevista nel preventivo' : ''}</strong>
+                {!phase.notRequired && !phase.manualExtra && phase.clock && phase.name !== 'Consegna' && <p>{phase.standardClock ? 'Tempo standard residuo' : 'Tempo residuo per te'}: {!stale && phase.standardClock && liveCountdown({ ...job, ...phase.standardClock }, (performance.now() - lastSample.current) / 1000).overrunSeconds > 0 ? `+${clockText(liveCountdown({ ...job, ...phase.standardClock }, (performance.now() - lastSample.current) / 1000).overrunSeconds)} oltre il previsto` : stale ? 'Da aggiornare' : (liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds === null ? 'Da configurare' : clockText(liveCountdown({ ...job, ...(phase.standardClock ?? phase.clock) }, (performance.now() - lastSample.current) / 1000).individualSeconds))}</p>}
                 {phase.checkedBy && phase.checkedAt ? <p>Visto di {phase.checkedBy} · {new Date(phase.checkedAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
                   : <p>{phase.status === 'Completata' ? 'Completata nel gestionale · visto non registrato' : phase.status}</p>}
                 {phase.blockedReason && phase.status === 'Bloccata' && <p>{phase.blockedReason}</p>}
-                {!phase.notRequired && !['Completata', 'Bloccata'].includes(phase.status) && <button disabled={busy || stale || !phase.canComplete}
+                {(phase.manualWorkTracked || (!phase.notRequired && phase.status!=='Bloccata')) && phase.status!=='Completata' && <button disabled={busy || stale || !phase.canComplete}
                   onClick={() => void act('production_complete_phase', { p_job_id: job.jobId, p_phase_id: phase.id })}>✓ Completa {phaseDisplayName(phase.name)}</button>}
               </li>)}</ol><p>Il visto registra chi ha completato la fase e ferma il suo timer su quella fase. Gli altri operatori devono prima mettere in pausa o terminare il lavoro sulla stessa fase.</p>
             </section>}

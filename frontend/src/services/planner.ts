@@ -884,7 +884,9 @@ function phaseReadyAt(job: RepairJob, phase: JobPhase) {
 }
 
 export function selectSchedulablePhase(job: RepairJob) {
-  const active = job.phases.find((phase) => phase.status === 'In lavorazione')
+  // Actual extra work remains open until signed; a missing allowance is never invented.
+  if(job.phases.some(p=>p.remainingTimeUnknown&&p.status!=='Completata'&&Boolean(phaseReadyAt(job,p))&&!(p.estimatedMinutes>0||(p.sharedTimeMinutes??0)>0)))return null
+  const active = job.phases.find((phase) => phase.status === 'In lavorazione' && (!phase.manualWorkTracked || Boolean(phaseReadyAt(job,phase))))
   if (active) return { phase: active, readyAt: completedAtForPhase(active) || `${job.entryDate || todayKey()}T00:00:00.000Z` }
   const todo = job.phases
     .filter((phase) => phase.status === 'Da fare' && !phase.notRequired && (job.workflowCycle !== 'elias-v1' || (phase.name !== 'Consegna' && (phase.estimatedMinutes > 0 || (phase.sharedTimeMinutes ?? 0) > 0))))

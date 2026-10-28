@@ -30,3 +30,13 @@ La tariffa obiettivo divide il fatturato mensile ancora da emettere (IVA esclusa
 Il piano conserva la priorità dei box: scartatura reale dopo asciugatura, verniciatura pronta, incartatura e preparazione; poi consegna, margine e attesa. Il commit conserva esclusione tra aziende, token privato, blocco turno attivo, revisione e watermark. Le ore sono estratte sul server con confini di mese e giorni Europe/Rome, inclusi i cambi d’ora.
 
 Applicare `supabase/migrations/20261028080641_nightly_economics.sql`, poi pubblicare il bundle `nightly-planner` generato da `node scripts/build-nightly-planner.mjs`, mantenendo la sua autenticazione privata esistente. Nessun dato economico è aggiunto al feed tablet degli operatori.
+
+### Avanzamento manuale condiviso con l’automatico (28 ottobre 2026)
+
+Lavorazioni manuali e automatiche condividono la stessa proiezione operativa. Le fasi extra realmente avviate entrano nell’avanzamento; un visto esplicito le completa e abilita le successive. Start, Pausa e Fine dei timer non generano completamenti automatici. Sul tablet il pulsante “✓ Completa …” chiude anche il proprio timer sulla fase, dopo aver verificato che nessun collega sia ancora attivo su quella fase.
+
+Le proposte del programma operatori mantengono l’ordine giornaliero delle vetture ma aggiornano la fase in base al lavoro reale, alle mansioni e alle dipendenze. Le fasi già completate non vengono riproposte. L’ufficio importa l’avanzamento anche con piano notturno attivo; il ricalcolo completo del calendario resta notturno e usa gli stessi stati. Le fasi fuori preventivo con tempo residuo non configurato sono segnalate: possono essere continuate e completate manualmente, ma non viene inventata una durata per il planner.
+
+La ripresa manuale di una fase già firmata riapre lo stato operativo e archivia il precedente visto in `production_phase_check_history`. Non vengono cancellati lo storico, le ore, i prezzi dei preventivi o i budget congelati. Il completamento reale della verniciatura conserva il vincolo di asciugatura nel passaggio automatico.
+
+Applicare `supabase/migrations/20261028083902_manual_phase_progress.sql`, ricostruire e distribuire il bundle `nightly-planner`, poi pubblicare il frontend. Gli helper e lo storico restano privati; i profili operatore ricevono soltanto lo stato di produzione autorizzato.

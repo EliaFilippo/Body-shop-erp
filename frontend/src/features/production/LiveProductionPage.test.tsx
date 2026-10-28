@@ -360,3 +360,21 @@ it('shows unquoted phases by default and restores them directly from a vehicle i
  await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_manual_start',{p_company_id:'c1',p_job_id:'extra',p_phase_id:'manual-phase:polishing'},expect.anything(),expect.anything()))
  expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
 })
+
+it('lets the manual worker explicitly complete an activated extra phase to update automatic work',async()=>{
+ let done=false
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_complete_phase'){done=true;return null}
+  return {companyId:'c1',role:'production',operatorName:'Mario',manualSelection:true,members:[],program:[],jobs:[{
+   jobId:'extra-sign',plate:'EXTRASIGN',number:'1',manualStartAllowed:true,remainingSeconds:900,remainingPercent:100,activeCount:done?0:1,ownStatus:done?'finished':'running',ownPhaseId:'wash',operators:[],
+   phases:[{id:'wash',name:'Lavaggio esterno',status:done?'Completata':'In lavorazione',automaticAllowed:false,notRequired:false,manualWorkTracked:true,manualExtra:true,remainingTimeUnknown:!done,canComplete:!done,checkedBy:done?'Mario':null,checkedAt:done?'2026-10-28T08:00:00Z':null}]}]}
+ })
+ render(<LiveProductionPage/>);
+ await screen.findByText('EXTRASIGN')
+ expect(screen.getByText(/per aggiornare anche il processo automatico/)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'✓ Completa Lavaggio esterno'}))
+ await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_complete_phase',{p_company_id:'c1',p_job_id:'extra-sign',p_phase_id:'wash'},expect.anything(),expect.anything()))
+ await screen.findByText(/Visto di Mario/)
+ expect(screen.queryByRole('button',{name:'✓ Completa Lavaggio esterno'})).not.toBeInTheDocument()
+})

@@ -5,7 +5,7 @@ import {applyProductionPlanningState,type ProductionPlanningState} from './produ
 import {recalculateOperatorPrograms,calculatePlanner} from './planner'
 import {isWorkingDate,addDays} from './workCalendar'
 export function buildNightlyPlan(data:ErpData,state:ProductionPlanningState,checks:PhaseCheckUpdate[],day:string){
- let actual=applyProductionPlanningState(applyLivePhaseChecks(data,checks),state)
+ let actual=applyLivePhaseChecks(applyProductionPlanningState(data,state),state.checks??checks)
  let target=day
  for(let n=0;n<60&&!isWorkingDate(target,actual.plannerSettings);n++)target=addDays(target,1)
  if(!isWorkingDate(target,actual.plannerSettings))throw Error('Nessun giorno lavorativo configurato nei prossimi 60 giorni.')

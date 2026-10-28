@@ -741,8 +741,8 @@ function App() {
         const checks = await productionRpc<PhaseCheckUpdate[]>('production_phase_updates', { p_company_id: cloudMembership.companyId }, cloudSession, cloudConfig)
         if (!cancelled && checks.length) setData(current => applyLivePhaseChecks(current, checks))
         try {
-          if(!nightlyModeRef.current){const actual=await productionRpc<ProductionPlanningState>('production_planning_state',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
-          if(!cancelled)setData(current=>applyProductionPlanningState(current,actual))}
+          {const actual=await productionRpc<ProductionPlanningState>('production_planning_state',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
+          if(!cancelled)setData(current=>Date.parse(actual.serverNow)<Date.parse(current.productionPlanningSampleAt??'')?current:applyLivePhaseChecks(applyProductionPlanningState(current,actual),actual.checks??checks))}
         } catch { /* Available after installing the operational replanning update. */ }
         try {
           const extensions=await productionRpc<OperatorDayExtension[]>('production_day_extensions',{p_company_id:cloudMembership.companyId},cloudSession,cloudConfig)
