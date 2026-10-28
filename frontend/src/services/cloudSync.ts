@@ -80,3 +80,16 @@ export async function updateCloudSnapshot(companyId: string, expectedRevision: n
   if (!rows[0]) throw new CloudSnapshotConflictError()
   return normalizeRow(rows[0])
 }
+
+const pendingKey = (companyId: string) => `body-shop-erp.pending-cloud-save.v1:${companyId}`
+export function markPendingCloudSave(companyId: string): string {
+  const token = crypto.randomUUID()
+  localStorage.setItem(pendingKey(companyId), token)
+  return token
+}
+export function hasPendingCloudSave(companyId: string): boolean {
+  return Boolean(localStorage.getItem(pendingKey(companyId)))
+}
+export function clearPendingCloudSave(companyId: string, token?: string) {
+  if (!token || localStorage.getItem(pendingKey(companyId)) === token) localStorage.removeItem(pendingKey(companyId))
+}

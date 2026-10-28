@@ -1,3 +1,4 @@
+import { assertCloudPreservesLocalRecords } from './localRecovery'
 import type { ErpData, JobPhaseOperatorAssignment, PlannerSettings, UserRole } from '../types'
 import { defaultPlannerSettings, emptyData, normalizePlate, normalizeVin, STORAGE_KEY } from './erp'
 import { EXPECTED_APP_ORIGIN, currentOriginLabel, isAllowedPersistenceOrigin } from './originGuard'
@@ -22,6 +23,7 @@ export interface SaveDatabaseOptions {
   mergeOnConflict?: boolean
   expectedLocalRevision?: number
   checkpointReason?: string
+  protectCloudRestore?: boolean
 }
 
 export interface OrphanReference {
@@ -1048,6 +1050,7 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
     if (options.expectedLocalRevision !== undefined && currentRevision !== options.expectedLocalRevision) {
       throw new Error('Sincronizzazione sospesa: i dati locali sono stati aggiornati in un’altra scheda. Le modifiche sono conservate. Riprova la sincronizzazione.')
     }
+    if (latest && options.protectCloudRestore) assertCloudPreservesLocalRecords(latest, data)
     let candidate = structuredClone(data)
     const revisionAwareSnapshot = incomingRevision > 0
 
@@ -1131,6 +1134,32 @@ export async function restoreCloudDatabase(payload: ErpData, expectedLocalRevisi
     mergeOnConflict: false,
     allowCountReduction: true,
     checkpointReason: 'prima-sincronizzazione-cloud',
+    protectCloudRestore: true,
   })
   return restored
+}
+
+export interface LocalCheckpointSummary {
+ key: string; at: string; customers: number; vehicles: number; estimates: number; jobs: number; plates: string[]
+}
+export async function listLocalCheckpoints(): Promise<LocalCheckpointSummary[]> {
+ const db = await openDatabase()
+ try { return await new Promise((resolve,reject) => {
+  const rows: LocalCheckpointSummary[] = []
+  const tx=db.transaction(STORE,'readonly'); const request=tx.objectStore(STORE).openCursor()
+  request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const key=String(cursor.key)
+   if(key.startsWith('backup:')){const value=cursor.value as ErpData;rows.push({key,at:key.match(/\d{4}-\d{2}-\d{2}T.*$/)?.[0]??'',...buildIntegritySnapshot(value),plates:(value.vehicles??[]).map(v=>v.plate)})}
+   cursor.continue()
+  }
+  tx.oncomplete=()=>resolve(rows.sort((a,b)=>b.at.localeCompare(a.at)));tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)
+ }) } finally {db.close()}
+}
+export async function readLocalCheckpoint(key: string): Promise<ErpData> {
+ if(!key.startsWith('backup:'))throw new Error('Copia locale non valida.')
+ const db=await openDatabase()
+ try {return await new Promise((resolve,reject)=>{
+  const tx=db.transaction(STORE,'readonly');const request=tx.objectStore(STORE).get(key)
+  request.onsuccess=()=>request.result?resolve(normalizeData(request.result)):reject(new Error('Copia locale non trovata.'))
+  request.onerror=()=>reject(request.error)
+ })}finally{db.close()}
 }

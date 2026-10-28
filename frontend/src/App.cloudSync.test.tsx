@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { emptyData } from './services/erp'
 import { DB_NAME, loadDatabase, saveDatabase } from './services/database'
-import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot, type CloudSnapshot } from './services/cloudSync'
+import { markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot, type CloudSnapshot } from './services/cloudSync'
 
 const pendingSaves = vi.hoisted(() => [] as Promise<void>[])
 vi.mock('./services/database', async (importOriginal) => {
@@ -76,6 +76,41 @@ describe('avvio e salvataggio cloud', () => {
     expect(await screen.findByText('Cliente cloud')).toBeInTheDocument()
     expect((await loadDatabase()).customers).toEqual([customer])
     expect(screen.queryByText(/conflitto revisione/)).not.toBeInTheDocument()
+  })
+
+  it('non cancella inserimenti locali assenti dal cloud all’apertura',async()=>{
+    const local=await loadDatabase()
+    local.customers.push({...customer,id:'morning-local',name:'Inserimento mattina'})
+    await saveDatabase(local)
+    render(<App />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('inserimenti assenti dal cloud')
+    expect((await loadDatabase()).customers.some(c=>c.id==='morning-local')).toBe(true)
+    expect(updateCloudSnapshot).not.toHaveBeenCalled()
+    expect(screen.getByRole('button',{name:'Cerca copie su questo dispositivo'})).toBeInTheDocument()
+  })
+
+  it('recupera gli inserimenti locali senza sostituire i clienti già presenti nel cloud',async()=>{
+    const local=await loadDatabase()
+    local.customers.push({...customer,id:'morning-local',name:'Inserimento mattina'})
+    await saveDatabase(local)
+    render(<App />)
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button',{name:'Cerca copie su questo dispositivo'}))
+    fireEvent.click(await screen.findByRole('button',{name:/Archivio attuale/}))
+    fireEvent.click(await screen.findByRole('button',{name:'Recupera inserimenti mancanti'}))
+    await waitFor(()=>expect(vi.mocked(updateCloudSnapshot).mock.calls.some(([, , payload])=>payload.customers.some(c=>c.id==='morning-local')&&payload.customers.some(c=>c.id===customer.id))).toBe(true))
+    await waitFor(async()=>expect((await loadDatabase()).customers.map(c=>c.id).sort()).toEqual([customer.id,'morning-local'].sort()))
+  })
+
+  it('conserva una modifica non inviata anche quando i record hanno gli stessi identificativi',async()=>{
+    const local=await loadDatabase()
+    local.customers=[{...customer,name:'Modifica senza rete'}]
+    await saveDatabase(local)
+    markPendingCloudSave('company-1')
+    render(<App />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('modifiche locali non confermate')
+    expect((await loadDatabase()).customers[0].name).toBe('Modifica senza rete')
+    expect(updateCloudSnapshot).not.toHaveBeenCalled()
   })
 
   it('attende il caricamento cloud prima di aprire le modifiche e avviare autosave', async () => {

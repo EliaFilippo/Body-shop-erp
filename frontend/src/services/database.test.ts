@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ErpData } from '../types'
-import { analyzeDatabaseIntegrity, loadDatabase, prepareDuplicateResolution, resolveDuplicatePlate, restoreCloudDatabase, saveDatabase } from './database'
+import { createDatabaseCheckpoint, listLocalCheckpoints, readLocalCheckpoint, analyzeDatabaseIntegrity, loadDatabase, prepareDuplicateResolution, resolveDuplicatePlate, restoreCloudDatabase, saveDatabase } from './database'
 import { defaultPlannerSettings, emptyData, STORAGE_KEY } from './erp'
 import { EXPECTED_APP_ORIGIN } from './originGuard'
 
@@ -58,10 +58,10 @@ describe('database persistente', () => {
     const local = { ...structuredClone(data), dbRevision: 11 }
     await saveDatabase(local)
     expect(local.dbRevision).toBe(12)
-    const remote = { ...structuredClone(emptyData), dbRevision: remoteRevision }
+    const remote = { ...structuredClone(data), dbRevision: remoteRevision }
     const restored = await restoreCloudDatabase(remote, 12)
     expect(restored.dbRevision).toBe(13)
-    expect((await loadDatabase()).customers).toEqual([])
+    expect((await loadDatabase()).customers).toEqual(local.customers)
     expect(remote.dbRevision).toBe(remoteRevision)
 
     const checkpoint = await new Promise<ErpData>((resolve, reject) => {
@@ -83,6 +83,14 @@ describe('database persistente', () => {
     })
     expect(checkpoint.customers).toEqual(local.customers)
     expect(checkpoint.dbRevision).toBe(12)
+  })
+
+  it('non sostituisce nuovi inserimenti locali con un cloud più vecchio, anche a parità di conteggio', async () => {
+    const local = { ...structuredClone(data), dbRevision: 11 }
+    await saveDatabase(local)
+    const remote = { ...structuredClone(data), customers: [{...data.customers[0], id:'another-cloud-customer'}] }
+    await expect(restoreCloudDatabase(remote, 12)).rejects.toThrow('inserimenti assenti dal cloud')
+    expect((await loadDatabase()).customers).toEqual(local.customers)
   })
 
   it.each([0, 12])('non sovrascrive una modifica concorrente durante il caricamento cloud, revisione iniziale %s', async (initialRevision) => {
@@ -1203,4 +1211,16 @@ describe('protezione origin persistenza', () => {
     const reloaded = await loadDatabase()
     expect(reloaded.vehicles.some((vehicle) => vehicle.id === 'vehicle-new-refresh')).toBe(true)
   })
+})
+
+it('rende consultabili le copie precedenti senza sostituire lo stato attuale',async()=>{
+ const before=structuredClone(data)
+ const key=await createDatabaseCheckpoint(before,'prima-sincronizzazione-cloud')
+ const current=structuredClone(emptyData)
+ await saveDatabase(current)
+ const copies=await listLocalCheckpoints()
+ expect(copies.find(copy=>copy.key===key)?.customers).toBe(1)
+ expect((await readLocalCheckpoint(key)).customers).toEqual(before.customers)
+ expect((await loadDatabase()).customers).toHaveLength(0)
+ await expect(readLocalCheckpoint('current')).rejects.toThrow('non valida')
 })
