@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CloudSnapshotConflictError, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './cloudSync'
+import { clearPendingCloudSave, hasPendingCloudSave, markPendingCloudSave, CloudSnapshotConflictError, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './cloudSync'
 import { emptyData } from './erp'
 
 const config = { url: 'https://project.supabase.co', anonKey: 'public-key' }
@@ -54,4 +54,14 @@ describe('sincronizzazione snapshot cloud', () => {
     const fetcher = vi.fn(async () => new Response(body, { status: 503 }))
     await expect(loadCloudSnapshot('company-1', session, config, fetcher)).rejects.toThrow('Sincronizzazione cloud non riuscita (errore 503). Riprova tra poco.')
   })
+})
+
+it('un invio vecchio non cancella il segnale delle modifiche successive e le aziende sono isolate',()=>{
+ localStorage.clear()
+ const first=markPendingCloudSave('a');const second=markPendingCloudSave('a')
+ clearPendingCloudSave('a',first)
+ expect(hasPendingCloudSave('a')).toBe(true)
+ expect(hasPendingCloudSave('b')).toBe(false)
+ clearPendingCloudSave('a',second)
+ expect(hasPendingCloudSave('a')).toBe(false)
 })

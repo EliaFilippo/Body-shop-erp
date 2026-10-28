@@ -1,3 +1,5 @@
+import { LocalRecoveryPanel } from './features/settings/LocalRecoveryPanel'
+import { sameCloudArchive, recoverMissingBusinessRecords } from './services/localRecovery'
 import { enableFilippoTransport } from './services/transportDutySetup'
 import { applyProductionPlanningState, type ProductionPlanningState } from './services/productionPlanningState'
 import { applyDayExtensions } from './services/operatorDayExtensions'
@@ -20,7 +22,7 @@ import { Modal } from './components/Modal'
 import { DocumentCapturePanel, queueDocumentCaptureFile } from './components/DocumentCapturePanel'
 import { parseMoneyDraft } from './components/money'
 import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, isVehicleWaitingForCone, TOTAL_CONES, emptyData, normalizePlate, updateCustomer } from './services/erp'
-import { loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
+import { normalizeData, createDatabaseCheckpoint, loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
 import { analyzeDatabaseIntegrity, prepareDuplicateResolution, resolveDuplicatePlate, type DatabaseIntegrityReport, type DuplicateResolutionResult } from './services/database'
 import { removePriceListItem, setPriceListItemActive, upsertPriceListItem } from './services/priceList'
 import { PlannerPage } from './features/planner/PlannerPage.tsx'
@@ -53,7 +55,7 @@ import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, u
 import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
 import { LiveProductionPage } from './features/production/LiveProductionPage'
 import { applyLivePhaseChecks, productionRpc, type PhaseCheckUpdate } from './services/liveProduction'
-import { createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
+import { clearPendingCloudSave, pendingCloudSaveToken, markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, EstimateLine, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
@@ -686,6 +688,38 @@ function App() {
   const nightlyModeRef=useRef(false)
   nightlyModeRef.current=Boolean(data.nightlyPlanning?.enabled)
   const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const recoverLocalInsertions = async (source: ErpData) => {
+    const local = await loadDatabase()
+    if (cloudConfig && cloudSession && cloudMembership) {
+      const remote = await loadCloudSnapshot(cloudMembership.companyId, cloudSession, cloudConfig)
+      if (!remote) throw new Error('Archivio cloud non disponibile. Le copie locali sono conservate.')
+      const merged = recoverMissingBusinessRecords(recoverMissingBusinessRecords(remote.payload, local), source)
+      await createDatabaseCheckpoint(local, 'prima-recupero-cloud')
+      const recoveryToken = markPendingCloudSave(cloudMembership.companyId)
+      const saved = await updateCloudSnapshot(cloudMembership.companyId, remote.revision, merged, cloudSession, cloudConfig)
+      const restored = await restoreCloudDatabase(saved.payload, local.dbRevision ?? 0)
+      clearPendingCloudSave(cloudMembership.companyId, recoveryToken)
+      cloudRevisionRef.current = saved.revision
+      cloudReadyRef.current = true
+      nextPersistenceActionRef.current = 'skip'
+      skipNextHeavySyncRef.current = true
+      setData(restored)
+      setCloudInitializationError('')
+      setCloudReady(true)
+      try {
+        const warnings = await publishProductionJobs(saved.payload, cloudMembership.companyId, saved.revision, cloudSession, cloudConfig)
+        setNotice(warnings.length ? `Inserimenti recuperati. Pubblicazione tablet: ${warnings.join(' · ')}` : 'Inserimenti recuperati e sincronizzati nel cloud.')
+      } catch {
+        setNotice('Inserimenti recuperati nel cloud. Pubblicazione sui tablet da riprovare.')
+      }
+    } else {
+      const merged = recoverMissingBusinessRecords(local, source)
+      await saveDatabase(merged, { expectedLocalRevision: local.dbRevision ?? 0, checkpointReason: 'prima-recupero-inserimenti' })
+      setData(merged)
+      setNotice('Inserimenti recuperati sul dispositivo.')
+    }
+  }
+
 
   useEffect(() => {
     if (!cloudConfig || !cloudSession || cloudMembership) return
@@ -780,8 +814,13 @@ function App() {
           return
         }
 
+        const pending = pendingCloudSaveToken(cloudMembership.companyId)
+        if (pending && !sameCloudArchive(localSnapshot, normalizeData(remote.payload))) {
+          throw new Error('Ci sono modifiche locali non confermate dal cloud. I dati del dispositivo sono conservati. Scarica la copia locale e verifica il recupero prima di continuare.')
+        }
         const restored = await restoreCloudDatabase(remote.payload, localSnapshot.dbRevision ?? 0)
         if (cancelled) return
+        if (pending) clearPendingCloudSave(cloudMembership.companyId, pending)
         cloudRevisionRef.current = remote.revision
         cloudReadyRef.current = true
         setCloudReady(true)
@@ -879,6 +918,7 @@ function App() {
     }
     // I salvataggi espliciti sono già verificati nel database locale, ma vanno
     // comunque inviati al cloud. I caricamenti da cloud/altre schede sono esclusi.
+    const pendingToken = cloudConfig && cloudSession && cloudMembership && cloudReadyRef.current ? markPendingCloudSave(cloudMembership.companyId) : undefined
     const localSave = persistenceAction === 'sync-only' ? Promise.resolve() : saveDatabase(data, { allowCountReduction })
     void localSave
       .then(async () => {
@@ -892,6 +932,7 @@ function App() {
             if (expectedRevision === null) return
             const saved = await updateCloudSnapshot(cloudMembership.companyId, expectedRevision, snapshot, cloudSession, cloudConfig)
             cloudRevisionRef.current = saved.revision
+            clearPendingCloudSave(cloudMembership.companyId, pendingToken)
             try {
               const warnings = await publishProductionJobs(saved.payload, cloudMembership.companyId, saved.revision, cloudSession, cloudConfig)
               if (warnings.length) setNotice(`Dati salvati. Lavori da completare per i tablet: ${warnings.join(' · ')}`)
@@ -1039,6 +1080,7 @@ function App() {
             setCloudSyncAttempt((attempt) => attempt + 1)
           }}>Riprova sincronizzazione</button></>
           : <p role="status">Sto sincronizzando i dati prima di aprire il gestionale…</p>}
+        <LocalRecoveryPanel onRecover={recoverLocalInsertions} />
         <button type="button" className="cloud-logout" onClick={() => void logoutCloud()}>Esci</button>
       </section>
     </main>
@@ -1178,7 +1220,7 @@ function App() {
           setNotice('Obiettivi salvati e storicizzati.')
         }} />}
         {view === 'users' && <UsersSettingsPage data={data} onChange={setData} setNotice={setNotice} setError={setError} />}
-        {view === 'database-diagnostics' && <DatabaseDiagnosticsSettingsPage data={data} onRefreshSnapshot={async () => {
+        {view === 'database-diagnostics' && <><LocalRecoveryPanel onRecover={recoverLocalInsertions} /><DatabaseDiagnosticsSettingsPage data={data} onRefreshSnapshot={async () => {
           const reloaded = await loadDatabase()
           nextPersistenceActionRef.current = 'sync-only'
           skipNextHeavySyncRef.current = true
@@ -1189,7 +1231,7 @@ function App() {
           nextPersistenceActionRef.current = 'sync-only'
           skipNextHeavySyncRef.current = true
           setData(reloaded)
-        }} setNotice={setNotice} setError={setError} />}
+        }} setNotice={setNotice} setError={setError} /></>}
         {view === 'price-list' && <><EliasCatalogSettings settings={data.plannerSettings} onSave={plannerSettings => { setData({ ...data, plannerSettings }); setNotice('Tempi e prezzi preimpostati salvati.'); setError('') }} /><details className="panel"><summary>Listino avanzato e altre lavorazioni</summary><PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} /></details></>}
         {view === 'finance' && <FinancePage passwordConnection={cloudConfig && cloudSession && cloudMembership ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
         {view === 'estimates-jobs' && <WorkflowPage noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
