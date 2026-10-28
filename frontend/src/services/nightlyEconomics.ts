@@ -66,6 +66,7 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  if(missingLaborCost)warnings.push('Manca il costo del personale per alcune ore registrate.')
  if(!measured)warnings.push('Capacità residua stimata con l’efficienza configurata: storico produttivo insufficiente.')
  if(monthlyGoal<=0)warnings.push('Imposta l’obiettivo di fatturato mensile.')
+ if(monthlyGoal>0&&monthlyFixedCosts>monthlyGoal)warnings.push('L’obiettivo mensile è inferiore ai costi mensili configurati.')
  if(remainingProductiveHours<=0&&residualRevenue>0)warnings.push('Nessuna capacità produttiva residua nel mese: obiettivo da ripianificare.')
  return {monthKey,plannedFor,asOf:state.serverNow,monthlyGoal,realizedNetRevenue,residualRevenue:round(residualRevenue),
   productiveHours:round(productiveHours),paidHours:round(paidHours),accruedOperatingCosts:round(accruedCosts),payrollInMonthlyCosts,

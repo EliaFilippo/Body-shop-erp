@@ -285,6 +285,7 @@ function calculateNightlyEconomics(data, state, plannedFor) {
   if (missingLaborCost) warnings.push("Manca il costo del personale per alcune ore registrate.");
   if (!measured) warnings.push("Capacit\xE0 residua stimata con l\u2019efficienza configurata: storico produttivo insufficiente.");
   if (monthlyGoal <= 0) warnings.push("Imposta l\u2019obiettivo di fatturato mensile.");
+  if (monthlyGoal > 0 && monthlyFixedCosts > monthlyGoal) warnings.push("L\u2019obiettivo mensile \xE8 inferiore ai costi mensili configurati.");
   if (remainingProductiveHours <= 0 && residualRevenue > 0) warnings.push("Nessuna capacit\xE0 produttiva residua nel mese: obiettivo da ripianificare.");
   return {
     monthKey,

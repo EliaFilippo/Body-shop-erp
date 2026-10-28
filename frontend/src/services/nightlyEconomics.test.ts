@@ -70,3 +70,11 @@ describe('nightly rates from actual work',()=>{
   expect(next.capacitySource).toBe('configured')
  })
 })
+
+it('keeps an owner goal below configured costs and makes the shortfall visible',()=>{
+ const {data,state}=setup()
+ data.plannerSettings.internalCostSettings!.monthlyCostItems![0].monthlyAmount=15000
+ const result=calculateNightlyEconomics(data,state,'2026-09-15')
+ expect(result.monthlyGoal).toBe(10000)
+ expect(result.warnings).toContain('L’obiettivo mensile è inferiore ai costi mensili configurati.')
+})
