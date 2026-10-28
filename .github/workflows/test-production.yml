@@ -89,6 +89,8 @@ jobs:
         run: psql -f supabase/tests/nightly_economics.sql
       - name: Manual work updates automatic phases, extra signatures, reopens and assignment freshness
         run: psql -f supabase/tests/manual_phase_progress.sql
+      - name: Lightweight synchronous tablet reads preserve new saves, manual progress and private history
+        run: psql -f supabase/tests/production_read_snapshot.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
