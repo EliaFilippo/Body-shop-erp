@@ -1,3 +1,4 @@
+import {calculateNightlyEconomics} from './nightlyEconomics'
 import type {ErpData} from '../types'
 import {applyLivePhaseChecks,type PhaseCheckUpdate} from './liveProduction'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
@@ -10,8 +11,10 @@ export function buildNightlyPlan(data:ErpData,state:ProductionPlanningState,chec
  if(!isWorkingDate(target,actual.plannerSettings))throw Error('Nessun giorno lavorativo configurato nei prossimi 60 giorni.')
  const capacity=calculatePlanner(actual.vehicles,actual.plannerSettings,target)
  actual={...actual,vehicles:actual.vehicles.map(v=>({...v,calculatedDeliveryDate:capacity.vehicles.find(x=>x.vehicleId===v.id)?.calculatedDeliveryDate??v.calculatedDeliveryDate})),plannerAssignments:capacity.assignments}
- const planned=recalculateOperatorPrograms(actual,target,'Piano notturno da lavorazioni reali')
- return {...planned,nightlyPlanning:{enabled:true as const,plannedFor:target,generatedAt:state.serverNow,hour:3}}
+ const planned=recalculateOperatorPrograms(actual,target,'Piano notturno da lavorazioni reali · priorità box verniciatura',state.serverNow)
+ const economics=calculateNightlyEconomics(actual,state,target)
+ const economicsHistory=[economics,...(data.nightlyPlanning?.economicsHistory??[]).filter(e=>e.plannedFor!==target)].slice(0,90)
+ return {...planned,nightlyPlanning:{enabled:true as const,plannedFor:target,generatedAt:state.serverNow,hour:3,economics,economicsHistory}}
 }
 export interface NightlyClaim {id:string;revision:number;day:string;payload:ErpData;state:ProductionPlanningState;checks:PhaseCheckUpdate[]}
 export async function handleNightlyRequest(request:Request,rpc:(name:string,args:Record<string,unknown>)=>Promise<unknown>):Promise<Response>{

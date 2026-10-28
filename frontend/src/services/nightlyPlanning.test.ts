@@ -49,3 +49,20 @@ it('uses real evening signatures to prioritize clearing a painted car without co
  expect(plan.jobs![0].phases.find(p=>p.name==='Scartatura')?.status).toBe('Da fare')
  expect(JSON.stringify(data)).toBe(before)
 })
+
+it('stores separate nightly rates and daily goals once per planned date without rewriting financial settings',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings.monthlyRevenueGoal=30000
+ data.plannerSettings.operators=[{id:'a',name:'A',active:true,dailyHours:8,hourlyCost:20}]
+ data.plannerSettings.internalCostSettings={...data.plannerSettings.internalCostSettings!,monthlyCostItems:[{id:'fixed',category:'affitto',description:'Struttura',active:true,monthlyAmount:2000}]}
+ const state={serverNow:'2026-10-28T02:00:00Z',entries:[],dailyWork:[{date:'2026-10-27',operatorId:'a',productiveSeconds:14400,paidSeconds:18000}]}
+ const plan=buildNightlyPlan(data,state,[],'2026-10-28')
+ expect(plan.nightlyPlanning.economics.productiveHours).toBe(4)
+ expect(plan.nightlyPlanning.economics.realHourlyCost).toBeGreaterThan(0)
+ expect(plan.nightlyPlanning.economics.targetHourlyRate).toBeGreaterThan(0)
+ expect(plan.nightlyPlanning.economics.dailyGoal).toBeGreaterThan(0)
+ expect(plan.plannerSettings).toEqual(data.plannerSettings)
+ expect(plan.invoices).toEqual(data.invoices)
+ const twice=buildNightlyPlan(plan,state,[],'2026-10-28')
+ expect(twice.nightlyPlanning.economicsHistory).toHaveLength(1)
+})

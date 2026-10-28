@@ -1,3 +1,4 @@
+import {NightlyEconomicsPanel} from './NightlyEconomicsPanel'
 import { calculateEconomicGoalSnapshot } from '../../services/economic'
 import type { ErpData } from '../../types'
 import { CapacityBar } from '../../components/CapacityBar'
@@ -6,6 +7,8 @@ const euro = (value: number) => new Intl.NumberFormat('it-IT', { style: 'currenc
 
 export function EconomicGoalPanel({ data }: { data: ErpData }) {
   const snapshot = calculateEconomicGoalSnapshot(data)
+  const nightly=data.nightlyPlanning?.economics
+  if(nightly?.monthKey===snapshot.monthKey)return <NightlyEconomicsPanel snapshot={nightly}/>
   return <section className="panel economic-panel">
     <div className="panel-head"><div><span className="eyebrow">OBIETTIVO DEL MESE</span><h3>{euro(snapshot.appliedRevenueGoal)}</h3></div><b className={snapshot.status === 'ok' ? 'goal-ok' : snapshot.status === 'warning' ? 'goal-gap' : 'goal-critical'}>{snapshot.status === 'ok' ? 'In linea' : snapshot.status === 'warning' ? 'Attenzione' : 'In ritardo'}</b></div>
     <CapacityBar percent={snapshot.progressPercent} />
