@@ -91,6 +91,8 @@ jobs:
         run: psql -f supabase/tests/manual_phase_progress.sql
       - name: Lightweight synchronous tablet reads preserve new saves, manual progress and private history
         run: psql -f supabase/tests/production_read_snapshot.sql
+      - name: Partial cloud saves preserve audit, new vehicles, revision isolation and quote guards
+        run: psql -f supabase/tests/partial_cloud_save.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
