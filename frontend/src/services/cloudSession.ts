@@ -21,6 +21,7 @@ export function persistCloudSession(s:CloudAuthSession,surface:SessionSurface,co
  const stored={...s,expiresAt:expiresAt(s)}
  localStorage.setItem(userKey(config,s.userId),JSON.stringify(stored))
  localStorage.removeItem(logoutKey(config,s.userId))
+ if(surface==='production'&&localStorage.getItem(pointerKey(config,'office'))!==s.userId)localStorage.removeItem(pointerKey(config,'office'))
  localStorage.setItem(pointerKey(config,surface),s.userId)
  sessionStorage.setItem(CLOUD_SESSION_KEY,JSON.stringify(stored))
  if(surface==='production')sessionStorage.removeItem(pinRequiredKey)
@@ -47,7 +48,13 @@ export function clearCloudSession(user:string,config:CloudAuthConfig) {
  if(parse(sessionStorage.getItem(CLOUD_SESSION_KEY))?.userId===user)sessionStorage.removeItem(CLOUD_SESSION_KEY)
  window.dispatchEvent(new CustomEvent(CLOUD_SESSION_EVENT,{detail:{userId:user}}))
 }
-export function requireTabletPin(){sessionStorage.setItem(pinRequiredKey,'1');sessionStorage.removeItem(CLOUD_SESSION_KEY)}
+export function requireTabletPin(){
+ sessionStorage.setItem(pinRequiredKey,'1');sessionStorage.removeItem(CLOUD_SESSION_KEY)
+ // A personal QR switches the active tablet profile. Never restore a previous
+ // owner's remembered selection after this tab is closed; other open tabs keep
+ // their own authenticated identity and timers.
+ for(const key of Object.keys(localStorage))if(key.startsWith(CLOUD_SESSION_KEY+':')&&(key.endsWith(':last:office')||key.endsWith(':last:production')))localStorage.removeItem(key)
+}
 export class CloudSessionExpiredError extends Error { constructor(message='Occorre confermare nuovamente l’accesso. I dati e i timer sono conservati.'){super(message);this.name='CloudSessionExpiredError'} }
 const inFlight=new Map<string,Promise<CloudAuthSession>>()
 async function refreshLock<T>(key:string,task:()=>Promise<T>):Promise<T> {
