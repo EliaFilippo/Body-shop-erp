@@ -1,3 +1,4 @@
+import { authenticatedCloudFetch } from './cloudSession'
 import type { ErpData } from '../types'
 import type { CloudAuthConfig, CloudAuthSession } from './cloudAuth'
 
@@ -36,7 +37,7 @@ function normalizeRow(row: CloudSnapshotRow): CloudSnapshot {
 
 // Cache only acknowledged versions; never diff against an optimistic local save.
 const acknowledged = new Map<string, CloudSnapshot>()
-const archiveKey = (company: string, session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig) => `${config.url}|${company}|${session.accessToken}`
+const archiveKey = (company: string, session: Pick<CloudAuthSession, 'accessToken'> & {userId?:string}, config: CloudAuthConfig) => `${config.url}|${company}|${session.userId??session.accessToken}`
 export function clearCloudSnapshotCache() { acknowledged.clear() }
 function remember(key: string, snapshot: CloudSnapshot) {
   acknowledged.set(key, structuredClone(snapshot))
@@ -66,7 +67,7 @@ async function responseMessage(response: Response) {
 
 export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot | null> {
   const query = new URLSearchParams({ company_id: `eq.${companyId}`, select: 'company_id,revision,payload,updated_at', limit: '1' })
-  const response = await fetcher(`${config.url}/rest/v1/erp_snapshots?${query}`, { headers: headers(session, config) })
+  const response = await authenticatedCloudFetch(`${config.url}/rest/v1/erp_snapshots?${query}`, { headers: headers(session, config) }, session, config, fetcher)
   if (!response.ok) throw new Error(await responseMessage(response))
   const rows = await response.json() as CloudSnapshotRow[]
   if (!rows[0]) return null
@@ -76,11 +77,11 @@ export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAu
 }
 
 export async function createCloudSnapshot(companyId: string, data: ErpData, session: Pick<CloudAuthSession, 'accessToken' | 'userId'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot> {
-  const response = await fetcher(`${config.url}/rest/v1/erp_snapshots`, {
+  const response = await authenticatedCloudFetch(`${config.url}/rest/v1/erp_snapshots`, {
     method: 'POST',
     headers: { ...headers(session, config), Prefer: 'return=representation' },
     body: JSON.stringify({ company_id: companyId, revision: 1, payload: data, updated_by: session.userId }),
-  })
+  }, session, config, fetcher)
   if (response.status === 409) throw new CloudSnapshotConflictError()
   if (!response.ok) throw new Error(await responseMessage(response))
   const rows = await response.json() as CloudSnapshotRow[]
@@ -101,10 +102,10 @@ export async function updateCloudSnapshot(companyId: string, expectedRevision: n
     if(values[field]!==undefined && (!base || !sameJson(values[field],base[field]))) changes[field]=values[field]
   }
   const removeKeys=base ? Object.keys(base).filter(field=>values[field]===undefined) : []
-  const response=await fetcher(`${config.url}/rest/v1/rpc/erp_update_snapshot_sections`,{
+  const response=await authenticatedCloudFetch(`${config.url}/rest/v1/rpc/erp_update_snapshot_sections`,{
     method:'POST',headers:headers(session,config),
     body:JSON.stringify({p_company_id:companyId,p_expected_revision:expectedRevision,p_changes:changes,p_remove_keys:removeKeys}),
-  })
+  }, session, config, fetcher)
   if (!response.ok) throw new Error(await responseMessage(response))
   const rows=await response.json() as CloudSnapshotRow[]
   if (!rows[0]) throw new CloudSnapshotConflictError()

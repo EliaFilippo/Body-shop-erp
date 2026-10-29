@@ -1,3 +1,5 @@
+import { useCloudSessionRenewal } from '../../hooks/useCloudSessionRenewal'
+import { authenticatedCloudFetch, persistCloudSession, readStoredCloudSession, clearCloudSession } from '../../services/cloudSession'
 import { ContinueDay } from './ContinueDay'
 import { OperatorActivities } from './OperatorActivities'
 import { phaseDisplayName } from '../../services/workCycle'
@@ -8,17 +10,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
 import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../services/cloudAuth'
 import { loadCloudSnapshot, type CloudSnapshot } from '../../services/cloudSync'
-import { syncConfirmedProductionJobs, liveTimeAlert, liveCountdown, prepareLiveJob, productionRpc, refreshProductionSession, type LiveFeed } from '../../services/liveProduction'
+import { syncConfirmedProductionJobs, liveTimeAlert, liveCountdown, prepareLiveJob, productionRpc, type LiveFeed } from '../../services/liveProduction'
 import './liveProduction.css'
 import { EmployeeHours, HoursTotals } from './EmployeeHours'
 import { OperatorPinAdmin, OperatorPinLogin } from './OperatorPinAccess'
 import { readTabletPairing } from '../../services/operatorPin'
 
 const config = getCloudAuthConfig()
-const sessionKey = 'body-shop-erp.cloud-session.v1'
-function storedSession(): CloudAuthSession | null {
-  try { const s = JSON.parse(sessionStorage.getItem(sessionKey) || 'null'); return s?.accessToken && s?.userId ? s : null } catch { return null }
-}
+function storedSession(): CloudAuthSession | null {return config?readStoredCloudSession('production',config):null}
 const clockText = (seconds: number | null) => {
   if (seconds === null) return '—'
   const value = Math.max(0, Math.floor(seconds))
@@ -40,34 +39,12 @@ export function LiveProductionPage() {
   const [vehicleSearch,setVehicleSearch]=useState('')
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
-  const sessionRef = useRef(session)
-  sessionRef.current = session
+  useCloudSessionRenewal(session,config,next=>setSession(current=>current?.userId===next.userId?next:current),()=>{setSession(null);setFeed(null);setCompanyId('');setSnapshot(null)})
   const lastSample = useRef(-Infinity)
   const generation = useRef(0)
   const invalidate = useCallback(() => { generation.current++ }, [])
   const actionLock = useRef(false)
   const refreshing = useRef(false)
-  const userId = session?.userId
-  useEffect(() => {
-    if (!userId || !config) return
-    let stopped = false
-    let timer: ReturnType<typeof setTimeout>
-    async function renew() {
-      const current = sessionRef.current
-      if (!current || current.userId !== userId) return
-      let delay = 20000
-      try {
-        const next = await refreshProductionSession(current, config!)
-        if (stopped) return
-        sessionStorage.setItem(sessionKey, JSON.stringify(next)); setSession(next)
-        delay = Math.max(10000, Math.min(20 * 60 * 1000, next.expiresIn * 800))
-      } catch (e) { if (!stopped) setError(e instanceof Error ? e.message : 'Impossibile rinnovare l’accesso.') }
-      if (!stopped) timer = setTimeout(renew, delay)
-    }
-    // Refresh restored sessions before a shift and periodically throughout it.
-    timer = setTimeout(renew, 1000)
-    return () => { stopped = true; clearTimeout(timer) }
-  }, [userId])
   const refresh = useCallback(async () => {
     if (!session || !config || !companyId || refreshing.current) return
     refreshing.current = true
@@ -85,8 +62,8 @@ export function LiveProductionPage() {
     let cancelled = false
     async function membership() {
       try {
-        const response = await fetch(`${config!.url}/rest/v1/company_members?${new URLSearchParams({ user_id: `eq.${session!.userId}`, active: 'eq.true', select: 'company_id,role', limit: '1' })}`,
-          { headers: { apikey: config!.anonKey, Authorization: `Bearer ${session!.accessToken}` }, signal: AbortSignal.timeout(10000) })
+        const response = await authenticatedCloudFetch(`${config!.url}/rest/v1/company_members?${new URLSearchParams({ user_id: `eq.${session!.userId}`, active: 'eq.true', select: 'company_id,role', limit: '1' })}`,
+          { headers: { apikey: config!.anonKey, Authorization: `Bearer ${session!.accessToken}` }, signal: AbortSignal.timeout(10000) }, session!, config!)
         if (!response.ok) throw new Error('Accesso scaduto o non valido. Esci e accedi di nuovo.')
         const memberships = await response.json() as { company_id: string; role: string }[]
         if (!memberships.length) throw new Error('Questo account deve essere abilitato dal titolare per la carrozzeria.')
@@ -134,7 +111,7 @@ export function LiveProductionPage() {
     setBusy(true)
     try { await signOutCloud(session, config); setError('') }
     catch (e) { setError(e instanceof Error ? e.message : 'Disconnessione non riuscita.') }
-    finally { sessionStorage.removeItem(sessionKey); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setSelectionMode('manual'); setPhaseChoices({}) }
+    finally { clearCloudSession(session.userId,config); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setSelectionMode('manual'); setPhaseChoices({}) }
   }
   useEffect(()=>{
     if(!session||!config||!companyId||!feed||!['owner','office'].includes(feed.role))return
@@ -186,10 +163,10 @@ export function LiveProductionPage() {
         {feed && ['owner','office'].includes(feed.role) && <a href={import.meta.env.BASE_URL}>Gestionale</a>}</div></header>
     {!config && <p role="alert">Collegamento Supabase non configurato.</p>}
     {error && <p className="live-alert" role="alert">{error}</p>}
-    {config && !session && tabletPairing && <OperatorPinLogin pairing={tabletPairing} config={config} onLogin={result=>{setError('');sessionStorage.setItem(sessionKey,JSON.stringify(result));setSession(result)}} />}
+    {config && !session && tabletPairing && <OperatorPinLogin pairing={tabletPairing} config={config} onLogin={result=>{setError('');persistCloudSession(result,'production',config);setSession(result)}} />}
     {config && !session && <details open={!tabletPairing}><summary>Accesso titolare o account con email</summary><form className="live-login" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError('')
-      try { const result = await signInWithPassword(email, password, config); sessionStorage.setItem(sessionKey, JSON.stringify(result)); setPassword(''); setSession(result) }
+      try { const result = await signInWithPassword(email, password, config); persistCloudSession(result,'production',config); setPassword(''); setSession(result) }
       catch (e) { setError(e instanceof Error ? e.message : 'Accesso non riuscito.') }
       finally { setBusy(false) }
     }}><h2>Accedi al tuo profilo</h2><label>Email <input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label>

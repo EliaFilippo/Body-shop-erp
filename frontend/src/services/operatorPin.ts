@@ -1,3 +1,4 @@
+import { authenticatedCloudFetch, requireTabletPin } from './cloudSession'
 import type { CloudAuthConfig, CloudAuthSession } from './cloudAuth'
 export interface TabletPairing { companyId: string; operatorId: string; pairing: string }
 const pairingKey = 'body-shop-erp.tablet-pairing.v1'
@@ -12,7 +13,7 @@ export function readTabletPairing(): TabletPairing | null {
     // Storage restrictions must not turn a valid personal link into an office login.
     let stored=false
     try { localStorage.setItem(pairingKey,JSON.stringify(incoming)); stored=true } catch { /* Keep the fragment so a reload can retry. */ }
-    try { sessionStorage.removeItem('body-shop-erp.cloud-session.v1') } catch { /* The React session is also cleared by the activation handler. */ }
+    try { requireTabletPin() } catch { /* The React session is also cleared by the activation handler. */ }
     if(stored)try { history.replaceState(null,'',location.pathname+location.search) } catch { /* The personal link remains usable. */ }
     return incoming
   }
@@ -26,8 +27,9 @@ export function tabletLink(pairing:TabletPairing, baseUrl = new URL('production.
 }
 async function callPin<T>(body:Record<string,unknown>,config:CloudAuthConfig,session?:CloudAuthSession,fetcher:typeof fetch=fetch):Promise<T> {
   try {
-  const res=await fetcher(`${config.url}/functions/v1/operator-pin`,{ method:'POST',headers:{ 'Content-Type':'application/json',apikey:config.anonKey,
-    Authorization:`Bearer ${session?.accessToken ?? config.anonKey}` },body:JSON.stringify(body),signal:AbortSignal.timeout(30000) })
+  const request:RequestInit={ method:'POST',headers:{ 'Content-Type':'application/json',apikey:config.anonKey,
+    Authorization:`Bearer ${session?.accessToken ?? config.anonKey}` },body:JSON.stringify(body),signal:AbortSignal.timeout(30000) }
+  const res=session?await authenticatedCloudFetch(`${config.url}/functions/v1/operator-pin`,request,session,config,fetcher):await fetcher(`${config.url}/functions/v1/operator-pin`,request)
   const payload=await res.json()
   if (!res.ok) throw new Error(payload.message || 'Accesso PIN non ancora attivato. Contatta il titolare.')
   return payload as T

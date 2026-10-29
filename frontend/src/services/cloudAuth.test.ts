@@ -23,7 +23,7 @@ describe('autenticazione cloud', () => {
   it('chiude la sessione usando il token corrente', async () => {
     const fetcher = vi.fn(async () => new Response(null, { status: 204 })) as unknown as typeof fetch
     await expect(signOutCloud({ accessToken: 'token' }, config, fetcher)).resolves.toBeUndefined()
-    expect(fetcher).toHaveBeenCalledWith(`${config.url}/auth/v1/logout`, expect.objectContaining({ method: 'POST' }))
+    expect(fetcher).toHaveBeenCalledWith(`${config.url}/auth/v1/logout?scope=local`, expect.objectContaining({ method: 'POST' }))
   })
 
   it('crea o recupera l’azienda del primo utente autenticato', async () => {

@@ -1,3 +1,5 @@
+import { useCloudSessionRenewal } from './hooks/useCloudSessionRenewal'
+import { CloudSessionExpiredError, persistCloudSession, readStoredCloudSession, clearCloudSession } from './services/cloudSession'
 import { LocalRecoveryPanel } from './features/settings/LocalRecoveryPanel'
 import { sameCloudArchive, recoverMissingBusinessRecords } from './services/localRecovery'
 import { enableFilippoTransport } from './services/transportDutySetup'
@@ -115,18 +117,10 @@ const ACCEPTANCE_CHECKLIST_ACCESSORIES_LABEL = 'Accessori verificati'
 const ACCEPTANCE_CHECKLIST_PHOTOS_LABEL = 'Foto caricate'
 const ACCEPTANCE_CHECKLIST_SIGNATURE_LABEL = 'Firma cliente acquisita'
 const CUSTOMER_DOCUMENT_INPUT_ID = 'acceptance-customer-document-input'
-const CLOUD_SESSION_KEY = 'body-shop-erp.cloud-session.v1'
 
 function readCloudSession(): CloudAuthSession | null {
-  try {
-    const raw = sessionStorage.getItem(CLOUD_SESSION_KEY)
-    if (!raw) return null
-    const value = JSON.parse(raw) as Partial<CloudAuthSession>
-    if (!value.accessToken || !value.userId || !value.email) return null
-    return value as CloudAuthSession
-  } catch {
-    return null
-  }
+  const config=getCloudAuthConfig()
+  return config?readStoredCloudSession('office',config):null
 }
 
 function CloudLoginScreen({ config, onAuthenticated }: { config: CloudAuthConfig; onAuthenticated: (session: CloudAuthSession, membership: CloudCompanyMembership) => void }) {
@@ -142,7 +136,7 @@ function CloudLoginScreen({ config, onAuthenticated }: { config: CloudAuthConfig
     try {
       const session = await signInWithPassword(email, password, config)
       const membership = await bootstrapCloudCompany(session, 'Carrozzeria Elias', 'Filippo Elia', config)
-      sessionStorage.setItem(CLOUD_SESSION_KEY, JSON.stringify(session))
+      persistCloudSession(session, 'office', config)
       setPassword('')
       onAuthenticated(session, membership)
     } catch (problem) {
@@ -658,6 +652,7 @@ function App() {
   const cloudConfig = useMemo(() => getCloudAuthConfig(), [])
   const [recoveryAccessToken, setRecoveryAccessToken] = useState<string | null>(() => getRecoveryAccessToken())
   const [cloudSession, setCloudSession] = useState<CloudAuthSession | null>(() => cloudConfig ? readCloudSession() : null)
+  useCloudSessionRenewal(cloudSession, cloudConfig, next => setCloudSession(current=>current?.userId===next.userId?next:current), () => {cloudReadyRef.current=false;setCloudReady(false);setCloudSession(null)})
   const [cloudMembership, setCloudMembership] = useState<CloudCompanyMembership | null>(null)
   const [cloudReady, setCloudReady] = useState(false)
   const [cloudInitializationError, setCloudInitializationError] = useState('')
@@ -754,10 +749,10 @@ function App() {
     let cancelled = false
     void bootstrapCloudCompany(cloudSession, 'Carrozzeria Elias', 'Filippo Elia', cloudConfig)
       .then((membership) => { if (!cancelled) setCloudMembership(membership) })
-      .catch(() => {
+      .catch(problem => {
         if (cancelled) return
-        sessionStorage.removeItem(CLOUD_SESSION_KEY)
-        setCloudSession(null)
+        if(problem instanceof CloudSessionExpiredError){clearCloudSession(cloudSession.userId,cloudConfig);setCloudSession(null)}
+        else setCloudInitializationError(problem instanceof Error?problem.message:'Collegamento temporaneamente non disponibile. Riprova tra poco.')
       })
     return () => { cancelled = true }
   }, [cloudConfig, cloudMembership, cloudSession])
@@ -865,7 +860,7 @@ function App() {
     })()
 
     return () => { cancelled = true; cloudReadyRef.current = false }
-  }, [cloudConfig, cloudMembership, cloudSession, databaseLoaded, databaseReady, cloudSyncAttempt])
+  }, [cloudConfig, cloudMembership, cloudSession?.userId, databaseLoaded, databaseReady, cloudSyncAttempt])
 
   useEffect(() => {
     if (blockedByOrigin) {
@@ -981,7 +976,7 @@ function App() {
         setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.')
         setAcceptanceAutosaveState('idle')
       })
-  }, [cloudConfig, cloudMembership, cloudSession, cloudReady, data, databaseLoaded, databaseReady])
+  }, [cloudConfig, cloudMembership, cloudSession?.userId, cloudReady, data, databaseLoaded, databaseReady])
 
   useEffect(() => () => {
     if (acceptanceAutosaveTimerRef.current !== null) {
@@ -1087,7 +1082,7 @@ function App() {
   const logoutCloud = async () => {
     if (!cloudConfig || !cloudSession) return
     try { await signOutCloud(cloudSession, cloudConfig) } catch { /* La sessione locale viene comunque chiusa. */ }
-    sessionStorage.removeItem(CLOUD_SESSION_KEY)
+    clearCloudSession(cloudSession.userId, cloudConfig)
     cloudReadyRef.current = false
     cloudRevisionRef.current = null
     cloudSyncQueueRef.current = Promise.resolve()
