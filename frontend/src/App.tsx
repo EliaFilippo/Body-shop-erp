@@ -135,8 +135,8 @@ function CloudLoginScreen({ config, onAuthenticated }: { config: CloudAuthConfig
     setLoginError('')
     try {
       const session = await signInWithPassword(email, password, config)
-      const membership = await bootstrapCloudCompany(session, 'Carrozzeria Elias', 'Filippo Elia', config)
       persistCloudSession(session, 'office', config)
+      const membership = await bootstrapCloudCompany(session, 'Carrozzeria Elias', 'Filippo Elia', config)
       setPassword('')
       onAuthenticated(session, membership)
     } catch (problem) {

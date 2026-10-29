@@ -75,6 +75,9 @@ async function refreshLock<T>(key:string,task:()=>Promise<T>):Promise<T> {
 }
 export async function ensureCloudSession(session:CloudAuthSession,config:CloudAuthConfig,fetcher:typeof fetch=fetch,force=false):Promise<CloudAuthSession> {
  const key=`elias-auth-refresh:${config.url}:${session.userId}`
+ if(isCloudSessionClosed(session.userId,config))throw new Error('Accesso chiuso su questo dispositivo.')
+ const available=readUserSession(session.userId,config)??session
+ if((!force||available.accessToken!==session.accessToken)&&expiresAt(available)>Date.now()+60000)return available
  const existing=inFlight.get(key)
  if(existing){const shared=await existing;if(!force||shared.accessToken!==session.accessToken)return shared;if(inFlight.get(key)===existing)inFlight.delete(key);return ensureCloudSession(shared,config,fetcher,true)}
  const task=refreshLock(key,async()=>{
