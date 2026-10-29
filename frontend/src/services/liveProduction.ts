@@ -1,3 +1,4 @@
+import { authenticatedCloudFetch, ensureCloudSession } from './cloudSession'
 import { loadCloudSnapshot } from './cloudSync'
 import type { ErpData, EstimateLine, RepairJob } from '../types'
 import type { CloudAuthConfig, CloudAuthSession } from './cloudAuth'
@@ -32,13 +33,7 @@ export interface LiveFeed {
 }
 
 export async function refreshProductionSession(session: CloudAuthSession, config: CloudAuthConfig): Promise<CloudAuthSession> {
-  const response = await fetch(`${config.url}/auth/v1/token?grant_type=refresh_token`, {
-    method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: session.refreshToken }), signal: AbortSignal.timeout(10000),
-  })
-  const result = await response.json()
-  if (!response.ok || !result.access_token || result.user?.id !== session.userId) throw new Error('Accesso scaduto. Esci e accedi di nuovo; il timer sul server resta registrato.')
-  return { ...session, accessToken: result.access_token, refreshToken: result.refresh_token ?? session.refreshToken, expiresIn: result.expires_in ?? 3600 }
+  return ensureCloudSession(session, config, fetch, true)
 }
 
 /** Fast manual phases and catalog services are internal labour, even in legacy category "altre". */
@@ -144,10 +139,10 @@ export function applyLivePhaseChecks(data: ErpData, checks: PhaseCheckUpdate[]):
 
 export async function productionRpc<T>(name: string, body: Record<string, unknown>, session: CloudAuthSession,
   config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<T> {
-  const response = await fetcher(`${config.url}/rest/v1/rpc/${name}`, {
+  const response = await authenticatedCloudFetch(`${config.url}/rest/v1/rpc/${name}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', apikey: config.anonKey, Authorization: `Bearer ${session.accessToken}` },
     body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
-  })
+  }, session, config, fetcher)
   const payload = await response.json()
   if (!response.ok) {
     if (response.status === 401) throw new Error('Accesso scaduto. Esci e accedi di nuovo; il tempo già avviato resta registrato.')

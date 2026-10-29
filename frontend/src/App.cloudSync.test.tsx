@@ -1,3 +1,4 @@
+import { persistCloudSession } from './services/cloudSession'
 vi.mock('./features/production/ProductionControlPanel', () => ({ ProductionControlPanel: () => null }))
 import 'fake-indexeddb/auto'
 import { StrictMode } from 'react'
@@ -5,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { emptyData } from './services/erp'
-import { listLocalCheckpoints, readLocalCheckpoint, DB_NAME, loadDatabase, saveDatabase } from './services/database'
+import { restoreCloudDatabase, listLocalCheckpoints, readLocalCheckpoint, DB_NAME, loadDatabase, saveDatabase } from './services/database'
 import { markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot, type CloudSnapshot } from './services/cloudSync'
 
 const pendingSaves = vi.hoisted(() => [] as Promise<void>[])
@@ -13,6 +14,7 @@ vi.mock('./services/database', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./services/database')>()
   return {
     ...actual,
+    restoreCloudDatabase: vi.fn(actual.restoreCloudDatabase),
     saveDatabase: (...args: Parameters<typeof actual.saveDatabase>) => {
       const result = actual.saveDatabase(...args)
       pendingSaves.push(result)
@@ -140,6 +142,18 @@ describe('avvio e salvataggio cloud', () => {
     expect((await readLocalCheckpoint(archived!.key)).customers.some(c=>c.id==='missing-morning')).toBe(true)
     expect((await loadDatabase()).customers.some(c=>c.id===customer.id)).toBe(true)
     expect(vi.mocked(updateCloudSnapshot).mock.calls.every(([, , payload])=>!payload.customers.some(c=>c.id==='missing-morning'))).toBe(true)
+  })
+
+  it('un rinnovo dell’accesso non ricarica l’archivio né cancella la bozza in compilazione',async()=>{
+    render(<App />)
+    await screen.findByText('Archivio sincronizzato dal cloud.')
+    const restores=vi.mocked(restoreCloudDatabase).mock.calls.length
+    fireEvent.click(screen.getByRole('button',{name:'Nuovo cliente'}))
+    fireEvent.change(screen.getByLabelText('Nome / ragione sociale'),{target:{value:'Bozza da conservare'}})
+    await act(async()=>persistCloudSession({...session,accessToken:'renewed-access',refreshToken:'rotated-refresh'},'office',{url:'https://test.supabase.co',anonKey:'test-public-key'}))
+    expect(screen.getByLabelText('Nome / ragione sociale')).toHaveValue('Bozza da conservare')
+    expect(vi.mocked(restoreCloudDatabase).mock.calls.length).toBe(restores)
+    expect(screen.queryByRole('button',{name:'Accedi'})).not.toBeInTheDocument()
   })
 
   it('attende il caricamento cloud prima di aprire le modifiche e avviare autosave', async () => {

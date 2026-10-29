@@ -1,3 +1,4 @@
+import { authenticatedCloudFetch } from './cloudSession'
 export interface CloudAuthConfig {
   url: string
   anonKey: string
@@ -7,6 +8,7 @@ export interface CloudAuthSession {
   accessToken: string
   refreshToken: string
   expiresIn: number
+  expiresAt?: number
   userId: string
   email: string
 }
@@ -89,10 +91,10 @@ export async function signInWithPassword(email: string, password: string, config
 }
 
 export async function signOutCloud(session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<void> {
-  const response = await fetcher(`${config.url}/auth/v1/logout`, {
+  const response = await authenticatedCloudFetch(`${config.url}/auth/v1/logout?scope=local`, {
     method: 'POST',
     headers: { apikey: config.anonKey, Authorization: `Bearer ${session.accessToken}` },
-  })
+  }, session, config, fetcher)
   if (!response.ok && ![401,403].includes(response.status)) throw new Error('Disconnessione dal server non confermata. Verifica la connessione.')
 }
 
@@ -103,7 +105,7 @@ export async function bootstrapCloudCompany(
   config: CloudAuthConfig,
   fetcher: typeof fetch = fetch,
 ): Promise<CloudCompanyMembership> {
-  const response = await fetcher(`${config.url}/rest/v1/rpc/bootstrap_company`, {
+  const response = await authenticatedCloudFetch(`${config.url}/rest/v1/rpc/bootstrap_company`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -111,7 +113,7 @@ export async function bootstrapCloudCompany(
       Authorization: `Bearer ${session.accessToken}`,
     },
     body: JSON.stringify({ p_company_name: companyName.trim(), p_member_display_name: displayName.trim() }),
-  })
+  }, session, config, fetcher)
   const payload = await response.json() as SupabaseCompanyMembership[] | { message?: string }
   if (!response.ok || !Array.isArray(payload) || !payload[0]?.company_id) {
     throw new Error(!Array.isArray(payload) && payload.message ? payload.message : 'Creazione azienda cloud non riuscita.')
