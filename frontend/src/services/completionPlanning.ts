@@ -20,8 +20,9 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
   for(const entry of running){
    const operator=actual.plannerSettings.operators.find(op=>op.id===entry.operatorId)
    if(!operator){warnings.push(`Operatore non configurato su ${job.plate}.`);continue}
-   const start=nextWorkingInstant(now,actual.plannerSettings,operator)
-   const finish=addWorkingMinutes(start,minutes,actual.plannerSettings,operator)
+   const start=now
+   const nextShift=nextWorkingInstant(now,actual.plannerSettings,operator)
+   const finish=nextShift>now?new Date(Date.parse(now)+minutes*60000).toISOString():addWorkingMinutes(start,minutes,actual.plannerSettings,operator)
    availability.operators[operator.id]=[availability.operators[operator.id]??'',finish].sort().at(-1)!
    end=[end,finish].sort().at(-1)!
    fixed.push({id:`running:${job.id}:${phase.id}:${operator.id}`,operatorId:operator.id,operatorName:operator.name,vehicleId:job.vehicleId??'',plate:job.plate,jobId:job.id,jobNumber:job.number,phaseId:phase.id,phaseName:phase.name,startAt:start,endAt:finish,plannedMinutes:minutes,priority:job.priority,reason:'Lavorazione già avviata · operatore mantenuto sulla vettura',panelNames:[],panelNotes:[],originalPlannedDate:day,scheduleDeltaMinutes:0,isAdvancedFromFuture:false,overtimeMinutes:0,revision})
@@ -42,8 +43,15 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
  const forecasts=(actual.jobs??[]).filter(j=>j.vehicleId&&!['Consegnata','Annullata'].includes(j.status)).map(job=>{
   const required=job.phases.filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.status!=='Completata')
   const planned=tasks.filter(t=>t.jobId===job.id)
-  const known=!job.blocks?.length&&!actual.vehicles.find(v=>v.id===job.vehicleId)?.blockReason&&required.every(p=>!p.remainingTimeUnknown&&p.status!=='Bloccata'&&planned.some(t=>t.phaseId===p.id))
-  const endAt=known?[now,...planned.map(t=>t.endAt)].sort().at(-1)!:null
+  const worked=(phase:typeof job.phases[number])=>Math.max(phase.actualMinutes||0,(phase.tabletWorkedSeconds??0)/60,(phase.operatorAssignments??[]).reduce((sum,a)=>sum+Math.max(0,a.workedMinutes)+(a.activityStatus==='Attivo'&&!a.endedAt?Math.max(0,(Date.parse(now)-Date.parse(a.startedAt))/60000):0),0))
+  const covered=(phase:typeof job.phases[number])=>{
+   const members=phase.sharedTimeKey?job.phases.filter(p=>p.sharedTimeKey===phase.sharedTimeKey&&!p.notRequired):[phase]
+   const remaining=Math.max(1,(phase.sharedTimeKey?phase.sharedTimeMinutes??phase.estimatedMinutes:phase.estimatedMinutes)-members.reduce((sum,p)=>sum+worked(p),0))
+   return planned.filter(t=>members.some(p=>p.id===t.phaseId)).reduce((sum,t)=>sum+t.plannedMinutes,0)+0.001>=remaining
+  }
+  const known=!job.blocks?.length&&!actual.vehicles.find(v=>v.id===job.vehicleId)?.blockReason&&required.every(p=>!p.remainingTimeUnknown&&p.status!=='Bloccata'&&planned.some(t=>t.phaseId===p.id)&&covered(p))
+  const drying=job.phases.filter(p=>!p.notRequired&&p.status==='Completata'&&(p.completedAt||p.endedAt)&&Math.max(0,p.technicalWaitMinutes??(p.name==='Verniciatura'?60:0))>0).map(p=>new Date(Date.parse(p.completedAt||p.endedAt!)+Math.max(0,p.technicalWaitMinutes??(p.name==='Verniciatura'?60:0))*60000).toISOString())
+  const endAt=known?[now,...planned.map(t=>t.endAt),...drying].sort().at(-1)!:null
   if(!known)warnings.push(`${job.plate}: consegna non stimabile, verifica tempi, mansioni o blocchi.`)
   return {vehicleId:job.vehicleId!,jobId:job.id,date:endAt?romeDate(endAt):null,endAt}
  })

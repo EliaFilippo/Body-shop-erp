@@ -67,3 +67,16 @@ describe('completion-triggered planning',()=>{
   expect(rpc.mock.calls[1][1]).toMatchObject({p_generation:4,p_revision:9})
  })
 })
+
+it('keeps the drying hour after a real paint signature and does not promise a date beyond schedulable capacity',()=>{
+ const data=setup(),job=data.jobs![0]
+ const paint=job.phases.find(p=>p.name==='Lattoneria')!,strip=job.phases.find(p=>p.name==='Lucidatura')!
+ job.phases=[{...paint,name:'Verniciatura',requiredSkill:'Verniciatura',technicalWaitMinutes:60},{...strip,name:'Scartatura',requiredSkill:'Scartatura'}]
+ data.plannerSettings.operators[0].skills=['Verniciatura','Scartatura']
+ const now='2026-10-27T09:00:00Z'
+ const plan=buildCompletionPlan(data,{serverNow:now,entries:[],checks:[{jobId:job.id,phaseId:paint.id,checkedAt:now,checkedBy:'A',workedSeconds:3600}]},1)
+ expect(plan.operatorPrograms.flatMap(p=>p.tasks).filter(t=>t.phaseName==='Scartatura').every(t=>Date.parse(t.startAt)>=Date.parse(now)+3600000)).toBe(true)
+ job.phases=[{...paint,estimatedMinutes:100000}]
+ const huge=buildCompletionPlan(data,{serverNow:now,entries:[]},2)
+ expect(huge.forecasts[0].date).toBeNull()
+})
