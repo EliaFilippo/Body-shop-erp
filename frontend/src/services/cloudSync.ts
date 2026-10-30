@@ -105,14 +105,19 @@ export async function createCloudSnapshot(companyId: string, data: ErpData, sess
 export async function updateCloudSnapshot(companyId: string, expectedRevision: number, data: ErpData, session: Pick<CloudAuthSession, 'accessToken' | 'userId'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot> {
   const key=archiveKey(companyId,session,config)
   const baseline=acknowledged.get(key)
-  const sent=structuredClone(data)
-  const values=sent as unknown as Record<string,unknown>
+  const values=data as unknown as Record<string,unknown>
   const base=baseline?.revision===expectedRevision ? baseline.payload as unknown as Record<string,unknown> : undefined
   const changes: Record<string,unknown>=Object.create(null)
   for (const field of Object.keys(values)) {
     if(values[field]!==undefined && (!base || !sameJson(values[field],base[field]))) changes[field]=values[field]
   }
   const removeKeys=base ? Object.keys(base).filter(field=>values[field]===undefined) : []
+  // Device bookkeeping alone is not a business edit and needs no cloud revision.
+  if(baseline && base && !removeKeys.length && Object.keys(changes).every(field=>['dbRevision','dbUpdatedAt'].includes(field)))
+    return {...baseline,payload:structuredClone(data)}
+  // Capture before awaiting: callers may continue editing while the request runs.
+  const sent=structuredClone(data)
+  const privateChanges=structuredClone(changes)
   const response=await authenticatedCloudFetch(`${config.url}/rest/v1/rpc/erp_update_snapshot_sections`,{
     method:'POST',headers:headers(session,config),
     body:JSON.stringify({p_company_id:companyId,p_expected_revision:expectedRevision,p_changes:changes,p_remove_keys:removeKeys}),
@@ -127,7 +132,13 @@ export async function updateCloudSnapshot(companyId: string, expectedRevision: n
   }
   if(rows[0].company_id!==companyId || Number(rows[0].revision)!==expectedRevision+1) throw new Error('Conferma del salvataggio cloud non valida. I dati locali sono conservati.')
   const saved: CloudSnapshot={companyId,revision:expectedRevision+1,payload:sent,updatedAt:String(rows[0].updated_at??'')}
-  remember(key,saved)
+  // Keep an isolated acknowledged baseline, sharing only private unchanged sections.
+  // In particular a customer edit must not clone years of unchanged program history twice.
+  if(base && baseline){
+    const payload={...baseline.payload,...privateChanges} as unknown as Record<string,unknown>
+    for(const field of removeKeys)delete payload[field]
+    acknowledged.set(key,{...saved,payload:payload as unknown as ErpData})
+  }else remember(key,saved)
   return saved
 }
 

@@ -1,5 +1,5 @@
 import { authenticatedCloudFetch, ensureCloudSession } from './cloudSession'
-import { loadCloudSnapshot } from './cloudSync'
+import { loadProductionArchive } from './productionArchive'
 import type { ErpData, EstimateLine, RepairJob } from '../types'
 import type { CloudAuthConfig, CloudAuthSession } from './cloudAuth'
 import { quoteOperatorRate, quoteStructureRate } from './quoteHourBudget'
@@ -45,7 +45,7 @@ export function isProductionLabourLine(line:EstimateLine) {
 }
 
 /** A budget is approved once by the office and frozen when the first operator starts. */
-export function prepareLiveJob(data: ErpData, job: RepairJob) {
+export function prepareLiveJob(data: Pick<ErpData,'plannerSettings'>, job: RepairJob) {
   if (['Consegnata', 'Annullata'].includes(job.status)) throw new Error('La commessa è chiusa.')
   const structure = quoteStructureRate(data.plannerSettings)
   if (structure.error) throw new Error(structure.error)
@@ -153,7 +153,7 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
 }
 
 /** Runs only after a successful cloud save; timers still require the employee's Start. */
-export async function publishProductionJobs(data: ErpData, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
+export async function publishProductionJobs(data: Pick<ErpData,'plannerSettings'|'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
   const warnings: string[] = []
   const feed = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config)
   if (!['owner', 'office'].includes(feed.role)) return warnings
@@ -171,7 +171,7 @@ export async function publishProductionJobs(data: ErpData, companyId: string, re
 
 /** Retry saved, confirmed work on load/reconnect without another owner approval. */
 export async function syncConfirmedProductionJobs(companyId:string,session:CloudAuthSession,config:CloudAuthConfig) {
- const snapshot=await loadCloudSnapshot(companyId,session,config)
+ const snapshot=await loadProductionArchive(companyId,session,config)
  if(!snapshot)return {snapshot,warnings:[] as string[]}
  const warnings=await publishProductionJobs(snapshot.payload,companyId,snapshot.revision,session,config)
  return {snapshot,warnings}

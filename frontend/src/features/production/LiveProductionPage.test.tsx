@@ -9,7 +9,7 @@ vi.mock('../../services/cloudAuth', () => ({
 vi.mock('../../services/liveProduction', async original => ({ ...await original<typeof import('../../services/liveProduction')>(),
   productionRpc: mocked.rpc, refreshProductionSession: vi.fn(async session => session),
 }))
-vi.mock('../../services/cloudSync', () => ({ loadCloudSnapshot: vi.fn(async () => ({ revision: 1, payload: { plannerSettings: { operators: [{ id: 's', name: 'Stefania', active: true }] }, jobs: [] } })) }))
+vi.mock('../../services/productionArchive', () => ({ loadProductionArchive: vi.fn(async () => ({ revision: 1, payload: { plannerSettings: { operators: [{ id: 's', name: 'Stefania', active: true }] }, jobs: [] } })) }))
 beforeEach(() => {
   sessionStorage.setItem('body-shop-erp.cloud-session.v1', JSON.stringify({ accessToken: 'token', refreshToken: 'refresh', userId: 'u1', email: 'test@example.test', expiresIn: 3600 }))
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ company_id: 'c1', role: 'production' }]))))

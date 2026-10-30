@@ -9,7 +9,7 @@ import { PhaseNotices } from './PhaseNotices'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
 import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../services/cloudAuth'
-import { loadCloudSnapshot, type CloudSnapshot } from '../../services/cloudSync'
+import { loadProductionArchive, type ProductionArchiveSnapshot } from '../../services/productionArchive'
 import { syncConfirmedProductionJobs, liveTimeAlert, liveCountdown, prepareLiveJob, productionRpc, type LiveFeed } from '../../services/liveProduction'
 import './liveProduction.css'
 import { EmployeeHours, HoursTotals } from './EmployeeHours'
@@ -29,7 +29,7 @@ export function LiveProductionPage() {
   const [session, setSession] = useState(storedSession)
   const [companyId, setCompanyId] = useState('')
   const [feed, setFeed] = useState<LiveFeed | null>(null)
-  const [snapshot, setSnapshot] = useState<CloudSnapshot | null>(null)
+  const [snapshot, setSnapshot] = useState<ProductionArchiveSnapshot | null>(null)
   const [error, setError] = useState('')
   const [publicationWarning,setPublicationWarning]=useState('')
   const [busy, setBusy] = useState(false)
@@ -70,7 +70,7 @@ export function LiveProductionPage() {
         if (cancelled) return
         setCompanyId(memberships[0].company_id)
         if (memberships[0].role === 'owner') {
-          const loaded = await loadCloudSnapshot(memberships[0].company_id, session!, config!)
+          const loaded = await loadProductionArchive(memberships[0].company_id, session!, config!)
           if (!cancelled) setSnapshot(loaded)
         }
       } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : 'Impossibile caricare il profilo.') }
@@ -274,7 +274,7 @@ export function LiveProductionPage() {
           onChange={e => { void act(e.target.value ? 'production_bind_profile' : 'production_unbind_profile', { p_user_id: member.userId, ...(e.target.value ? { p_operator_id: e.target.value } : {}) }) }}>
           <option value="">Da collegare</option>{snapshot.payload.plannerSettings.operators.filter(o => o.active).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>)}
         <h2>Pubblicazione automatica delle commesse</h2><p>Prezzi IVA esclusa, meno materiali e costi diretti. Il budget e le tariffe si congelano al primo Start. Queste ore sono il limite economico a pareggio; non riservano un margine di utile.</p>
-        <button disabled={busy} onClick={async () => { try { setSnapshot(await loadCloudSnapshot(companyId, session, config!)) } catch (e) { setError(e instanceof Error ? e.message : 'Aggiornamento non riuscito.') } }}>Aggiorna stato pubblicazione</button>
+        <button disabled={busy} onClick={async () => { try { setSnapshot(await loadProductionArchive(companyId, session, config!, true)) } catch (e) { setError(e instanceof Error ? e.message : 'Aggiornamento non riuscito.') } }}>Aggiorna stato pubblicazione</button>
         {(snapshot.payload.jobs ?? []).filter(j => !['Consegnata', 'Annullata'].includes(j.status)).map(job => {
           let budget: ReturnType<typeof prepareLiveJob> | undefined; let problem = ''
           try { budget = prepareLiveJob(snapshot.payload, job) } catch (e) { problem = e instanceof Error ? e.message : 'Budget non valido' }

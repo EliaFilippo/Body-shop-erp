@@ -141,7 +141,7 @@ describe('righe manuali e ripresa automatica delle commesse confermate',()=>{
  it('all’apertura pubblica le commesse salvate senza chiedere altre conferme o avviare timer',async()=>{
   const data=setup(),before=JSON.stringify(data)
   const fetchMock=vi.spyOn(globalThis,'fetch')
-   .mockResolvedValueOnce(new Response(JSON.stringify([{company_id:'company',revision:42,payload:data}])))
+   .mockResolvedValueOnce(new Response(JSON.stringify([{company_id:'company',revision:42,jobs:data.jobs,planner_settings:data.plannerSettings}])))
    .mockResolvedValueOnce(new Response(JSON.stringify({role:'owner',jobs:[]})))
    .mockResolvedValueOnce(new Response('null'))
   try{
