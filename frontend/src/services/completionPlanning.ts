@@ -71,12 +71,13 @@ export interface CompletionClaim {id:string;generation:number;revision:number;pa
 export async function handleCompletionRequest(request:Request,rpc:(name:string,args:Record<string,unknown>)=>Promise<unknown>):Promise<Response>{
  if(request.method!=='POST')return new Response('Method not allowed',{status:405})
  const secret=request.headers.get('x-planning-secret')
- if(!secret||!/^[a-f0-9]{64}$/.test(secret))return new Response('Unauthorized',{status:401})
+ const expires=Number(request.headers.get('x-planning-expires')),stamp=Math.floor(Date.now()/1000)
+ if(!secret||!/^[a-f0-9]{64}$/.test(secret)||!Number.isSafeInteger(expires)||expires<stamp||expires>stamp+180)return new Response('Unauthorized',{status:401})
  let companyId='';try{companyId=(await request.json()).companyId??''}catch{return new Response('Invalid request',{status:400})}
  if(!/^[a-f0-9-]{36}$/.test(companyId))return new Response('Invalid company',{status:400})
  let claim:CompletionClaim|null=null
  try{
-  claim=await rpc('production_completion_claim',{p_company_id:companyId,p_secret:secret}) as CompletionClaim|null
+  claim=await rpc('production_completion_claim',{p_company_id:companyId,p_secret:secret,p_expires:expires}) as CompletionClaim|null
   if(!claim)return Response.json({status:'skipped'})
   const plan=buildCompletionPlan(claim.payload,claim.state,claim.generation)
   const ok=await rpc('production_completion_commit',{p_company_id:companyId,p_id:claim.id,p_generation:claim.generation,p_revision:claim.revision,p_plan:plan})

@@ -62,7 +62,7 @@ describe('completion-triggered planning',()=>{
   expect(rpc).not.toHaveBeenCalled()
   const data=setup()
   rpc.mockImplementation(async(name)=>name==='production_completion_claim'?{id:'claim',generation:4,revision:9,payload:data,state:{serverNow:'2026-10-27T09:00:00Z',entries:[]}}:false)
-  const res=await handleCompletionRequest(new Request('https://test',{method:'POST',headers:{'x-planning-secret':'a'.repeat(64)},body:JSON.stringify({companyId:'aa49d334-492f-4daa-aa7e-5d5c022308b7'})}),rpc)
+  const res=await handleCompletionRequest(new Request('https://test',{method:'POST',headers:{'x-planning-secret':'a'.repeat(64),'x-planning-expires':String(Math.floor(Date.now()/1000)+120)},body:JSON.stringify({companyId:'aa49d334-492f-4daa-aa7e-5d5c022308b7'})}),rpc)
   expect(await res.json()).toEqual({status:'retry'})
   expect(rpc.mock.calls[1][1]).toMatchObject({p_generation:4,p_revision:9})
  })
@@ -79,4 +79,10 @@ it('keeps the drying hour after a real paint signature and does not promise a da
  job.phases=[{...paint,estimatedMinutes:100000}]
  const huge=buildCompletionPlan(data,{serverNow:now,entries:[]},2)
  expect(huge.forecasts[0].date).toBeNull()
+})
+
+it('rejects missing or expired dispatch timestamps without touching the queue',async()=>{
+ const rpc=vi.fn(),body=JSON.stringify({companyId:'aa49d334-492f-4daa-aa7e-5d5c022308b7'})
+ const res=await handleCompletionRequest(new Request('https://test',{method:'POST',headers:{'x-planning-secret':'a'.repeat(64),'x-planning-expires':'1'},body}),rpc)
+ expect(res.status).toBe(401);expect(rpc).not.toHaveBeenCalled()
 })

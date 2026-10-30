@@ -1345,7 +1345,8 @@ function buildCompletionPlan(data, state, generation) {
 async function handleCompletionRequest(request, rpc) {
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   const secret = request.headers.get("x-planning-secret");
-  if (!secret || !/^[a-f0-9]{64}$/.test(secret)) return new Response("Unauthorized", { status: 401 });
+  const expires = Number(request.headers.get("x-planning-expires")), stamp = Math.floor(Date.now() / 1e3);
+  if (!secret || !/^[a-f0-9]{64}$/.test(secret) || !Number.isSafeInteger(expires) || expires < stamp || expires > stamp + 180) return new Response("Unauthorized", { status: 401 });
   let companyId = "";
   try {
     companyId = (await request.json()).companyId ?? "";
@@ -1355,7 +1356,7 @@ async function handleCompletionRequest(request, rpc) {
   if (!/^[a-f0-9-]{36}$/.test(companyId)) return new Response("Invalid company", { status: 400 });
   let claim = null;
   try {
-    claim = await rpc("production_completion_claim", { p_company_id: companyId, p_secret: secret });
+    claim = await rpc("production_completion_claim", { p_company_id: companyId, p_secret: secret, p_expires: expires });
     if (!claim) return Response.json({ status: "skipped" });
     const plan = buildCompletionPlan(claim.payload, claim.state, claim.generation);
     const ok = await rpc("production_completion_commit", { p_company_id: companyId, p_id: claim.id, p_generation: claim.generation, p_revision: claim.revision, p_plan: plan });
