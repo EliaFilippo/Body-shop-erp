@@ -1224,3 +1224,14 @@ it('rende consultabili le copie precedenti senza sostituire lo stato attuale',as
  expect((await loadDatabase()).customers).toHaveLength(0)
  await expect(readLocalCheckpoint('current')).rejects.toThrow('non valida')
 })
+
+it('creates a complete recoverable checkpoint before an authorized deletion',async()=>{
+ await saveDatabase({...structuredClone(emptyData),customers:[data.customers[0]]})
+ const current=await loadDatabase()
+ await saveDatabase({...current,customers:[]},{allowCountReduction:true})
+ const copies=await listLocalCheckpoints()
+ const backup=copies.find(copy=>copy.key.includes('prima-eliminazione'))
+ expect(backup).toBeDefined()
+ expect((await readLocalCheckpoint(backup!.key)).customers).toContainEqual(data.customers[0])
+ expect((await loadDatabase()).customers).toEqual([])
+})

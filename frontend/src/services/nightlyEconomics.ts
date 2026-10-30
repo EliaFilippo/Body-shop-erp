@@ -12,8 +12,10 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(state.serverNow))
  const asOfDay=parts.slice(0,10),fraction=(Number(parts.slice(11,13))*60+Number(parts.slice(14,16)))/1440
  const daysInMonth=Number(end.slice(-2))
- const elapsedFraction=asOfDay<start?0:asOfDay>end?1:(Number(asOfDay.slice(-2))-1+fraction)/daysInMonth
  const work=(state.dailyWork??[]).filter(e=>e.date>=start&&e.date<=end&&e.date<=asOfDay)
+ const observationStart=work.filter(e=>safe(e.paidSeconds)>0||safe(e.productiveSeconds)>0).map(e=>e.date).sort()[0]??null
+ const observedDays=observationStart?Math.max(0,(Date.parse((asOfDay>end?addDays(end,1):asOfDay)+'T00:00:00Z')-Date.parse(observationStart+'T00:00:00Z'))/86400000+(asOfDay>end?0:fraction)):0
+ const elapsedFraction=observedDays/daysInMonth
  const productiveHours=work.reduce((sum,e)=>sum+safe(e.productiveSeconds)/3600,0)
  const paidHours=work.reduce((sum,e)=>sum+safe(e.paidSeconds)/3600,0)
  const items=(settings.internalCostSettings?.monthlyCostItems??[]).filter(i=>i.active)
@@ -35,14 +37,16 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  const theoretical=(date:string)=>operators.length?operators.reduce((sum,op)=>sum+workingMinutesForDate(date,settings,op)/60,0):
   isWorkingDate(date,settings)&&calendarDates.length?safe(manual?.productiveOperators)*safe(manual?.hoursPerOperatorPerDay)*safe(manual?.workingDaysPerMonth)/calendarDates.length:0
  const dates:Array<{date:string;hours:number}>=[]
+ const firstByOperator=new Map(operators.map(op=>[op.id,work.filter(e=>e.operatorId===op.id&&(safe(e.paidSeconds)>0||safe(e.productiveSeconds)>0)).map(e=>e.date).sort()[0]]))
+ const completedObservedDates=new Set(work.filter(e=>e.date<plannedFor&&e.date<asOfDay&&(safe(e.paidSeconds)>0||safe(e.productiveSeconds)>0)).map(e=>e.date))
  let elapsedScheduledHours=0,elapsedProductiveHours=0
  for(let d=start;d<=end;d=addDays(d,1)){
   const hours=theoretical(d)
-  if(d<plannedFor&&d<asOfDay)elapsedScheduledHours+=hours
+  if(d<plannedFor&&d<asOfDay)elapsedScheduledHours+=operators.reduce((sum,op)=>sum+(firstByOperator.get(op.id)&&d>=firstByOperator.get(op.id)!?workingMinutesForDate(d,settings,op)/60:0),0)
   if(d>=plannedFor&&hours>0)dates.push({date:d,hours})
  }
  for(const e of work)if(e.date<plannedFor&&e.date<asOfDay)elapsedProductiveHours+=safe(e.productiveSeconds)/3600
- const measured=elapsedScheduledHours>0&&elapsedProductiveHours>0
+ const measured=completedObservedDates.size>=5&&operators.length>0&&operators.every(op=>Boolean(firstByOperator.get(op.id)))&&elapsedScheduledHours>0&&elapsedProductiveHours>0
  const utilization=measured?Math.min(1,elapsedProductiveHours/elapsedScheduledHours):Math.min(1,safe(manual?.efficiencyPercent??settings.efficiencyPercent)/100)
  const forecast=dates.map(d=>({date:d.date,hours:Math.max(0,d.hours*utilization-work.filter(e=>e.date===d.date).reduce((sum,e)=>sum+safe(e.productiveSeconds)/3600,0))}))
  const remainingProductiveHours=forecast.reduce((sum,d)=>sum+d.hours,0)
@@ -64,12 +68,14 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  if(productiveHours<=0)warnings.push('Nessuna ora produttiva registrata nel mese: costo orario consuntivo non disponibile.')
  if(monthlyFixedCosts<=0)warnings.push('Configura i costi mensili aziendali per il costo orario consuntivo.')
  if(missingLaborCost)warnings.push('Manca il costo del personale per alcune ore registrate.')
+ if(observationStart&&observedDays<5)warnings.push('Costo orario provvisorio: meno di cinque giorni di registrazioni. I costi precedenti all’inizio delle registrazioni sono esclusi.')
  if(!measured)warnings.push('Capacità residua stimata con l’efficienza configurata: storico produttivo insufficiente.')
+ if(observationStart&&observationStart>start)warnings.push('Obiettivo residuo basato sulle sole fatture registrate: verifica che il fatturato del mese sia completo.')
  if(monthlyGoal<=0)warnings.push('Imposta l’obiettivo di fatturato mensile.')
  if(monthlyGoal>0&&monthlyFixedCosts>monthlyGoal)warnings.push('L’obiettivo mensile è inferiore ai costi mensili configurati.')
  if(remainingProductiveHours<=0&&residualRevenue>0)warnings.push('Nessuna capacità produttiva residua nel mese: obiettivo da ripianificare.')
  return {monthKey,plannedFor,asOf:state.serverNow,monthlyGoal,realizedNetRevenue,residualRevenue:round(residualRevenue),
-  productiveHours:round(productiveHours),paidHours:round(paidHours),accruedOperatingCosts:round(accruedCosts),payrollInMonthlyCosts,
+  observationStart,observationDays:round(observedDays),productiveHours:round(productiveHours),paidHours:round(paidHours),accruedOperatingCosts:round(accruedCosts),payrollInMonthlyCosts,
   realHourlyCost:productiveHours>0&&monthlyFixedCosts>0&&!missingLaborCost?round(accruedCosts/productiveHours):null,
   targetHourlyRate,remainingProductiveHours:round(remainingProductiveHours),utilizationPercent:round(utilization*100),capacitySource:measured?'observed':'configured',
   dailyGoal:targetHourlyRate===null?null:dailyGoals.find(d=>d.date===plannedFor)?.revenueGoal??0,dailyGoals,warnings}

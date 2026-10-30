@@ -19,9 +19,20 @@ interface CloudSnapshotRow {
 
 export class CloudSnapshotConflictError extends Error {
   constructor() {
-    super('I dati cloud sono stati aggiornati da un altro dispositivo. Ricarica il gestionale prima di salvare di nuovo.')
+    super('Un altro dispositivo ha aggiornato l’archivio. Le tue modifiche restano salvate sul PC; occorre confrontarle prima di sincronizzare.')
     this.name = 'CloudSnapshotConflictError'
   }
+}
+
+export class CloudSyncRequestError extends Error {
+  readonly status:number
+  constructor(message:string,status:number){super(message);this.status=status;this.name='CloudSyncRequestError'}
+}
+export function canRetryCloudSave(error:unknown):boolean {
+  if(error instanceof CloudSnapshotConflictError)return false
+  if(error instanceof CloudSyncRequestError)return error.status===408||error.status===429||error.status>=500
+  if(error instanceof Error && error.name==='CloudSessionExpiredError')return false
+  return error instanceof TypeError || (error instanceof Error && !/permessi|negato|non valida|conferma.*non valida/i.test(error.message))
 }
 
 const headers = (session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig) => ({
@@ -68,7 +79,7 @@ async function responseMessage(response: Response) {
 export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot | null> {
   const query = new URLSearchParams({ company_id: `eq.${companyId}`, select: 'company_id,revision,payload,updated_at', limit: '1' })
   const response = await authenticatedCloudFetch(`${config.url}/rest/v1/erp_snapshots?${query}`, { headers: headers(session, config) }, session, config, fetcher)
-  if (!response.ok) throw new Error(await responseMessage(response))
+  if (!response.ok) throw new CloudSyncRequestError(await responseMessage(response),response.status)
   const rows = await response.json() as CloudSnapshotRow[]
   if (!rows[0]) return null
   const snapshot=normalizeRow(rows[0])
@@ -83,7 +94,7 @@ export async function createCloudSnapshot(companyId: string, data: ErpData, sess
     body: JSON.stringify({ company_id: companyId, revision: 1, payload: data, updated_by: session.userId }),
   }, session, config, fetcher)
   if (response.status === 409) throw new CloudSnapshotConflictError()
-  if (!response.ok) throw new Error(await responseMessage(response))
+  if (!response.ok) throw new CloudSyncRequestError(await responseMessage(response),response.status)
   const rows = await response.json() as CloudSnapshotRow[]
   if (!rows[0]) throw new Error('Supabase non ha restituito lo snapshot creato.')
   const snapshot=normalizeRow(rows[0])
@@ -106,9 +117,14 @@ export async function updateCloudSnapshot(companyId: string, expectedRevision: n
     method:'POST',headers:headers(session,config),
     body:JSON.stringify({p_company_id:companyId,p_expected_revision:expectedRevision,p_changes:changes,p_remove_keys:removeKeys}),
   }, session, config, fetcher)
-  if (!response.ok) throw new Error(await responseMessage(response))
+  if (!response.ok) throw new CloudSyncRequestError(await responseMessage(response),response.status)
   const rows=await response.json() as CloudSnapshotRow[]
-  if (!rows[0]) throw new CloudSnapshotConflictError()
+  if (!rows[0]) {
+    const remote=await loadCloudSnapshot(companyId,session,config,fetcher)
+    const business=(value:ErpData)=>Object.fromEntries(Object.entries(value).filter(([field])=>!['dbRevision','dbUpdatedAt'].includes(field)))
+    if(remote && sameJson(business(remote.payload),business(sent)))return remote
+    throw new CloudSnapshotConflictError()
+  }
   if(rows[0].company_id!==companyId || Number(rows[0].revision)!==expectedRevision+1) throw new Error('Conferma del salvataggio cloud non valida. I dati locali sono conservati.')
   const saved: CloudSnapshot={companyId,revision:expectedRevision+1,payload:sent,updatedAt:String(rows[0].updated_at??'')}
   remember(key,saved)
