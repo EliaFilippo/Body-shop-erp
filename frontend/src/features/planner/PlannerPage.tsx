@@ -1,3 +1,4 @@
+import type {CompletionForecast} from '../../services/completionPlanning'
 import {NightlyEconomicsPanel} from '../dashboard/NightlyEconomicsPanel'
 import { phaseDisplayName } from '../../services/workCycle'
 import { monthlyTargetRate } from '../../services/monthlyTargetRate'
@@ -236,8 +237,9 @@ function PlannerVehicleDetailModal({
   </Modal>
 }
 
-export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpenJob, onOpenOperatorProgram, onRecalculatePlanning, onUpdateVehicleStatus, statusOptions, statusLabel }: {
+export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenSettings, onOpenJob, onOpenOperatorProgram, onRecalculatePlanning, onUpdateVehicleStatus, statusOptions, statusLabel }: {
   data: ErpData
+  liveForecasts?:CompletionForecast[]
   customerById: (id: string) => Customer | undefined
   onMove: (vehicleId: string, date: string) => void
   onOpenSettings: () => void
@@ -257,7 +259,16 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
   const targetRate=useMemo(()=>monthlyTargetRate(data.plannerSettings,targetMonth),[data.plannerSettings,targetMonth])
   const targetMonthLabel=new Intl.DateTimeFormat('it-IT',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(`${targetMonth}-01T12:00:00Z`))
   const money=(amount:number)=>amount.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
-  const result = useMemo(() => calculatePlanner(data.vehicles, data.plannerSettings), [data.vehicles, data.plannerSettings])
+  const result = useMemo(() => {
+    const base=calculatePlanner(data.vehicles,data.plannerSettings)
+    if(!liveForecasts)return base
+    const dates=new Map(liveForecasts.map(f=>[f.vehicleId,f.date]))
+    return {...base,assignments:data.plannerAssignments,vehicles:base.vehicles.map(v=>{
+      if(!dates.has(v.vehicleId))return v
+      const date=dates.get(v.vehicleId),requested=data.vehicles.find(x=>x.id===v.vehicleId)?.requestedDeliveryDate
+      return {...v,calculatedDeliveryDate:date??'',suggestedDate:date??'',status:!date?'neutral' as const:requested&&date>requested?'red' as const:'green' as const,assignments:data.plannerAssignments.filter(a=>a.vehicleId===v.vehicleId)}
+    })}
+  }, [data.vehicles,data.plannerSettings,data.plannerAssignments,liveForecasts])
   const queue = useMemo(() => buildPlannerQueue(data, todayKey()), [data])
   const days = Array.from({ length: 7 }, (_, index) => addDays(week, index))
 

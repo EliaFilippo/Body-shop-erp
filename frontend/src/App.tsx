@@ -1,3 +1,5 @@
+import { useCompletionPlan } from './hooks/useCompletionPlan'
+import { overlayCompletionPlan, stripCompletionOverlay } from './services/completionPlanning'
 import { CloudSaveQueue, type CloudSaveState } from './services/cloudSaveQueue'
 import { useCloudSessionRenewal } from './hooks/useCloudSessionRenewal'
 import { CloudSessionExpiredError, persistCloudSession, readStoredCloudSession, clearCloudSession } from './services/cloudSession'
@@ -662,6 +664,8 @@ function App() {
   const [data, setData] = useState<ErpData>(emptyData)
   const [databaseReady, setDatabaseReady] = useState(false)
   const [databaseLoaded, setDatabaseLoaded] = useState(false)
+  const completion=useCompletionPlan(cloudReady&&cloudMembership?.role!=='production'?cloudMembership?.companyId:undefined,cloudSession,cloudConfig)
+  const displayData=useMemo(()=>overlayCompletionPlan(data,completion.plan),[data,completion.plan])
   const activeUser = getDefaultActiveUser(data.users)
   const [view, setView] = useState<View>('dashboard')
   const [query, setQuery] = useState('')
@@ -1069,7 +1073,7 @@ function App() {
   const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
   const filteredCustomers = data.customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.email}`.toLowerCase().includes(query.toLowerCase()))
   const normalizedQueryPlate = normalizePlate(query)
-  const filteredVehicles = data.vehicles.filter((vehicle) => {
+  const filteredVehicles = displayData.vehicles.filter((vehicle) => {
     if (!query.trim()) return true
     const plateMatches = normalizedQueryPlate ? normalizePlate(vehicle.plate).includes(normalizedQueryPlate) : false
     const textMatches = `${vehicle.make} ${vehicle.model} ${customerById(vehicle.customerId)?.name}`.toLowerCase().includes(query.toLowerCase())
@@ -1169,23 +1173,24 @@ function App() {
       </div>
       {error && <div className="toast error"><span>{error}</span>{duplicateVehicle && <button onClick={() => { setView('vehicles'); setQuery(normalizePlate(duplicateVehicle.plate)); setModal({ type: 'vehicle', item: duplicateVehicle }); setDuplicateVehicleId(null); setError('') }}>Apri vettura</button>}<button onClick={() => { setDuplicateVehicleId(null); setError('') }}>×</button></div>}
       {notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
+      {(completion.pending||completion.error||displayData!==data)&&<p role="status" style={{margin:'8px 24px'}}>{completion.error|| (completion.pending?'Ricalcolo del piano dopo completamento fase…':`Piano aggiornato alle ${new Date(completion.plan!.generatedAt).toLocaleTimeString('it-IT',{timeZone:'Europe/Rome'})} · consegne previste aggiornate`)}</p>}
       <Suspense fallback={<p role="status">Apertura schermata…</p>}><div className="content">
             {cloudConfig && cloudSession && cloudMembership && cloudMembership.role !== 'production' && <ProductionControlPanel connection={{ config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId }} />}
-        {view === 'dashboard' && <Dashboard data={data} setView={setView} onNewVehicle={() => {
+        {view === 'dashboard' && <Dashboard data={displayData} setView={setView} onNewVehicle={() => {
           if (data.customers.length) setModal({ type: 'vehicle' })
           else {
             setView('customers')
             setModal({ type: 'customer' })
           }
         }} onNewCustomer={() => setModal({ type: 'customer' })} />}
-        {view === 'today-shop' && <TodayShopPage data={data} customerById={customerById} onOpenPlanner={() => setView('planner')} onOpenVehicles={() => setView('vehicles')} onOpenPractice={(plate) => {
+        {view === 'today-shop' && <TodayShopPage data={displayData} customerById={customerById} onOpenPlanner={() => setView('planner')} onOpenVehicles={() => setView('vehicles')} onOpenPractice={(plate) => {
           setView('vehicles')
           setQuery(plate)
-        }} onChange={setData} setNotice={setNotice} setError={setError} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
+        }} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} setNotice={setNotice} setError={setError} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { allowCountReductionRef.current = true; setData(deleteCustomer(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
         {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers} onAdd={() => { setQuery(''); setModal({ type: 'vehicle' }) }} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { allowCountReductionRef.current = true; setData(deleteVehicle(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'cones' && <Cones data={data} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
-        {view === 'planner' && <PlannerPage data={data} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
+        {view === 'planner' && <PlannerPage data={displayData} liveForecasts={displayData!==data?completion.plan?.forecasts:undefined} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
           setView('estimates-jobs')
           setQuery(query)
         }} onOpenOperatorProgram={() => setView('operator-program')} onRecalculatePlanning={() => {
@@ -1199,7 +1204,7 @@ function App() {
           if (hours > capacity.protected && !window.confirm(`La lavorazione richiede ${hours} ore, mentre il ${date} dispone di ${capacity.protected} ore protette. Eccedenza: ${Math.round((hours - capacity.protected) * 100) / 100} ore. Vuoi comunque fissare questa data di inizio?`)) return
           setData({ ...data, vehicles: data.vehicles.map((item) => item.id === vehicleId ? { ...item, manualPlanningDate: date } : item) })
         }} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
-        {view === 'operator-program' && <OperatorProgramPage data={data} onChange={setData} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
+        {view === 'operator-program' && <OperatorProgramPage data={displayData} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
         {view === 'planner-settings' && <PlannerSettingsPage settings={data.plannerSettings} onSave={async (plannerSettings) => {
           const nextData = { ...data, plannerSettings }
           try {

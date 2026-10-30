@@ -93,6 +93,8 @@ jobs:
         run: psql -f supabase/tests/production_read_snapshot.sql
       - name: Partial cloud saves preserve audit, new vehicles, revision isolation and quote guards
         run: psql -f supabase/tests/partial_cloud_save.sql
+      - name: Completion events, coalesced claims, office isolation and planner forecasts
+        run: psql -f supabase/tests/completion_planning.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |
