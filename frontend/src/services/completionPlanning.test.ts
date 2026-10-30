@@ -86,3 +86,10 @@ it('rejects missing or expired dispatch timestamps without touching the queue',a
  const res=await handleCompletionRequest(new Request('https://test',{method:'POST',headers:{'x-planning-secret':'a'.repeat(64),'x-planning-expires':'1'},body}),rpc)
  expect(res.status).toBe(401);expect(rpc).not.toHaveBeenCalled()
 })
+
+it('interprets an 08:00 configured shift as 08:00 Italian time, not UTC',()=>{
+ const data=setup(),job=data.jobs![0],body=job.phases.find(p=>p.name==='Lattoneria')!
+ const now='2026-10-27T06:00:00Z'
+ const plan=buildCompletionPlan(data,{serverNow:now,entries:[],checks:[{jobId:job.id,phaseId:body.id,checkedAt:now,checkedBy:'A',workedSeconds:3600}]},1)
+ expect(plan.operatorPrograms.flatMap(p=>p.tasks).find(t=>t.phaseName==='Lucidatura')?.startAt).toBe('2026-10-27T07:00:00.000Z')
+})

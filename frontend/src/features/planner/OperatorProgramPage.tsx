@@ -10,9 +10,9 @@ import { recalculateOperatorPrograms, selectSchedulablePhase, todayKey } from '.
 import { supportsOperatorDuty } from '../../services/operatorSkills'
 import type { ErpData } from '../../types'
 
-const timeLabel = (iso: string) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(iso))
+const timeLabel = (iso: string, liveClock = false) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: liveClock ? 'Europe/Rome' : 'UTC' }).format(new Date(iso))
 
-export function OperatorProgramPage({ data, onChange, connection }: { data: ErpData; onChange: (next: ErpData) => void; connection?:NoticesConnection }) {
+export function OperatorProgramPage({ data, onChange, connection, liveClock = false }: { data: ErpData; liveClock?:boolean; onChange: (next: ErpData) => void; connection?:NoticesConnection }) {
   const [showHours,setShowHours]=useState(false)
   const [showTimers,setShowTimers]=useState(false)
   const {running,message}=useOperatorStatus(showHours||showTimers?undefined:connection)
@@ -116,7 +116,7 @@ export function OperatorProgramPage({ data, onChange, connection }: { data: ErpD
               return <RunningTaskCard key={task.jobId+task.phaseId} task={task} plate={job?.plate??'Vettura'} phase={phaseDisplayName(phase?.name??'Lavorazione')} cone={job?.coneNumber}/>
             })}
             {program.tasks.map((task) => <div className="day-job" key={task.id}>
-              <strong className="plate">{timeLabel(task.startAt)}-{timeLabel(task.endAt)}</strong>
+              <strong className="plate">{timeLabel(task.startAt,liveClock)}-{timeLabel(task.endAt,liveClock)}</strong>
               <span>{task.jobNumber} - {phaseDisplayName(task.phaseName)} - {task.plate}</span>
               <small>{task.plannedMinutes} min · {task.priority}</small>
               <small>{coneLabelByTask(task.jobId, task.vehicleId)}</small>

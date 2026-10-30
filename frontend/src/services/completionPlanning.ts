@@ -1,3 +1,4 @@
+import {toRomePlanningClock,fromRomePlanningClock,localizePlanningTimestamps} from './romePlanningClock'
 import type {ErpData,OperatorDayProgram,OperatorProgramTask,PlannerAssignment} from '../types'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
 import {applyLivePhaseChecks} from './liveProduction'
@@ -12,26 +13,27 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
  const availability:{operators:Record<string,string>;jobs:Record<string,string>}={operators:{},jobs:{}}
  const fixed:OperatorProgramTask[]=[],warnings:string[]=[]
  const now=new Date(state.serverNow).toISOString(),day=romeDate(now),revision=(actual.operatorProgramRevision??0)+1
- const simulation={...actual,jobs:(actual.jobs??[]).map(job=>({...job,phases:job.phases.map(phase=>{
+ const clockNow=toRomePlanningClock(now)
+ const simulation={...actual,vehicles:localizePlanningTimestamps(actual.vehicles),jobs:(actual.jobs??[]).map(job=>({...job,phases:job.phases.map(phase=>{
   const running=state.entries.filter(e=>e.jobId===job.id&&e.phaseId===phase.id&&e.runningSince)
-  if(!running.length||phase.status==='Completata')return phase
+  if(!running.length||phase.status==='Completata')return localizePlanningTimestamps(phase.name==='Verniciatura'?{...phase,technicalWaitMinutes:Math.max(60,phase.technicalWaitMinutes??60)}:phase)
   const minutes=phaseResidualMinutes(phase,now,job)
-  let end=now
+  let end=clockNow
   for(const entry of running){
    const operator=actual.plannerSettings.operators.find(op=>op.id===entry.operatorId)
    if(!operator){warnings.push(`Operatore non configurato su ${job.plate}.`);continue}
-   const start=now
-   const nextShift=nextWorkingInstant(now,actual.plannerSettings,operator)
-   const finish=nextShift>now?new Date(Date.parse(now)+minutes*60000).toISOString():addWorkingMinutes(start,minutes,actual.plannerSettings,operator)
+   const start=clockNow
+   const nextShift=nextWorkingInstant(clockNow,actual.plannerSettings,operator)
+   const finish=nextShift>clockNow?new Date(Date.parse(clockNow)+minutes*60000).toISOString():addWorkingMinutes(start,minutes,actual.plannerSettings,operator)
    availability.operators[operator.id]=[availability.operators[operator.id]??'',finish].sort().at(-1)!
    end=[end,finish].sort().at(-1)!
    fixed.push({id:`running:${job.id}:${phase.id}:${operator.id}`,operatorId:operator.id,operatorName:operator.name,vehicleId:job.vehicleId??'',plate:job.plate,jobId:job.id,jobNumber:job.number,phaseId:phase.id,phaseName:phase.name,startAt:start,endAt:finish,plannedMinutes:minutes,priority:job.priority,reason:'Lavorazione già avviata · operatore mantenuto sulla vettura',panelNames:[],panelNotes:[],originalPlannedDate:day,scheduleDeltaMinutes:0,isAdvancedFromFuture:false,overtimeMinutes:0,revision})
   }
   availability.jobs[job.id]=[availability.jobs[job.id]??'',end].sort().at(-1)!
   // Virtual completion makes the remaining sequence forecastable, not signed.
-  return {...phase,status:'Completata' as const,completedAt:end,endedAt:end,operatorAssignments:[]}
+  return {...phase,...(phase.name==='Verniciatura'?{technicalWaitMinutes:Math.max(60,phase.technicalWaitMinutes??60)}:{}),status:'Completata' as const,completedAt:end,endedAt:end,operatorAssignments:[]}
  })}))}
- const generated=generateOperatorPrograms(simulation,day,'Ricalcolo dopo completamento fase · priorità box',now,availability)
+ const generated=generateOperatorPrograms(simulation,day,'Ricalcolo dopo completamento fase · priorità box',clockNow,availability)
  const programs=generated.programs.map(p=>({...p,tasks:[...p.tasks]}))
  for(const task of fixed){
   let program=programs.find(p=>p.operatorId===task.operatorId&&p.date===task.startAt.slice(0,10))
@@ -39,6 +41,10 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
   program.tasks.push(task);program.tasks.sort((a,b)=>a.startAt.localeCompare(b.startAt))
  }
  for(const program of programs)if(program.summary){const plannedMinutes=program.tasks.reduce((sum,t)=>sum+t.plannedMinutes,0);program.summary={...program.summary,plannedMinutes,differenceMinutes:program.summary.actualMinutes-plannedMinutes}}
+ for(const program of programs){
+  program.generatedAt=now
+  program.tasks=program.tasks.map(t=>{const startAt=t.id.startsWith('running:')?now:fromRomePlanningClock(t.startAt,Date.parse(now));return {...t,startAt,endAt:fromRomePlanningClock(t.endAt,Date.parse(startAt))}})
+ }
  const tasks=programs.flatMap(p=>p.tasks)
  const forecasts=(actual.jobs??[]).filter(j=>j.vehicleId&&!['Consegnata','Annullata'].includes(j.status)).map(job=>{
   const required=job.phases.filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.status!=='Completata')
@@ -50,7 +56,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
    return planned.filter(t=>members.some(p=>p.id===t.phaseId)).reduce((sum,t)=>sum+t.plannedMinutes,0)+0.001>=remaining
   }
   const known=!job.blocks?.length&&!actual.vehicles.find(v=>v.id===job.vehicleId)?.blockReason&&required.every(p=>!p.remainingTimeUnknown&&p.status!=='Bloccata'&&planned.some(t=>t.phaseId===p.id)&&covered(p))
-  const drying=job.phases.filter(p=>!p.notRequired&&p.status==='Completata'&&(p.completedAt||p.endedAt)&&Math.max(0,p.technicalWaitMinutes??(p.name==='Verniciatura'?60:0))>0).map(p=>new Date(Date.parse(p.completedAt||p.endedAt!)+Math.max(0,p.technicalWaitMinutes??(p.name==='Verniciatura'?60:0))*60000).toISOString())
+  const drying=job.phases.filter(p=>!p.notRequired&&p.status==='Completata'&&(p.completedAt||p.endedAt)&&Math.max(0,(p.name==='Verniciatura'?Math.max(60,p.technicalWaitMinutes??60):p.technicalWaitMinutes??0))>0).map(p=>new Date(Date.parse(p.completedAt||p.endedAt!)+Math.max(0,(p.name==='Verniciatura'?Math.max(60,p.technicalWaitMinutes??60):p.technicalWaitMinutes??0))*60000).toISOString())
   const endAt=known?[now,...planned.map(t=>t.endAt),...drying].sort().at(-1)!:null
   if(!known)warnings.push(`${job.plate}: consegna non stimabile, verifica tempi, mansioni o blocchi.`)
   return {vehicleId:job.vehicleId!,jobId:job.id,date:endAt?romeDate(endAt):null,endAt}

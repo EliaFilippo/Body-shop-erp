@@ -25,13 +25,13 @@ const shortDate = (value: string) => new Intl.DateTimeFormat('it-IT', {
   timeZone: 'UTC',
 }).format(parseDate(value))
 
-const shortDateTime = (value: string) => new Intl.DateTimeFormat('it-IT', {
+const shortDateTime = (value: string, liveClock = false) => new Intl.DateTimeFormat('it-IT', {
   day: '2-digit',
   month: '2-digit',
   year: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
-  timeZone: 'UTC',
+  timeZone: liveClock ? 'Europe/Rome' : 'UTC',
 }).format(new Date(value))
 
 const formatHours = (value: number) => `${Math.max(0, Math.round(value * 100) / 100).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h`
@@ -84,6 +84,7 @@ function sortByPhaseOrder(a: JobPhase, b: JobPhase, indexA: number, indexB: numb
 
 function PlannerVehicleDetailModal({
   detail,
+  liveClock,
   onClose,
   onOpenJob,
   onOpenOperatorProgram,
@@ -93,6 +94,7 @@ function PlannerVehicleDetailModal({
   statusLabel,
 }: {
   detail: PlannerVehicleDetail
+  liveClock?:boolean
   onClose: () => void
   onOpenJob: (query: string) => void
   onOpenOperatorProgram: () => void
@@ -210,15 +212,15 @@ function PlannerVehicleDetailModal({
               </div>
               <div>
                 <span>Inizio previsto</span>
-                <strong>{phaseRow.taskStartAt ? shortDateTime(phaseRow.taskStartAt) : '—'}</strong>
+                <strong>{phaseRow.taskStartAt ? shortDateTime(phaseRow.taskStartAt,liveClock) : '—'}</strong>
               </div>
               <div>
                 <span>Fine prevista</span>
-                <strong>{phaseRow.taskEndAt ? shortDateTime(phaseRow.taskEndAt) : '—'}</strong>
+                <strong>{phaseRow.taskEndAt ? shortDateTime(phaseRow.taskEndAt,liveClock) : '—'}</strong>
               </div>
               <div>
                 <span>Prima disponibilità fase successiva</span>
-                <strong>{phaseRow.nextPhaseAvailableAt ? shortDateTime(phaseRow.nextPhaseAvailableAt) : '—'}</strong>
+                <strong>{phaseRow.nextPhaseAvailableAt ? shortDateTime(phaseRow.nextPhaseAvailableAt,liveClock) : '—'}</strong>
               </div>
               <div>
                 <span>Motivo</span>
@@ -566,7 +568,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
                   const first=tasks[0]
                   if(!first)return <small>Da assegnare</small>
                   const firstCrew=tasks.filter(task=>task.startAt===first.startAt&&task.phaseId===first.phaseId)
-                  return <><strong>{shortDateTime(first.startAt)}</strong><small>{phaseDisplayName(first.phaseName)} · {unique(firstCrew.map(task=>task.operatorName)).join(', ')}</small></>
+                  return <><strong>{shortDateTime(first.startAt,Boolean(liveForecasts))}</strong><small>{phaseDisplayName(first.phaseName)} · {unique(firstCrew.map(task=>task.operatorName)).join(', ')}</small></>
                 })()}</td>
                 <td>{remaining} h</td>
                 <td>{coneLabel(vehicle)}</td>
@@ -631,7 +633,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       {!queue.length && <div className="empty">Nessuna commessa aperta.</div>}
     </section>
 
-      {selectedVehicleDetail && <PlannerVehicleDetailModal
+      {selectedVehicleDetail && <PlannerVehicleDetailModal liveClock={Boolean(liveForecasts)}
         detail={selectedVehicleDetail}
         onClose={() => setSelectedVehicleId(null)}
         onOpenJob={(query) => {
