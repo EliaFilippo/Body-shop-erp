@@ -21,6 +21,7 @@ export interface HoursReport {
 export interface OperatorActivity { kind: 'cleaning' | 'coffee' | null; elapsedSeconds: number; cleaningSeconds: number; coffeeSeconds: number }
 export interface DayContinuation { canContinue:boolean; ordinaryEndMinute:number|null; untilMinute:number|null; date:string }
 export interface LiveFeed {
+ deliveryForecasts?:Array<{vehicleId:string;jobId:string;date:string|null;endAt:string|null}>;planningUpdatedAt?:string|null;
   manualSelection?: boolean;
   dayContinuation?: DayContinuation | null;
   activity?: OperatorActivity | null;

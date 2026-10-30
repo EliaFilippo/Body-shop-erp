@@ -938,7 +938,7 @@ function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] 
  return reservations
 }
 
-export function generateOperatorPrograms(data: ErpData, date = todayKey(), reason = 'Ricalcolo automatico', nowIso?: string): OperatorProgramResult {
+export function generateOperatorPrograms(data: ErpData, date = todayKey(), reason = 'Ricalcolo automatico', nowIso?: string, availability?: {operators:Record<string,string>;jobs:Record<string,string>}): OperatorProgramResult {
   const now = nowIso ?? new Date().toISOString()
   const effectiveDate = planningDateFloor(date, nowIso)
   const schedulingFloor = planningInstantFloor(date, nowIso)
@@ -971,7 +971,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       return {
         job,
         phase: selectedPhase.phase,
-        readyAt: selectedPhase.readyAt,
+        readyAt: [selectedPhase.readyAt,availability?.jobs[job.id]??''].sort().at(-1)!,
         vehicle,
         blocked,
         dueToday,
@@ -1004,7 +1004,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const operatorState = new Map<string, { nextAt: string; tasks: OperatorProgramTask[]; operator: PlannerOperator }>()
   for (const operator of operators) {
     operatorState.set(operator.id, {
-      nextAt: nextWorkingInstant(schedulingFloor, data.plannerSettings, operator),
+      nextAt: nextWorkingInstant([schedulingFloor,availability?.operators[operator.id]??''].sort().at(-1)!, data.plannerSettings, operator),
       tasks: [],
       operator,
     })

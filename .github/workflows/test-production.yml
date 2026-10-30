@@ -93,6 +93,14 @@ jobs:
         run: psql -f supabase/tests/production_read_snapshot.sql
       - name: Partial cloud saves preserve audit, new vehicles, revision isolation and quote guards
         run: psql -f supabase/tests/partial_cloud_save.sql
+      - name: Completion events, coalesced claims, office isolation and planner forecasts
+        run: psql -f supabase/tests/completion_planning.sql
+      - name: Planning input isolation, timer progress and safe concurrent office saves
+        run: psql -f supabase/tests/completion_planning_inputs.sql
+      - name: Signed dispatch scopes, expiry and replay coalescing
+        run: psql -f supabase/tests/signed_completion_dispatch.sql
+      - name: Rapid sequential completions dispatch immediately while active leases coalesce
+        run: psql -f supabase/tests/immediate_completion_dispatch.sql
       - name: Concurrent starts on two tablets by one employee
         shell: bash
         run: |

@@ -1,3 +1,4 @@
+import type {CompletionForecast} from '../../services/completionPlanning'
 import {NightlyEconomicsPanel} from '../dashboard/NightlyEconomicsPanel'
 import { phaseDisplayName } from '../../services/workCycle'
 import { monthlyTargetRate } from '../../services/monthlyTargetRate'
@@ -24,13 +25,13 @@ const shortDate = (value: string) => new Intl.DateTimeFormat('it-IT', {
   timeZone: 'UTC',
 }).format(parseDate(value))
 
-const shortDateTime = (value: string) => new Intl.DateTimeFormat('it-IT', {
+const shortDateTime = (value: string, liveClock = false) => new Intl.DateTimeFormat('it-IT', {
   day: '2-digit',
   month: '2-digit',
   year: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
-  timeZone: 'UTC',
+  timeZone: liveClock ? 'Europe/Rome' : 'UTC',
 }).format(new Date(value))
 
 const formatHours = (value: number) => `${Math.max(0, Math.round(value * 100) / 100).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h`
@@ -83,6 +84,7 @@ function sortByPhaseOrder(a: JobPhase, b: JobPhase, indexA: number, indexB: numb
 
 function PlannerVehicleDetailModal({
   detail,
+  liveClock,
   onClose,
   onOpenJob,
   onOpenOperatorProgram,
@@ -92,6 +94,7 @@ function PlannerVehicleDetailModal({
   statusLabel,
 }: {
   detail: PlannerVehicleDetail
+  liveClock?:boolean
   onClose: () => void
   onOpenJob: (query: string) => void
   onOpenOperatorProgram: () => void
@@ -209,15 +212,15 @@ function PlannerVehicleDetailModal({
               </div>
               <div>
                 <span>Inizio previsto</span>
-                <strong>{phaseRow.taskStartAt ? shortDateTime(phaseRow.taskStartAt) : '—'}</strong>
+                <strong>{phaseRow.taskStartAt ? shortDateTime(phaseRow.taskStartAt,liveClock) : '—'}</strong>
               </div>
               <div>
                 <span>Fine prevista</span>
-                <strong>{phaseRow.taskEndAt ? shortDateTime(phaseRow.taskEndAt) : '—'}</strong>
+                <strong>{phaseRow.taskEndAt ? shortDateTime(phaseRow.taskEndAt,liveClock) : '—'}</strong>
               </div>
               <div>
                 <span>Prima disponibilità fase successiva</span>
-                <strong>{phaseRow.nextPhaseAvailableAt ? shortDateTime(phaseRow.nextPhaseAvailableAt) : '—'}</strong>
+                <strong>{phaseRow.nextPhaseAvailableAt ? shortDateTime(phaseRow.nextPhaseAvailableAt,liveClock) : '—'}</strong>
               </div>
               <div>
                 <span>Motivo</span>
@@ -236,8 +239,9 @@ function PlannerVehicleDetailModal({
   </Modal>
 }
 
-export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpenJob, onOpenOperatorProgram, onRecalculatePlanning, onUpdateVehicleStatus, statusOptions, statusLabel }: {
+export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenSettings, onOpenJob, onOpenOperatorProgram, onRecalculatePlanning, onUpdateVehicleStatus, statusOptions, statusLabel }: {
   data: ErpData
+  liveForecasts?:CompletionForecast[]
   customerById: (id: string) => Customer | undefined
   onMove: (vehicleId: string, date: string) => void
   onOpenSettings: () => void
@@ -257,7 +261,16 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
   const targetRate=useMemo(()=>monthlyTargetRate(data.plannerSettings,targetMonth),[data.plannerSettings,targetMonth])
   const targetMonthLabel=new Intl.DateTimeFormat('it-IT',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(`${targetMonth}-01T12:00:00Z`))
   const money=(amount:number)=>amount.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
-  const result = useMemo(() => calculatePlanner(data.vehicles, data.plannerSettings), [data.vehicles, data.plannerSettings])
+  const result = useMemo(() => {
+    const base=calculatePlanner(data.vehicles,data.plannerSettings)
+    if(!liveForecasts)return base
+    const dates=new Map(liveForecasts.map(f=>[f.vehicleId,f.date]))
+    return {...base,assignments:data.plannerAssignments,vehicles:base.vehicles.map(v=>{
+      if(!dates.has(v.vehicleId))return v
+      const date=dates.get(v.vehicleId),requested=data.vehicles.find(x=>x.id===v.vehicleId)?.requestedDeliveryDate
+      return {...v,calculatedDeliveryDate:date??'',suggestedDate:date??'',status:!date?'neutral' as const:requested&&date>requested?'red' as const:'green' as const,assignments:data.plannerAssignments.filter(a=>a.vehicleId===v.vehicleId)}
+    })}
+  }, [data.vehicles,data.plannerSettings,data.plannerAssignments,liveForecasts])
   const queue = useMemo(() => buildPlannerQueue(data, todayKey()), [data])
   const days = Array.from({ length: 7 }, (_, index) => addDays(week, index))
 
@@ -555,7 +568,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
                   const first=tasks[0]
                   if(!first)return <small>Da assegnare</small>
                   const firstCrew=tasks.filter(task=>task.startAt===first.startAt&&task.phaseId===first.phaseId)
-                  return <><strong>{shortDateTime(first.startAt)}</strong><small>{phaseDisplayName(first.phaseName)} · {unique(firstCrew.map(task=>task.operatorName)).join(', ')}</small></>
+                  return <><strong>{shortDateTime(first.startAt,Boolean(liveForecasts))}</strong><small>{phaseDisplayName(first.phaseName)} · {unique(firstCrew.map(task=>task.operatorName)).join(', ')}</small></>
                 })()}</td>
                 <td>{remaining} h</td>
                 <td>{coneLabel(vehicle)}</td>
@@ -620,7 +633,7 @@ export function PlannerPage({ data, customerById, onMove, onOpenSettings, onOpen
       {!queue.length && <div className="empty">Nessuna commessa aperta.</div>}
     </section>
 
-      {selectedVehicleDetail && <PlannerVehicleDetailModal
+      {selectedVehicleDetail && <PlannerVehicleDetailModal liveClock={Boolean(liveForecasts)}
         detail={selectedVehicleDetail}
         onClose={() => setSelectedVehicleId(null)}
         onOpenJob={(query) => {
