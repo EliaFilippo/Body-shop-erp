@@ -90,11 +90,15 @@ export async function handleCompletionRequest(request:Request,rpc:(name:string,a
  if(!/^[a-f0-9-]{36}$/.test(companyId))return new Response('Invalid company',{status:400})
  let claim:CompletionClaim|null=null
  try{
-  claim=await rpc('production_completion_claim',{p_company_id:companyId,p_secret:secret,p_expires:expires}) as CompletionClaim|null
-  if(!claim)return Response.json({status:'skipped'})
-  const plan=buildCompletionPlan(claim.payload,claim.state,claim.generation)
-  const ok=await rpc('production_completion_commit',{p_company_id:companyId,p_id:claim.id,p_generation:claim.generation,p_revision:claim.revision,p_plan:plan})
-  return Response.json({status:ok?'completed':'retry'})
+  // A completion arriving during calculation is folded into one immediate retry.
+  for(let attempt=0;attempt<2;attempt++){
+   claim=await rpc('production_completion_claim',{p_company_id:companyId,p_secret:secret,p_expires:expires}) as CompletionClaim|null
+   if(!claim)return Response.json({status:'skipped'})
+   const plan=buildCompletionPlan(claim.payload,claim.state,claim.generation)
+   const ok=await rpc('production_completion_commit',{p_company_id:companyId,p_id:claim.id,p_generation:claim.generation,p_revision:claim.revision,p_plan:plan})
+   if(ok)return Response.json({status:'completed'})
+  }
+  return Response.json({status:'retry'})
  }catch{
   if(claim)try{await rpc('production_completion_failed',{p_company_id:companyId,p_id:claim.id})}catch{/* Durable queue retries later. */}
   return Response.json({status:'retry'},{status:503})

@@ -93,3 +93,11 @@ it('interprets an 08:00 configured shift as 08:00 Italian time, not UTC',()=>{
  const plan=buildCompletionPlan(data,{serverNow:now,entries:[],checks:[{jobId:job.id,phaseId:body.id,checkedAt:now,checkedBy:'A',workedSeconds:3600}]},1)
  expect(plan.operatorPrograms.flatMap(p=>p.tasks).find(t=>t.phaseName==='Lucidatura')?.startAt).toBe('2026-10-27T07:00:00.000Z')
 })
+
+it('folds a second completion into an immediate retry instead of waiting for the watchdog',async()=>{
+ const data=setup();let generation=0
+ const rpc=vi.fn(async(name:string)=>name==='production_completion_claim'?{id:'claim'+(++generation),generation,revision:9,payload:data,state:{serverNow:'2026-10-27T09:00:00Z',entries:[]}}:generation===2)
+ const response=await handleCompletionRequest(new Request('https://test',{method:'POST',headers:{'x-planning-secret':'a'.repeat(64),'x-planning-expires':String(Math.floor(Date.now()/1000)+120)},body:JSON.stringify({companyId:'aa49d334-492f-4daa-aa7e-5d5c022308b7'})}),rpc)
+ expect(await response.json()).toEqual({status:'completed'})
+ expect(rpc.mock.calls.map(c=>c[0])).toEqual(['production_completion_claim','production_completion_commit','production_completion_claim','production_completion_commit'])
+})
