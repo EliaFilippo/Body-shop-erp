@@ -9,7 +9,7 @@ import { applyDayExtensions } from './services/operatorDayExtensions'
 import type { OperatorDayExtension } from './types'
 import { ConfirmedWorkOverview } from './features/dashboard/ConfirmedWorkOverview'
 import { ProductionControlPanel } from './features/production/ProductionControlPanel'
-import { EliasCatalogSettings } from './features/catalog/EliasCatalogSettings'
+const EliasCatalogSettings = lazy(() => import('./features/catalog/EliasCatalogSettings').then(module => ({default:module.EliasCatalogSettings})))
 import { syncConfirmedProductionJobs, publishProductionJobs } from './services/liveProduction'
 import { quoteCustomerLines } from './services/quotePricing'
 import { DeliveryForecastPanel } from './components/DeliveryForecastPanel'
@@ -17,7 +17,7 @@ import { WorkCycleFields } from './components/WorkCycleFields'
 import { cyclePhasesForLine } from './services/workCycle'
 import { TreasuryPanel } from './features/finance/TreasuryPanel'
 import { PaymentTermsFields } from './components/PaymentTermsFields'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { Icon } from './components/Icon'
 import { MoneyInput } from './components/MoneyInput'
@@ -28,21 +28,21 @@ import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, mov
 import { normalizeData, createDatabaseCheckpoint, loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
 import { analyzeDatabaseIntegrity, prepareDuplicateResolution, resolveDuplicatePlate, type DatabaseIntegrityReport, type DuplicateResolutionResult } from './services/database'
 import { removePriceListItem, setPriceListItemActive, upsertPriceListItem } from './services/priceList'
-import { PlannerPage } from './features/planner/PlannerPage.tsx'
-import { OperatorProgramPage } from './features/planner/OperatorProgramPage'
-import { PlannerSettingsPage } from './features/planner/PlannerSettingsPage'
-import { MonthlyGoalsSettingsPage } from './features/planner/MonthlyGoalsSettingsPage'
-import { VehicleStatusesSettingsPage } from './features/planner/VehicleStatusesSettingsPage'
+const PlannerPage = lazy(() => import('./features/planner/PlannerPage.tsx').then(module => ({default:module.PlannerPage})))
+const OperatorProgramPage = lazy(() => import('./features/planner/OperatorProgramPage').then(module => ({default:module.OperatorProgramPage})))
+const PlannerSettingsPage = lazy(() => import('./features/planner/PlannerSettingsPage').then(module => ({default:module.PlannerSettingsPage})))
+const MonthlyGoalsSettingsPage = lazy(() => import('./features/planner/MonthlyGoalsSettingsPage').then(module => ({default:module.MonthlyGoalsSettingsPage})))
+const VehicleStatusesSettingsPage = lazy(() => import('./features/planner/VehicleStatusesSettingsPage').then(module => ({default:module.VehicleStatusesSettingsPage})))
 import { todayKey, calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr } from './services/acceptance'
-import { FinancePage } from './features/finance/FinancePage'
+const FinancePage = lazy(() => import('./features/finance/FinancePage').then(module => ({default:module.FinancePage})))
 import { createQuoteDocument } from './services/documents'
-import { TodayShopPage } from './features/production/TodayShopPage'
+const TodayShopPage = lazy(() => import('./features/production/TodayShopPage').then(module => ({default:module.TodayShopPage})))
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
-import { WorkflowPage } from './features/workflow/WorkflowPage'
+const WorkflowPage = lazy(() => import('./features/workflow/WorkflowPage').then(module => ({default:module.WorkflowPage})))
 import { DamageQuoteEditor } from './features/workflow/DamageQuoteEditor'
 import { acceptanceEstimateLines, damageQuoteError } from './services/damageQuote'
 import { calculateQuoteHourBudget, quoteStructureRate } from './services/quoteHourBudget'
@@ -56,7 +56,7 @@ import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from '.
 import { backupFilename, parseBackup, serializeBackup } from './services/backup'
 import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, upsertAppUser } from './services/accessControl'
 import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
-import { LiveProductionPage } from './features/production/LiveProductionPage'
+const LiveProductionPage = lazy(() => import('./features/production/LiveProductionPage').then(module => ({default:module.LiveProductionPage})))
 import { applyLivePhaseChecks, productionRpc, type PhaseCheckUpdate } from './services/liveProduction'
 import { canRetryCloudSave, clearPendingCloudSave, pendingCloudSaveToken, markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, EstimateLine, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
@@ -1058,7 +1058,8 @@ function App() {
       operatorProgramHistory: withOperatorProgram.operatorProgramHistory,
       operatorProgramRevision: withOperatorProgram.operatorProgramRevision,
     }))
-  }, [data, data.vehicles, data.plannerSettings, data.plannerAssignments, databaseLoaded, databaseReady, cloudConfig, cloudReady])
+  // Customer, invoice and UI-only changes cannot alter the production schedule.
+  }, [data.jobs, data.vehicles, data.plannerSettings, data.plannerAssignments, data.production, data.coneHistory, data.operatorPrograms, data.operatorProgramHistory, data.operatorProgramRevision, data.productionPlanningSampleAt, data.nightlyPlanning?.enabled, databaseLoaded, databaseReady, cloudConfig, cloudReady])
 
   useEffect(()=>{
     if(!databaseReady||!cloudReady||cloudMembership?.role!=='owner')return
@@ -1105,7 +1106,7 @@ function App() {
   if (cloudConfig && !cloudSession) {
     return <CloudLoginScreen config={cloudConfig} onAuthenticated={(session, membership) => { setCloudSession(session); setCloudMembership(membership) }} />
   }
-  if (cloudConfig && cloudMembership?.role === 'production') return <LiveProductionPage />
+  if (cloudConfig && cloudMembership?.role === 'production') return <Suspense fallback={<p role="status">Apertura produzione…</p>}><LiveProductionPage /></Suspense>
   const logoutCloud = async () => {
     if (!cloudConfig || !cloudSession) return
     try { await signOutCloud(cloudSession, cloudConfig) } catch { /* La sessione locale viene comunque chiusa. */ }
@@ -1168,7 +1169,7 @@ function App() {
       </div>
       {error && <div className="toast error"><span>{error}</span>{duplicateVehicle && <button onClick={() => { setView('vehicles'); setQuery(normalizePlate(duplicateVehicle.plate)); setModal({ type: 'vehicle', item: duplicateVehicle }); setDuplicateVehicleId(null); setError('') }}>Apri vettura</button>}<button onClick={() => { setDuplicateVehicleId(null); setError('') }}>×</button></div>}
       {notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
-      <div className="content">
+      <Suspense fallback={<p role="status">Apertura schermata…</p>}><div className="content">
             {cloudConfig && cloudSession && cloudMembership && cloudMembership.role !== 'production' && <ProductionControlPanel connection={{ config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId }} />}
         {view === 'dashboard' && <Dashboard data={data} setView={setView} onNewVehicle={() => {
           if (data.customers.length) setModal({ type: 'vehicle' })
@@ -1347,7 +1348,7 @@ function App() {
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
           setNotice('Pratica aggiornata.')
         }} confirmed />}
-      </div>
+      </div></Suspense>
     </main>
 
     {modal?.type === 'customer' && <CustomerForm customer={modal.item} onClose={() => setModal(null)} onSave={async (input) => {
@@ -1799,10 +1800,10 @@ function Dashboard({ data, setView, onNewVehicle, onNewCustomer }: { data: ErpDa
     return date.toISOString().slice(0, 10)
   }
 
-  const snapshot = calculateExecutiveDashboardSnapshot(data)
+  const snapshot = useMemo(() => calculateExecutiveDashboardSnapshot(data), [data, today])
   const [overviewPeriod, setOverviewPeriod] = useState<BusinessOverviewPeriod>('mese')
-  const overview = calculateBusinessOverviewSnapshot(data, overviewPeriod)
-  const monthOverview = calculateBusinessOverviewSnapshot(data, 'mese')
+  const monthOverview = useMemo(() => calculateBusinessOverviewSnapshot(data, 'mese'), [data, today])
+  const overview = useMemo(() => overviewPeriod === 'mese' ? monthOverview : calculateBusinessOverviewSnapshot(data, overviewPeriod), [data, today, overviewPeriod, monthOverview])
   const rate = (value: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(value)
 
   const topKpis = [

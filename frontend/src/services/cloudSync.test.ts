@@ -96,3 +96,24 @@ it('recognizes a committed save whose response was lost without writing it twice
  expect(saved.revision).toBe(8)
  expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
 })
+
+it('does not write a new cloud revision when only local bookkeeping changed',async()=>{
+ const fetcher=vi.fn(async()=>Response.json([{company_id:'company-1',revision:7,payload:emptyData}]))
+ await loadCloudSnapshot('company-1',session,config,fetcher)
+ const saved=await updateCloudSnapshot('company-1',7,{...structuredClone(emptyData),dbRevision:999,dbUpdatedAt:'now'},session,config,fetcher)
+ expect(fetcher).toHaveBeenCalledTimes(1)
+ expect(saved.revision).toBe(7)
+})
+it('isolates the acknowledged baseline from returned snapshots without cloning unchanged history again',async()=>{
+ const loaded={...structuredClone(emptyData),operatorProgramHistory:[{id:'private-history',date:'today',reason:'audit',programs:[],revision:1,generatedAt:'now'}]}
+ let revision=7
+ const fetcher=vi.fn(async(_url:RequestInfo|URL,init?:RequestInit)=>Response.json(init?.method==='POST'?[{company_id:'company-1',revision:++revision}]:[{company_id:'company-1',revision,payload:loaded}]))
+ await loadCloudSnapshot('company-1',session,config,fetcher)
+ const first=await updateCloudSnapshot('company-1',7,{...structuredClone(loaded),customers:[{id:'new'} as never]},session,config,fetcher)
+ first.payload.operatorProgramHistory![0].reason='changed by caller'
+ first.payload.customers[0].name='changed by caller'
+ await updateCloudSnapshot('company-1',8,first.payload,session,config,fetcher)
+ const body=JSON.parse(String(fetcher.mock.calls[2][1]?.body))
+ expect(body.p_changes.operatorProgramHistory[0].reason).toBe('changed by caller')
+ expect(body.p_changes.customers[0].name).toBe('changed by caller')
+})
