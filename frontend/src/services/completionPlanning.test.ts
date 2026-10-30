@@ -15,7 +15,7 @@ const setup=()=>{
 describe('completion-triggered planning',()=>{
  it('uses the completion time, skips signed work and leaves actual jobs, finance and requested dates untouched',()=>{
   const data=setup(),job=data.jobs![0],body=job.phases.find(p=>p.name==='Lattoneria')!,before=JSON.stringify(data)
-  const now='2026-10-27T14:30:00Z'
+  const now='2026-10-27T14:30:37.123Z'
   const plan=buildCompletionPlan(data,{serverNow:now,entries:[],checks:[{jobId:job.id,phaseId:body.id,checkedAt:now,checkedBy:'A',workedSeconds:5400}]},2)
   const tasks=plan.operatorPrograms.flatMap(p=>p.tasks)
   expect(tasks.length).toBeGreaterThan(0)
@@ -73,7 +73,7 @@ it('keeps the drying hour after a real paint signature and does not promise a da
  const paint=job.phases.find(p=>p.name==='Lattoneria')!,strip=job.phases.find(p=>p.name==='Lucidatura')!
  job.phases=[{...paint,name:'Verniciatura',requiredSkill:'Verniciatura',technicalWaitMinutes:60},{...strip,name:'Scartatura',requiredSkill:'Scartatura'}]
  data.plannerSettings.operators[0].skills=['Verniciatura','Scartatura']
- const now='2026-10-27T09:00:00Z'
+ const now='2026-10-27T09:00:37.123Z'
  const plan=buildCompletionPlan(data,{serverNow:now,entries:[],checks:[{jobId:job.id,phaseId:paint.id,checkedAt:now,checkedBy:'A',workedSeconds:3600}]},1)
  expect(plan.operatorPrograms.flatMap(p=>p.tasks).filter(t=>t.phaseName==='Scartatura').every(t=>Date.parse(t.startAt)>=Date.parse(now)+3600000)).toBe(true)
  job.phases=[{...paint,estimatedMinutes:100000}]

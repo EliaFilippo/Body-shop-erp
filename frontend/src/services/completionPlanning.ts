@@ -13,10 +13,17 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
  const availability:{operators:Record<string,string>;jobs:Record<string,string>}={operators:{},jobs:{}}
  const fixed:OperatorProgramTask[]=[],warnings:string[]=[]
  const now=new Date(state.serverNow).toISOString(),day=romeDate(now),revision=(actual.operatorProgramRevision??0)+1
- const clockNow=toRomePlanningClock(now)
+ // The legacy calendar allocates whole minutes: round forward, never into
+ // seconds already elapsed or before a drying deadline.
+ const clockNow=toRomePlanningClock(new Date(Math.ceil(Date.parse(now)/60000)*60000).toISOString())
+ const calendarPhase=(phase:NonNullable<ErpData['jobs']>[number]['phases'][number])=>{
+  const localized=localizePlanningTimestamps(phase.name==='Verniciatura'?{...phase,technicalWaitMinutes:Math.max(60,phase.technicalWaitMinutes??60)}:phase)
+  for(const field of ['completedAt','endedAt'] as const)if(localized[field])localized[field]=new Date(Math.ceil(Date.parse(localized[field]!)/60000)*60000).toISOString()
+  return localized
+ }
  const simulation={...actual,vehicles:localizePlanningTimestamps(actual.vehicles),jobs:(actual.jobs??[]).map(job=>({...job,phases:job.phases.map(phase=>{
   const running=state.entries.filter(e=>e.jobId===job.id&&e.phaseId===phase.id&&e.runningSince)
-  if(!running.length||phase.status==='Completata')return localizePlanningTimestamps(phase.name==='Verniciatura'?{...phase,technicalWaitMinutes:Math.max(60,phase.technicalWaitMinutes??60)}:phase)
+  if(!running.length||phase.status==='Completata')return calendarPhase(phase)
   const minutes=phaseResidualMinutes(phase,now,job)
   let end=clockNow
   for(const entry of running){
@@ -31,7 +38,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
   }
   availability.jobs[job.id]=[availability.jobs[job.id]??'',end].sort().at(-1)!
   // Virtual completion makes the remaining sequence forecastable, not signed.
-  return {...phase,...(phase.name==='Verniciatura'?{technicalWaitMinutes:Math.max(60,phase.technicalWaitMinutes??60)}:{}),status:'Completata' as const,completedAt:end,endedAt:end,operatorAssignments:[]}
+  return {...calendarPhase(phase),status:'Completata' as const,completedAt:end,endedAt:end,operatorAssignments:[]}
  })}))}
  const generated=generateOperatorPrograms(simulation,day,'Ricalcolo dopo completamento fase · priorità box',clockNow,availability)
  const programs=generated.programs.map(p=>({...p,tasks:[...p.tasks]}))

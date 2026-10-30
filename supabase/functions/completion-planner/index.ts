@@ -1303,10 +1303,15 @@ function buildCompletionPlan(data, state, generation) {
   const availability = { operators: {}, jobs: {} };
   const fixed = [], warnings = [];
   const now = new Date(state.serverNow).toISOString(), day = romeDate(now), revision = (actual.operatorProgramRevision ?? 0) + 1;
-  const clockNow = toRomePlanningClock(now);
+  const clockNow = toRomePlanningClock(new Date(Math.ceil(Date.parse(now) / 6e4) * 6e4).toISOString());
+  const calendarPhase = (phase) => {
+    const localized = localizePlanningTimestamps(phase.name === "Verniciatura" ? { ...phase, technicalWaitMinutes: Math.max(60, phase.technicalWaitMinutes ?? 60) } : phase);
+    for (const field of ["completedAt", "endedAt"]) if (localized[field]) localized[field] = new Date(Math.ceil(Date.parse(localized[field]) / 6e4) * 6e4).toISOString();
+    return localized;
+  };
   const simulation = { ...actual, vehicles: localizePlanningTimestamps(actual.vehicles), jobs: (actual.jobs ?? []).map((job) => ({ ...job, phases: job.phases.map((phase) => {
     const running = state.entries.filter((e) => e.jobId === job.id && e.phaseId === phase.id && e.runningSince);
-    if (!running.length || phase.status === "Completata") return localizePlanningTimestamps(phase.name === "Verniciatura" ? { ...phase, technicalWaitMinutes: Math.max(60, phase.technicalWaitMinutes ?? 60) } : phase);
+    if (!running.length || phase.status === "Completata") return calendarPhase(phase);
     const minutes = phaseResidualMinutes(phase, now, job);
     let end = clockNow;
     for (const entry of running) {
@@ -1323,7 +1328,7 @@ function buildCompletionPlan(data, state, generation) {
       fixed.push({ id: `running:${job.id}:${phase.id}:${operator.id}`, operatorId: operator.id, operatorName: operator.name, vehicleId: job.vehicleId ?? "", plate: job.plate, jobId: job.id, jobNumber: job.number, phaseId: phase.id, phaseName: phase.name, startAt: start, endAt: finish, plannedMinutes: minutes, priority: job.priority, reason: "Lavorazione gi\xE0 avviata \xB7 operatore mantenuto sulla vettura", panelNames: [], panelNotes: [], originalPlannedDate: day, scheduleDeltaMinutes: 0, isAdvancedFromFuture: false, overtimeMinutes: 0, revision });
     }
     availability.jobs[job.id] = [availability.jobs[job.id] ?? "", end].sort().at(-1);
-    return { ...phase, ...phase.name === "Verniciatura" ? { technicalWaitMinutes: Math.max(60, phase.technicalWaitMinutes ?? 60) } : {}, status: "Completata", completedAt: end, endedAt: end, operatorAssignments: [] };
+    return { ...calendarPhase(phase), status: "Completata", completedAt: end, endedAt: end, operatorAssignments: [] };
   }) })) };
   const generated = generateOperatorPrograms(simulation, day, "Ricalcolo dopo completamento fase \xB7 priorit\xE0 box", clockNow, availability);
   const programs = generated.programs.map((p) => ({ ...p, tasks: [...p.tasks] }));
