@@ -78,3 +78,23 @@ it('keeps an owner goal below configured costs and makes the shortfall visible',
  expect(result.monthlyGoal).toBe(10000)
  expect(result.warnings).toContain('L’obiettivo mensile è inferiore ai costi mensili configurati.')
 })
+
+it('does not charge costs or zero productivity before recording began',()=>{
+ const {data,state}=setup()
+ state.serverNow='2026-09-29T01:00:00Z'
+ state.dailyWork=['24','25','28'].map(day=>({date:'2026-09-'+day,operatorId:'a',productiveSeconds:4*3600,paidSeconds:8*3600}))
+ const result=calculateNightlyEconomics(data,state,'2026-09-29')
+ expect(result.observationStart).toBe('2026-09-24')
+ expect(result.accruedOperatingCosts).toBe(512.5)
+ expect(result.realHourlyCost).toBe(42.71)
+ expect(result.capacitySource).toBe('configured')
+ expect(result.utilizationPercent).toBe(100)
+})
+it('uses each operator’s recording start for the observed denominator',()=>{
+ const {data,state}=setup()
+ data.plannerSettings.operators.push({id:'b',name:'B',active:true,dailyHours:8})
+ state.dailyWork!.push({date:'2026-09-14',operatorId:'b',productiveSeconds:4*3600,paidSeconds:8*3600})
+ expect(calculateNightlyEconomics(data,state,'2026-09-15').utilizationPercent).toBe(50)
+ state.dailyWork=state.dailyWork!.filter(e=>e.operatorId!=='b')
+ expect(calculateNightlyEconomics(data,state,'2026-09-15').capacitySource).toBe('configured')
+})

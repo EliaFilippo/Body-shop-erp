@@ -1,3 +1,4 @@
+import { publishProductionJobs } from './services/liveProduction'
 import { persistCloudSession } from './services/cloudSession'
 vi.mock('./features/production/ProductionControlPanel', () => ({ ProductionControlPanel: () => null }))
 import 'fake-indexeddb/auto'
@@ -8,6 +9,8 @@ import App from './App'
 import { emptyData } from './services/erp'
 import { restoreCloudDatabase, listLocalCheckpoints, readLocalCheckpoint, DB_NAME, loadDatabase, saveDatabase } from './services/database'
 import { markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot, type CloudSnapshot } from './services/cloudSync'
+
+vi.mock('./services/liveProduction',async(importOriginal)=>({...await importOriginal<typeof import('./services/liveProduction')>(),publishProductionJobs:vi.fn(async()=>[] as string[])}))
 
 const pendingSaves = vi.hoisted(() => [] as Promise<void>[])
 vi.mock('./services/database', async (importOriginal) => {
@@ -41,6 +44,7 @@ const customer = { id: 'customer-cloud', type: 'Privato' as const, name: 'Client
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  vi.mocked(publishProductionJobs).mockReset().mockResolvedValue([])
   localStorage.clear()
   sessionStorage.clear()
   sessionStorage.setItem('body-shop-erp.cloud-session.v1', JSON.stringify(session))
@@ -299,4 +303,31 @@ describe('avvio e salvataggio cloud', () => {
       expect(remote!.payload.vehicles).toEqual([expect.objectContaining({ plate: 'RT123RY', make: 'Fiat' })])
     })
   })
+})
+
+it('retries a locally saved vehicle on reconnection without another edit',async()=>{
+ render(<App />)
+ await screen.findByText('Archivio sincronizzato dal cloud.')
+ await waitFor(()=>expect(updateCloudSnapshot).toHaveBeenCalled())
+ vi.mocked(updateCloudSnapshot).mockRejectedValueOnce(new TypeError('Rete assente'))
+ fireEvent.click(screen.getByRole('button',{name:'Nuova vettura'}))
+ fireEvent.change(screen.getByLabelText('Cliente'),{target:{value:customer.id}})
+ fireEvent.change(screen.getByLabelText('Targa'),{target:{value:'ON123LN'}})
+ fireEvent.click(screen.getByRole('button',{name:'Salva vettura'}))
+ await screen.findByText('Rete assente')
+ expect(screen.getByRole('status',{name:'Stato salvataggio'})).toHaveTextContent('in attesa del cloud')
+ expect((await loadDatabase()).vehicles[0].plate).toBe('ON123LN')
+ fireEvent(window,new Event('online'))
+ await waitFor(()=>expect(screen.getByRole('status',{name:'Stato salvataggio'})).toHaveTextContent('Sincronizzato nel cloud'))
+ expect(localStorage.getItem('body-shop-erp.pending-cloud-save.v1:company-1')).toBeNull()
+})
+it('retries tablet publication separately without repeating the cloud archive write',async()=>{
+ vi.mocked(publishProductionJobs).mockRejectedValueOnce(new TypeError('Tablet non raggiungibili'))
+ render(<App />)
+ await screen.findByText('Archivio sincronizzato dal cloud.')
+ await waitFor(()=>expect(screen.getByRole('status',{name:'Stato salvataggio'})).toHaveTextContent('Pubblicazione sui tablet da completare'))
+ const writes=vi.mocked(updateCloudSnapshot).mock.calls.length
+ fireEvent.click(screen.getByRole('button',{name:'Riprova pubblicazione tablet'}))
+ await waitFor(()=>expect(screen.getByRole('status',{name:'Stato salvataggio'})).toHaveTextContent('Lavori pubblicati sui tablet'))
+ expect(updateCloudSnapshot).toHaveBeenCalledTimes(writes)
 })

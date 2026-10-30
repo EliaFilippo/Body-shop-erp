@@ -1,3 +1,4 @@
+import { CloudSaveQueue, type CloudSaveState } from './services/cloudSaveQueue'
 import { useCloudSessionRenewal } from './hooks/useCloudSessionRenewal'
 import { CloudSessionExpiredError, persistCloudSession, readStoredCloudSession, clearCloudSession } from './services/cloudSession'
 import { LocalRecoveryPanel } from './features/settings/LocalRecoveryPanel'
@@ -57,7 +58,7 @@ import { USER_ROLE_LABELS, createAppUser, getDefaultActiveUser, setUserActive, u
 import { bootstrapCloudCompany, getCloudAuthConfig, getRecoveryAccessToken, signInWithPassword, signOutCloud, updateCloudPassword, type CloudAuthConfig, type CloudAuthSession, type CloudCompanyMembership } from './services/cloudAuth'
 import { LiveProductionPage } from './features/production/LiveProductionPage'
 import { applyLivePhaseChecks, productionRpc, type PhaseCheckUpdate } from './services/liveProduction'
-import { clearPendingCloudSave, pendingCloudSaveToken, markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
+import { canRetryCloudSave, clearPendingCloudSave, pendingCloudSaveToken, markPendingCloudSave, createCloudSnapshot, loadCloudSnapshot, updateCloudSnapshot } from './services/cloudSync'
 import type { AcceptanceCase, AcceptanceIntakeData, CompanyClosureEntry, Customer, CustomerType, ErpData, EstimateLine, MinorDamagePreset, StandardWorkPriceListItem, UserRole, Vehicle, VehicleCostCategory, VehicleStatus, View, WeeklyWorkDaySchedule } from './types'
 
 const nav: { id: View; label: string }[] = [
@@ -683,7 +684,44 @@ function App() {
   const cloudReadyRef = useRef(false)
   const nightlyModeRef=useRef(false)
   nightlyModeRef.current=Boolean(data.nightlyPlanning?.enabled)
-  const cloudSyncQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const cloudSyncQueueRef = useRef<CloudSaveQueue<{snapshot:ErpData;token?:string}>|null>(null)
+  const [saveState,setSaveState]=useState<CloudSaveState|'local'|'local-error'>('local')
+  const [tabletSync,setTabletSync]=useState<'pending'|'done'>('pending')
+  const tabletQueueRef=useRef<CloudSaveQueue<{snapshot:ErpData;revision:number}>|null>(null)
+  useEffect(()=>{
+    if(!cloudReady||!cloudConfig||!cloudSession||!cloudMembership)return
+    let active=true
+    let lastSaveProblem=''
+    let lastTabletProblem=''
+    const tablets=new CloudSaveQueue<{snapshot:ErpData;revision:number}>(async ({snapshot,revision})=>{
+      const warnings=await publishProductionJobs(snapshot,cloudMembership.companyId,revision,cloudSession,cloudConfig)
+      if(!active)return
+      if(warnings.length)throw new Error(`Lavori da completare per i tablet: ${warnings.join(' · ')}`)
+    },(state,problem)=>{
+      if(!active)return
+      setTabletSync(state==='synced'?'done':'pending')
+      if(problem){lastTabletProblem=`Archivio salvato. Pubblicazione sui tablet da riprovare: ${problem instanceof Error?problem.message:'rete non disponibile'}`;setNotice(lastTabletProblem)}
+      else if(state==='synced')setNotice(current=>current===lastTabletProblem?'':current)
+    },canRetryCloudSave)
+    tabletQueueRef.current=tablets
+    const queue=new CloudSaveQueue<{snapshot:ErpData;token?:string}>(async ({snapshot,token})=>{
+      if(!cloudReadyRef.current||cloudRevisionRef.current===null)throw new Error('Collegamento cloud non ancora pronto.')
+      const saved=await updateCloudSnapshot(cloudMembership.companyId,cloudRevisionRef.current,snapshot,cloudSession,cloudConfig)
+      if(!active)return
+      cloudRevisionRef.current=saved.revision
+      clearPendingCloudSave(cloudMembership.companyId,token)
+      tablets.enqueue({snapshot:saved.payload,revision:saved.revision})
+    },(state,problem)=>{
+      if(!active)return
+      setSaveState(current=>current==='local-error'?current:state==='synced'&&pendingCloudSaveToken(cloudMembership.companyId)?'pending':state)
+      if(problem){lastSaveProblem=problem instanceof Error?problem.message:'Invio cloud da riprovare. I dati locali sono conservati.';setError(lastSaveProblem)}
+      else if(state==='synced')setError(current=>current===lastSaveProblem?'':current)
+    },canRetryCloudSave)
+    cloudSyncQueueRef.current=queue
+    const retry=()=>{queue.retry();tablets.retry()}
+    window.addEventListener('online',retry)
+    return ()=>{active=false;queue.dispose();tablets.dispose();window.removeEventListener('online',retry);if(cloudSyncQueueRef.current===queue)cloudSyncQueueRef.current=null;if(tabletQueueRef.current===tablets)tabletQueueRef.current=null}
+  },[cloudReady,cloudConfig,cloudMembership,cloudSession?.userId])
   const openCloudForManualEntry = async () => {
     if (!cloudConfig || !cloudSession || !cloudMembership || openingCloud) return
     setOpeningCloud(true)
@@ -935,6 +973,8 @@ function App() {
     const allowCountReduction = allowCountReductionRef.current
     allowCountReductionRef.current = false
     setAcceptanceAutosaveState('saving')
+    setSaveState('saving')
+    setTabletSync('pending')
     if (acceptanceAutosaveTimerRef.current !== null) {
       window.clearTimeout(acceptanceAutosaveTimerRef.current)
       acceptanceAutosaveTimerRef.current = null
@@ -949,22 +989,8 @@ function App() {
           // La persistenza locale può aver unito dati arrivati da altre schede.
           const snapshot = await loadDatabase()
           if (!cloudReadyRef.current) return
-          const pushSnapshot = async () => {
-            if (!cloudReadyRef.current) return
-            const expectedRevision = cloudRevisionRef.current
-            if (expectedRevision === null) return
-            const saved = await updateCloudSnapshot(cloudMembership.companyId, expectedRevision, snapshot, cloudSession, cloudConfig)
-            cloudRevisionRef.current = saved.revision
-            clearPendingCloudSave(cloudMembership.companyId, pendingToken)
-            try {
-              const warnings = await publishProductionJobs(saved.payload, cloudMembership.companyId, saved.revision, cloudSession, cloudConfig)
-              if (warnings.length) setNotice(`Dati salvati. Lavori da completare per i tablet: ${warnings.join(' · ')}`)
-            } catch (problem) { setNotice(`Dati salvati. Pubblicazione lavori sui tablet da riprovare: ${problem instanceof Error ? problem.message : 'collegamento non disponibile'}`) }
-          }
-          // Un errore temporaneo non deve avvelenare tutti i salvataggi futuri.
-          cloudSyncQueueRef.current = cloudSyncQueueRef.current.then(pushSnapshot, pushSnapshot)
-          await cloudSyncQueueRef.current
-        }
+          cloudSyncQueueRef.current?.enqueue({snapshot,token:pendingToken})
+        } else setSaveState('local')
         setAcceptanceAutosaveState('saved')
         acceptanceAutosaveTimerRef.current = window.setTimeout(() => {
           setAcceptanceAutosaveState('idle')
@@ -974,6 +1000,7 @@ function App() {
       .catch((problem) => {
         allowCountReductionRef.current = false
         setError(problem instanceof Error ? problem.message : 'Impossibile salvare i dati.')
+        setSaveState('local-error')
         setAcceptanceAutosaveState('idle')
       })
   }, [cloudConfig, cloudMembership, cloudSession?.userId, cloudReady, data, databaseLoaded, databaseReady])
@@ -1085,7 +1112,7 @@ function App() {
     clearCloudSession(cloudSession.userId, cloudConfig)
     cloudReadyRef.current = false
     cloudRevisionRef.current = null
-    cloudSyncQueueRef.current = Promise.resolve()
+    cloudSyncQueueRef.current?.dispose(); cloudSyncQueueRef.current = null
     setCloudReady(false)
     setCloudInitializationError('')
     setCloudMembership(null)
@@ -1132,6 +1159,13 @@ function App() {
 
     <main>
       <header><button className="menu-button" onClick={() => setMenu(true)}><Icon name="menu" /></button><div><span className="eyebrow">PANORAMICA OPERATIVA</span><h1>{title}</h1></div><div className="header-actions"><div className="search"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cerca targa, cliente..." /></div><div className="avatar">FE</div></div></header>
+      <div className="panel" role="status" aria-label="Stato salvataggio" style={{margin:'12px 24px',padding:'12px 16px'}}>
+        <strong>{saveState==='local-error'?'Salvataggio sul PC non riuscito':saveState==='saving'?'Salvataggio in corso…':saveState==='synced'?'Sincronizzato nel cloud':saveState==='local'?'Salvato sul PC':saveState==='blocked'?'Salvato sul PC · sincronizzazione da verificare':'Salvato sul PC · in attesa del cloud'}</strong>
+        {saveState==='pending'&&<span> · Nuovo tentativo automatico</span>}
+        {saveState==='synced'&&<span>{tabletSync==='done'?' · Lavori pubblicati sui tablet':' · Pubblicazione sui tablet da completare'}</span>}
+        {saveState==='synced'&&tabletSync==='pending'&&<button type="button" className="secondary" onClick={()=>tabletQueueRef.current?.retry()}>Riprova pubblicazione tablet</button>}
+        {(saveState==='pending'||saveState==='blocked')&&<button type="button" className="secondary" onClick={()=>cloudSyncQueueRef.current?.retry()}>Riprova invio</button>}
+      </div>
       {error && <div className="toast error"><span>{error}</span>{duplicateVehicle && <button onClick={() => { setView('vehicles'); setQuery(normalizePlate(duplicateVehicle.plate)); setModal({ type: 'vehicle', item: duplicateVehicle }); setDuplicateVehicleId(null); setError('') }}>Apri vettura</button>}<button onClick={() => { setDuplicateVehicleId(null); setError('') }}>×</button></div>}
       {notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
       <div className="content">

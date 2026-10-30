@@ -88,3 +88,11 @@ it('un invio fallito non avanza la base confermata né perde modifiche al tentat
  await expect(updateCloudSnapshot('company-1',7,changed,session,config,fetcher)).rejects.toThrow('errore 500')
  expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body)).p_changes.customers).toEqual([{id:'new'}])
 })
+
+it('recognizes a committed save whose response was lost without writing it twice',async()=>{
+ const changed={...structuredClone(emptyData),customers:[{id:'new'} as typeof emptyData.customers[number]]}
+ const fetcher=vi.fn(async(_url:RequestInfo|URL,init?:RequestInit)=>new Response(JSON.stringify(init?.method==='POST'?[]:[{company_id:'company-1',revision:8,payload:{...changed,dbRevision:999},updated_at:'now'}])))
+ const saved=await updateCloudSnapshot('company-1',7,changed,session,config,fetcher)
+ expect(saved.revision).toBe(8)
+ expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1)
+})

@@ -1228,6 +1228,7 @@ export interface JobWorkflowKpis {
 }
 
 export interface NightlyEconomicSnapshot {
+ observationStart?:string|null;observationDays?:number
  monthKey:string;plannedFor:string;asOf:string;monthlyGoal:number;realizedNetRevenue:number;residualRevenue:number
  productiveHours:number;paidHours:number;accruedOperatingCosts:number;payrollInMonthlyCosts:boolean
  realHourlyCost:number|null;targetHourlyRate:number|null;remainingProductiveHours:number;utilizationPercent:number

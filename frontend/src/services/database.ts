@@ -1075,7 +1075,7 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
 
     // Dentro lo stesso lock del controllo revisione e della scrittura: se la
     // copia di sicurezza fallisce, lo snapshot corrente non viene sostituito.
-    if (options.checkpointReason && latest) await createDatabaseCheckpoint(latest, options.checkpointReason)
+    if (latest && (options.checkpointReason || options.allowCountReduction)) await createDatabaseCheckpoint(latest, options.checkpointReason || 'prima-eliminazione')
 
     try {
       const database = await openDatabase()
