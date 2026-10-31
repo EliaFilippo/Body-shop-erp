@@ -331,3 +331,21 @@ it('retries tablet publication separately without repeating the cloud archive wr
  await waitFor(()=>expect(screen.getByRole('status',{name:'Stato salvataggio'})).toHaveTextContent('Lavori pubblicati sui tablet'))
  expect(updateCloudSnapshot).toHaveBeenCalledTimes(writes)
 })
+
+it('shows fast estimates in the confirmed and pending queues without fabricating intake sheets',async()=>{
+ const payload={...structuredClone(emptyData),customers:[customer],estimates:[
+  {id:'fast-approved',number:'FAST-1',date:'2026-10-31',customerId:customer.id,plate:'AA111AA',companyName:customer.name,contactName:'',notes:'',status:'Approvato',lines:[],taxableAmount:100,vatAmount:22,total:122,history:[],createdAt:'2026-10-31T08:00:00Z',updatedAt:'2026-10-31T08:00:00Z'},
+  {id:'fast-draft',number:'DRAFT-1',date:'2026-10-31',customerId:customer.id,plate:'BB222BB',companyName:customer.name,contactName:'',notes:'',status:'Bozza',lines:[],taxableAmount:100,vatAmount:22,total:122,history:[],createdAt:'2026-10-31T08:00:00Z',updatedAt:'2026-10-31T08:00:00Z'},
+ ]} as typeof emptyData
+ vi.mocked(loadCloudSnapshot).mockResolvedValue({companyId:'company-1',revision:3,updatedAt:'',payload})
+ render(<App />)
+ await screen.findByText('Archivio sincronizzato dal cloud.')
+ fireEvent.click(screen.getByRole('button',{name:'Pratiche confermate'}))
+ expect(await screen.findByRole('heading',{name:'AA111AA · FAST-1'})).toBeInTheDocument()
+ expect(screen.queryByText('Nessuna pratica confermata.')).not.toBeInTheDocument()
+ fireEvent.click(screen.getByRole('button',{name:'Apri preventivo / commessa'}))
+ await waitFor(()=>expect(screen.getByRole('heading',{level:1})).toHaveTextContent('Preventivi'))
+ fireEvent.click(screen.getByRole('button',{name:'Pratiche da confermare'}))
+ expect(await screen.findByRole('heading',{name:'BB222BB · DRAFT-1'})).toBeInTheDocument()
+ expect((await loadDatabase()).acceptances??[]).toHaveLength(0)
+})

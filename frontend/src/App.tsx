@@ -1,3 +1,4 @@
+import { practiceQueueEntries, type PracticeQueueEntry } from './services/practiceQueues'
 import { useCompletionPlan } from './hooks/useCompletionPlan'
 import { overlayCompletionPlan, stripCompletionOverlay } from './services/completionPlanning'
 import { CloudSaveQueue, type CloudSaveState } from './services/cloudSaveQueue'
@@ -1343,12 +1344,12 @@ function App() {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.filter((item) => item.id !== acceptanceId) })
         }} onOpenCustomerModal={(options) => setModal({ type: 'customer', returnToAcceptance: options?.returnToAcceptance, onSavedToAcceptance: options?.onSavedToAcceptance })} onOpenVehicleModal={(options) => setModal({ type: 'vehicle', initialCustomerId: options?.customerId, returnToAcceptance: options?.returnToAcceptance, onSavedToAcceptance: options?.onSavedToAcceptance })} />}
-        {view === 'pending-cases' && <AcceptanceCasesPage data={data} customerById={customerById} onSave={(acceptance) => {
+        {view === 'pending-cases' && <AcceptanceCasesPage data={data} onOpenDocument={entry=>{setQuery(entry.kind==='quote'?'':entry.plate);setView(entry.kind==='quote'?'finance':'estimates-jobs')}} customerById={customerById} onSave={(acceptance) => {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
           setNotice('Pratica aggiornata.')
         }} confirmed={false} />}
-        {view === 'confirmed-cases' && <AcceptanceCasesPage data={data} customerById={customerById} onSave={(acceptance) => {
+        {view === 'confirmed-cases' && <AcceptanceCasesPage data={data} onOpenDocument={entry=>{setQuery(entry.kind==='quote'?'':entry.plate);setView(entry.kind==='quote'?'finance':'estimates-jobs')}} customerById={customerById} onSave={(acceptance) => {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
           setNotice('Pratica aggiornata.')
@@ -2405,11 +2406,6 @@ function isPracticeConfirmed(acceptance: AcceptanceCase) {
   return acceptance.status === 'confirmed'
 }
 
-function practiceStatusLabel(status: AcceptanceCase['status']) {
-  if (status === 'confirmed') return 'Confermata'
-  return 'Bozza'
-}
-
 const ACCEPTANCE_FIELD_LABELS: Record<string, string> = {
   name: 'Nome',
   surname: 'Cognome',
@@ -2451,12 +2447,9 @@ function acceptanceConfidenceLabel(confidence: string) {
   return 'Affidabilita non disponibile'
 }
 
-function AcceptanceCasesPage({ data, customerById, onSave, confirmed }: { data: ErpData; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; confirmed: boolean }) {
-  const acceptances = useMemo(() => data.acceptances ?? [], [data.acceptances])
-  const filtered = useMemo(
-    () => acceptances.filter((item) => confirmed ? isPracticeConfirmed(item) : !isPracticeConfirmed(item)),
-    [acceptances, confirmed],
-  )
+function AcceptanceCasesPage({ data, customerById, onSave, confirmed, onOpenDocument }: { data: ErpData; onOpenDocument:(entry:PracticeQueueEntry)=>void; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; confirmed: boolean }) {
+  const entries = useMemo(() => practiceQueueEntries(data), [data.acceptances,data.estimates,data.quotes,data.jobs,data.vehicles])
+  const filtered = useMemo(() => entries.filter(item=>item.confirmed===confirmed),[entries,confirmed])
   const [selectedId, setSelectedId] = useState<string>('')
   const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0]
 
@@ -2474,7 +2467,7 @@ function AcceptanceCasesPage({ data, customerById, onSave, confirmed }: { data: 
       <div>
         <span className="eyebrow">{confirmed ? 'PRATICHE CONFERMATE' : 'PRATICHE DA CONFERMARE'}</span>
         <h2>{confirmed ? 'Pratiche approvate dal cliente' : 'Pratiche aperte da completare'}</h2>
-        <p>{confirmed ? 'Le pratiche confermate restano disponibili con lo stesso ID per gli step successivi.' : 'Riapri una pratica e continua dal punto in cui era stata lasciata.'}</p>
+        <p>{confirmed ? 'Accettazioni e preventivi approvati, compresi quelli inseriti dal percorso rapido.' : 'Accettazioni in bozza e preventivi ancora da confermare.'}</p>
       </div>
     </div>
     <div className="acceptance-layout">
@@ -2484,19 +2477,25 @@ function AcceptanceCasesPage({ data, customerById, onSave, confirmed }: { data: 
           const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
           return <button className={selected?.id === acceptance.id ? 'active acceptance-card' : 'acceptance-card'} key={acceptance.id} onClick={() => setSelectedId(acceptance.id)}>
             <strong>{customer?.name ?? 'Cliente non trovato'}</strong>
-            <small>{vehicle?.plate ?? 'Vettura non trovata'}</small>
-            <span>{practiceStatusLabel(acceptance.status)}</span>
+            <small>{acceptance.plate || vehicle?.plate || 'Targa non disponibile'}</small>
+            <span>{acceptance.status}</span><small>{acceptance.number}</small>
           </button>
         })}
         {!filtered.length && <Empty text={confirmed ? 'Nessuna pratica confermata.' : 'Nessuna pratica da confermare.'} />}
       </div>
-      {selected && <AcceptanceEditor
-        acceptance={selected}
+      {selected?.acceptance && <AcceptanceEditor
+        acceptance={selected.acceptance}
         data={data}
         customerById={customerById}
         onSave={onSave}
-        onChangeStatus={(status) => onSave({ ...selected, status, updatedAt: new Date().toISOString() })}
+        onChangeStatus={(status) => onSave({ ...selected.acceptance!, status, updatedAt: new Date().toISOString() })}
       />}
+      {selected&&!selected.acceptance&&<section className="panel" aria-label="Preventivo della pratica">
+        <h3>{selected.plate} · {selected.number}</h3>
+        <p>{customerById(selected.customerId)?.name??'Cliente non trovato'} · {selected.status}</p>
+        {selected.total!==undefined&&<p>Totale: {selected.total.toLocaleString('it-IT',{style:'currency',currency:'EUR'})}</p>}
+        <button className="primary" onClick={()=>onOpenDocument(selected)}>{selected.kind==='quote'?'Apri in Finanza':'Apri preventivo / commessa'}</button>
+      </section>}
     </div>
   </section>
 }
