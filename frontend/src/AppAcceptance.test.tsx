@@ -187,7 +187,7 @@ describe('Acceptance flow', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Crea preventivo numerato' })).toBeEnabled(), { timeout: 5000 })
     fireEvent.click(screen.getByRole('button', { name: 'Crea preventivo numerato' }))
     // The workflow is lazy-loaded; CI may need more than the default one second.
-    await screen.findByRole('heading', { name: 'Flusso operativo completo vettura' }, undefined, { timeout: 5000 })
+    await screen.findByRole('heading', { name: 'Flusso operativo completo vettura' }, { timeout: 5000 })
     await waitFor(() => {
       expect(persistedData.estimates).toHaveLength(1)
       expect(persistedData.quotes).toHaveLength(1)
