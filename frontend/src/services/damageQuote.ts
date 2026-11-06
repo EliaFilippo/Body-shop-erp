@@ -84,7 +84,8 @@ export function damageQuoteIssue(lines: EstimateLine[]): { lineId: string; lineI
     if (line.manualPhaseTimes) {
       const phases = line.manualPhaseTimes
       if (!phases.length) return issue('Scegli almeno una fase e inserisci i minuti della lavorazione manuale.')
-      for (const [index, item] of phases.entries()) {
+      for (const [index, item] of original.manualPhaseTimes!.entries()) {
+        if (!item.phase.trim() && item.minutes === 0) continue
         if (!WORK_CYCLE.includes(item.phase as typeof WORK_CYCLE[number]) || item.phase === 'Consegna') return issue(`Scegli la fase ${index + 1} della lavorazione manuale.`)
         if (!Number.isFinite(item.minutes) || item.minutes <= 0) return issue(`Inserisci i minuti della fase ${index + 1} (${item.phase}), oppure rimuovila se non serve.`)
       }

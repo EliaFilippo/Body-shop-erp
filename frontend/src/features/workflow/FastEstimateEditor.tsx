@@ -43,7 +43,14 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
  const quote=useMemo(()=>({...createDefaultQuote(data.plannerSettings,new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date())),manualOnlyPricing:true,damageLines:lines.map(damageLineForSave),selectedPhases:wash?['Lavaggio esterno']:[]}),[data.plannerSettings,lines,wash])
  const lineIssue=damageQuoteIssue(lines)
  const lineError=lineIssue?.message??''
- const goToIssue=()=>{if(!lineIssue)return;const row=lineElements.current.get(lineIssue.lineId);row?.scrollIntoView?.({behavior:'smooth',block:'center'});(row?.querySelector<HTMLElement>('[aria-invalid="true"], input:invalid, select:invalid')??row?.querySelector<HTMLElement>('input'))?.focus()}
+ const goToIssue=()=>{
+  if(!lineIssue)return
+  const row=lineElements.current.get(lineIssue.lineId)
+  row?.querySelectorAll('details').forEach(details=>{details.open=true})
+  row?.scrollIntoView?.({behavior:'smooth',block:'center'})
+  const field=row?.querySelector<HTMLElement>('[aria-invalid="true"], input:invalid, select:invalid')??row?.querySelector<HTMLElement>('input')
+  field?.focus()
+ }
  const addManualLine=()=>setLines(current=>[...current,recalculateDamageLine({
   id:crypto.randomUUID(),manualFastLine:true,customerDescription:'',description:'',
   standardWorkId:`manual-fast:${crypto.randomUUID()}`,standardWorkName:'',categoryOrPhase:'',
