@@ -798,7 +798,9 @@ function normalizePhaseAssignments(phase: JobPhase, fallbackAt: string): JobPhas
 		return phase.operatorAssignments.map((item) => {
 			const startedAt = item.startedAt || fallbackAt
 			const endedAt = item.endedAt
-			const workedMinutes = endedAt ? Math.max(Number(item.workedMinutes) || 0, minutesBetween(startedAt, endedAt)) : Math.max(0, Number(item.workedMinutes) || 0)
+			// Tablet totals sum closed work segments; elapsed wall time includes pauses.
+			const recorded = Math.max(0, Number(item.workedMinutes) || 0)
+			const workedMinutes = endedAt && !item.id?.startsWith('tablet:') ? Math.max(recorded, minutesBetween(startedAt, endedAt)) : recorded
 			const activityStatus = item.activityStatus || (endedAt ? 'Concluso' : 'Attivo')
 			return {
 				id: item.id || id(),
@@ -838,8 +840,8 @@ function phaseActiveOperators(phase: JobPhase) {
 
 function phaseManMinutes(phase: JobPhase, at: string) {
 	return phase.operatorAssignments.reduce((sum, item) => {
-		if (item.endedAt) return sum + Math.max(item.workedMinutes, minutesBetween(item.startedAt, item.endedAt))
-		if (item.activityStatus === 'Attivo') return sum + minutesBetween(item.startedAt, at)
+		if (item.endedAt) return sum + (item.id.startsWith('tablet:') ? item.workedMinutes : Math.max(item.workedMinutes, minutesBetween(item.startedAt, item.endedAt)))
+		if (item.activityStatus === 'Attivo') return sum + minutesBetween(item.startedAt, at) + (item.id.startsWith('tablet:') ? item.workedMinutes : 0)
 		return sum + Math.max(0, item.workedMinutes)
 	}, 0)
 }
@@ -859,16 +861,17 @@ function synchronizePhase(phase: JobPhase, at: string): JobPhase {
 	if (phase.status === 'Completata') {
 		assignments = assignments.map((item) => {
 			if (item.endedAt || item.activityStatus !== 'Attivo') return item
+			const endedAt = phase.endedAt || phase.completedAt || at
 			return {
 				...item,
-				endedAt: at,
-				workedMinutes: Math.max(item.workedMinutes, minutesBetween(item.startedAt, at)),
+				endedAt,
+				workedMinutes: item.id.startsWith('tablet:') ? item.workedMinutes : Math.max(item.workedMinutes, minutesBetween(item.startedAt, endedAt)),
 				activityStatus: 'Concluso',
 			}
 		})
 	}
 	const starts = assignments.map((item) => item.startedAt).filter(Boolean).sort()
-	const startedAt = starts[0] || phase.startedAt
+	const startedAt = phase.serverWorkTracked ? phase.startedAt : starts[0] || phase.startedAt
 	const closedEnds = assignments.map((item) => item.endedAt).filter((value): value is string => Boolean(value)).sort()
 	const endedAt = phase.status === 'Completata' ? (phase.endedAt || closedEnds[closedEnds.length - 1] || at) : phase.endedAt
 	const current: JobPhase = {
@@ -880,7 +883,9 @@ function synchronizePhase(phase: JobPhase, at: string): JobPhase {
 	}
 	return {
 		...current,
-		actualMinutes: phase.status === 'Completata'
+		actualMinutes: Number.isFinite(phase.tabletWorkedSeconds) && phase.tabletWorkedSeconds! >= 0
+			? phase.tabletWorkedSeconds! / 60
+			: phase.serverWorkTracked ? phase.actualMinutes : phase.status === 'Completata'
 			? phaseDurationMinutes(current, endedAt || at)
 			: phase.actualMinutes,
 	}
