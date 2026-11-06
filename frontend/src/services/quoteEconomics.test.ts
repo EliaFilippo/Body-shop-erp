@@ -48,4 +48,23 @@ describe('convenienza prima di confermare il preventivo Fast',()=>{
   settings.monthlyRevenueGoal=0
   expect(quoteEconomics(quote,settings)).toMatchObject({status:'no-target',margin:60,target:{hourlyRate:null}})
  })
+ it('usa il costo mensile complessivo anche quando è registrato in una sola categoria',()=>{
+  const {settings,quote}=fixture(860)
+  settings.internalCostSettings!.monthlyCostItems=[{id:'total',category:'altri-costi-generali',description:'Costi complessivi',monthlyAmount:10000,active:true}]
+  const line={...quote.damageLines[0],estimatedMinutes:595,manualPhaseTimes:[{phase:'Lattoneria',minutes:595}]}
+  expect(quoteEconomics({...quote,damageLines:[line]},settings)).toMatchObject({minutes:595,hourlyRevenue:86.72,hourlyCost:50,maxMinutes:825,targetMinutes:825,costError:'',margin:192.17})
+ })
+ it('mostra il ricavo sui minuti inseriti anche se manca la scelta di una fase, senza dichiarare un margine valido',()=>{
+  const {settings,quote}=fixture(860)
+  const line={...quote.damageLines[0],estimatedMinutes:595,manualPhaseTimes:[{phase:'',minutes:595}]}
+  const result=quoteEconomics({...quote,damageLines:[line]},settings)
+  expect(result).toMatchObject({minutes:595,hourlyRevenue:86.72,margin:null,status:'unknown'})
+  expect(result.timingError).toContain('Riga 1')
+  expect(result.timingError).toContain('Scegli la fase 1')
+ })
+ it('non conta i segnaposto vuoti e non aggiunge due volte il lavaggio manuale',()=>{
+  const {settings,quote}=fixture()
+  const line={...quote.damageLines[0],estimatedMinutes:25,manualPhaseTimes:[{phase:'Lavaggio esterno',minutes:25},{phase:'',minutes:0}]}
+  expect(quoteEconomics({...quote,damageLines:[line],selectedPhases:['Lavaggio esterno']},settings)).toMatchObject({minutes:25,hourlyRevenue:480,timingError:''})
+ })
 })

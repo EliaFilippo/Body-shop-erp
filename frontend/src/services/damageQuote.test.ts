@@ -13,6 +13,25 @@ const work = settings.standardWorks!.find((item) => item.name === 'Lattoneria')!
 const mild = () => makeDamageLine(settings, panel, work, 'lieve', 22, 0, { workId: work.id, minutes: 90, price: 150 })
 
 describe('preventivo grafico per danno', () => {
+  it('rimuove solo i segnaposto intatti prima della conversione e conserva la bozza originale', () => {
+    const line = recalculateDamageLine({...mild(), manualFastLine:true, categoryOrPhase:'Lattoneria',
+      manualPhaseTimes:[{phase:'',minutes:0},{phase:'Lattoneria',minutes:90},{phase:'',minutes:0}]}, settings)
+    const quote = {...createDefaultQuote(settings, '2026-11'), damageLines:[line]}
+    const before = structuredClone(quote)
+    expect(damageQuoteError([line])).toBe('')
+    expect(acceptanceEstimateLines(quote)[0]).toMatchObject({categoryOrPhase:'Lattoneria',estimatedMinutes:90,manualPhaseTimes:[{phase:'Lattoneria',minutes:90}]})
+    expect(quote).toEqual(before)
+  })
+  it.each([
+    [{phase:'Lattoneria',minutes:0}],
+    [{phase:'',minutes:30}],
+    [{phase:'Consegna',minutes:30}],
+    [{phase:'Lattoneria',minutes:30},{phase:'Lattoneria',minutes:20}],
+  ])('blocca una lavorazione reale incompleta o non valida: %j', (...phases) => {
+    const line = recalculateDamageLine({...mild(),manualPhaseTimes:phases}, settings)
+    expect(damageQuoteError([line])).toContain('Riga 1')
+    expect(() => acceptanceEstimateLines({...createDefaultQuote(settings,'2026-11'),damageLines:[line]})).toThrow()
+  })
   it('non inventa un prezzo se manca il listino e blocca la conversione incompleta', () => {
     expect(minorDamageLines(settings, panel, 22)).toEqual([])
     const line = makeDamageLine(settings, panel, work, 'lieve', 22, 0)

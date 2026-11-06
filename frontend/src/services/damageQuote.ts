@@ -69,18 +69,36 @@ export function minorDamageLines(settings: PlannerSettings, panel: { id: string;
   })
 }
 
-export function damageQuoteError(lines: EstimateLine[]): string {
-  if (lines.some(line => line.customerDescription !== undefined && !line.customerDescription.trim())) return 'Inserisci la descrizione della lavorazione.'
-  for (const line of lines) {
-    if (!line.manualPhaseTimes) continue
-    const phases=line.manualPhaseTimes
-    if (!phases.length || phases.some(item=>!WORK_CYCLE.includes(item.phase as typeof WORK_CYCLE[number]) || ['Consegna'].includes(item.phase) || !Number.isFinite(item.minutes) || item.minutes<=0)) return 'Completa la fase e i minuti di ogni lavorazione manuale.'
-    if (new Set(phases.map(item=>item.phase)).size!==phases.length) return 'Fase ripetuta: riunisci i minuti nella stessa fase.'
+/** An untouched additional phase is an editor placeholder, never a production phase. */
+export function damageLineForSave(line: EstimateLine): EstimateLine {
+  if (!line.manualPhaseTimes) return line
+  const phases = line.manualPhaseTimes.filter(item => item.phase.trim() || item.minutes !== 0)
+  return { ...line, manualPhaseTimes: phases, ...(line.manualFastLine && phases.length ? {categoryOrPhase: phases[0].phase, standardWorkName: phases[0].phase, requiredSkill: phases[0].phase} : {}) }
+}
+
+export function damageQuoteIssue(lines: EstimateLine[]): { lineId: string; lineIndex: number; message: string } | null {
+  for (const [lineIndex, original] of lines.entries()) {
+    const line = damageLineForSave(original)
+    const issue = (message: string) => ({ lineId: line.id, lineIndex, message: `Riga ${lineIndex + 1} · ${line.customerDescription?.trim() || line.standardWorkName || line.panelName}: ${message}` })
+    if (line.customerDescription !== undefined && !line.customerDescription.trim()) return issue('Inserisci la descrizione della lavorazione.')
+    if (line.manualPhaseTimes) {
+      const phases = line.manualPhaseTimes
+      if (!phases.length) return issue('Scegli almeno una fase e inserisci i minuti della lavorazione manuale.')
+      for (const [index, item] of original.manualPhaseTimes!.entries()) {
+        if (!item.phase.trim() && item.minutes === 0) continue
+        if (!WORK_CYCLE.includes(item.phase as typeof WORK_CYCLE[number]) || item.phase === 'Consegna') return issue(`Scegli la fase ${index + 1} della lavorazione manuale.`)
+        if (!Number.isFinite(item.minutes) || item.minutes <= 0) return issue(`Inserisci i minuti della fase ${index + 1} (${item.phase}), oppure rimuovila se non serve.`)
+      }
+      if (new Set(phases.map(item => item.phase)).size !== phases.length) return issue('Fase ripetuta: riunisci i minuti nella stessa fase.')
+    }
+    if (line.manualFastLine && !line.categoryOrPhase) return issue('Scegli la fase della lavorazione manuale.')
+    if (!Number.isFinite(line.estimatedMinutes) || (line.estimatedMinutes ?? 0) <= 0 || !Number.isFinite(line.unitPrice) || line.unitPrice <= 0) return issue('Completa tempo e prezzo della lavorazione.')
   }
-  if (lines.some(line => line.manualFastLine && !line.categoryOrPhase)) return 'Scegli la fase della lavorazione manuale.'
-  const invalid = lines.find((line) => !Number.isFinite(line.estimatedMinutes) || (line.estimatedMinutes ?? 0) <= 0
-    || !Number.isFinite(line.unitPrice) || line.unitPrice <= 0)
-  return invalid ? `Completa tempo e prezzo: ${invalid.panelName} · ${invalid.standardWorkName || invalid.description}.` : ''
+  return null
+}
+
+export function damageQuoteError(lines: EstimateLine[]): string {
+  return damageQuoteIssue(lines)?.message ?? ''
 }
 
 export function makeMinorDamagePreset(panel: { id: string; name: string }, lines: EstimateLine[]): MinorDamagePreset {
@@ -128,7 +146,7 @@ export function damageLineDescription(line: EstimateLine): string {
 }
 
 export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: PlannerSettings): Array<Partial<EstimateLine> & Pick<EstimateLine, 'description' | 'category' | 'quantity' | 'unitPrice' | 'discount' | 'vatRate'>> {
-  quote = { ...quote, lines: quoteCustomerLines(quote) }
+  quote = { ...quote, lines: quoteCustomerLines(quote), damageLines: quote.damageLines?.map(damageLineForSave) }
   const error = damageQuoteError(quote.damageLines ?? [])
   if (error) throw new Error(error)
   const lines = [

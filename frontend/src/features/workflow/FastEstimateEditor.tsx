@@ -8,7 +8,7 @@ import type { ErpData, EstimateLine, EstimatePaymentTerms } from '../../types'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
 import { createDefaultQuote } from '../../services/acceptance'
-import { chooseEliasPrice, recalculateDamageLine, damageQuoteError, damageLineDescription } from '../../services/damageQuote'
+import { chooseEliasPrice, recalculateDamageLine, damageQuoteIssue, damageLineForSave, damageLineDescription } from '../../services/damageQuote'
 import { eliasPricesForPanel, eliasEntryForWork } from '../../services/eliasPriceList'
 import { createFastEstimate } from '../../services/fastEstimate'
 import { fastEstimateWhatsAppLink } from '../../services/fastEstimateWhatsApp'
@@ -32,6 +32,7 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
  const [notes,setNotes]=useState('')
  const [error,setError]=useState('')
  const busy=useRef(false)
+ const lineElements=useRef(new Map<string,HTMLElement>())
  const existing=data.vehicles.find(v=>normalizePlate(v.plate)===normalizePlate(plate))
  const owner=data.customers.find(c=>c.id===existing?.customerId)
  const recipient=owner||data.customers.find(c=>c.id===customerId)
@@ -39,8 +40,17 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
  const targetPhone=whatsappPhone??(recipient?.phone||phone)
  const panel=QUOTE_PANELS.find(p=>p.id===panelId)
  const choices=panel?eliasPricesForPanel(panel.id,panel.name,data.plannerSettings):[]
- const quote=useMemo(()=>({...createDefaultQuote(data.plannerSettings,new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date())),manualOnlyPricing:true,damageLines:lines,selectedPhases:wash?['Lavaggio esterno']:[]}),[data.plannerSettings,lines,wash])
- const lineError=damageQuoteError(lines)
+ const quote=useMemo(()=>({...createDefaultQuote(data.plannerSettings,new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date())),manualOnlyPricing:true,damageLines:lines.map(damageLineForSave),selectedPhases:wash?['Lavaggio esterno']:[]}),[data.plannerSettings,lines,wash])
+ const lineIssue=damageQuoteIssue(lines)
+ const lineError=lineIssue?.message??''
+ const goToIssue=()=>{
+  if(!lineIssue)return
+  const row=lineElements.current.get(lineIssue.lineId)
+  row?.querySelectorAll('details').forEach(details=>{details.open=true})
+  row?.scrollIntoView?.({behavior:'smooth',block:'center'})
+  const field=row?.querySelector<HTMLElement>('[aria-invalid="true"], input:invalid, select:invalid')??row?.querySelector<HTMLElement>('input')
+  field?.focus()
+ }
  const addManualLine=()=>setLines(current=>[...current,recalculateDamageLine({
   id:crypto.randomUUID(),manualFastLine:true,customerDescription:'',description:'',
   standardWorkId:`manual-fast:${crypto.randomUUID()}`,standardWorkName:'',categoryOrPhase:'',
@@ -74,17 +84,19 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
     <div className="planner-actions">{choices.flatMap(entry=>entry.prices.map(price=><button type="button" className="secondary" key={`${entry.id}:${price}`} onClick={()=>{if(!panel)return;setLines(chooseEliasPrice(data.plannerSettings,lines,panel,entry,price,quote.appliedVatRate,'lieve',quote.hourlyRate));setError('')}}>{entry.name} · {entry.manualPricing?'Inserisci tempo e prezzo':euro(price)}</button>))}</div>
    </section>
    <button type="button" className="secondary" onClick={addManualLine}>+ Aggiungi lavorazione manuale</button>
-   {lines.map((line,index)=><section className="panel" key={line.id}><strong>{line.manualFastLine?'Lavorazione manuale':line.standardWorkName}</strong><p>{line.estimatedMinutes||0} min · {euro(line.unitPrice)} IVA esclusa</p>
+   {lines.map((line,index)=><section className="panel" key={line.id} ref={element=>{if(element)lineElements.current.set(line.id,element);else lineElements.current.delete(line.id)}}><strong>Riga {index+1} · {line.manualFastLine?'Lavorazione manuale':line.standardWorkName}</strong><p>{line.estimatedMinutes||0} min · {euro(line.unitPrice)} IVA esclusa</p>
     <label>Descrizione riga {index+1}<input required value={damageLineDescription(line)} onChange={e=>setLines(lines.map(item=>item.id===line.id?{...item,customerDescription:e.target.value}:item))}/></label>
     {line.manualFastLine&&<section aria-label={`Tempi lavorazione riga ${index+1}`}>
      {manualTimes(line).map((time,timeIndex)=><div className="form-grid" key={timeIndex}>
-      <label>{timeIndex===0?`Fase riga ${index+1}`:`Fase ${timeIndex+1} riga ${index+1}`}<select required value={time.phase} onChange={e=>updateManualTimes(line,manualTimes(line).map((item,i)=>i===timeIndex?{...item,phase:e.target.value}:item))}><option value="">Scegli fase</option>{WORK_CYCLE.filter(phase=>phase!=='Consegna').map(phase=><option key={phase} value={phase}>{phaseDisplayName(phase)}</option>)}</select></label>
-      <label>{timeIndex===0?`Minuti riga ${index+1}`:`Minuti fase ${timeIndex+1} riga ${index+1}`}<input required type="number" min="1" step="1" value={time.minutes||''} onChange={e=>updateManualTimes(line,manualTimes(line).map((item,i)=>i===timeIndex?{...item,minutes:Number(e.target.value)}:item))}/></label>
+      <label>{timeIndex===0?`Fase riga ${index+1}`:`Fase ${timeIndex+1} riga ${index+1}`}<select required={Boolean(time.phase||time.minutes||manualTimes(line).length===1)} aria-invalid={Boolean(!time.phase&&time.minutes)} value={time.phase} onChange={e=>updateManualTimes(line,manualTimes(line).map((item,i)=>i===timeIndex?{...item,phase:e.target.value}:item))}><option value="">Scegli fase</option>{WORK_CYCLE.filter(phase=>phase!=='Consegna').map(phase=><option key={phase} value={phase}>{phaseDisplayName(phase)}</option>)}</select></label>
+      <label>{timeIndex===0?`Minuti riga ${index+1}`:`Minuti fase ${timeIndex+1} riga ${index+1}`}<input required={Boolean(time.phase||time.minutes||manualTimes(line).length===1)} aria-invalid={Boolean(time.phase&&time.minutes<=0)} type="number" min="1" step="1" value={time.minutes||''} onChange={e=>updateManualTimes(line,manualTimes(line).map((item,i)=>i===timeIndex?{...item,minutes:Number(e.target.value)}:item))}/></label>
       {manualTimes(line).length>1&&<button type="button" className="secondary" onClick={()=>updateManualTimes(line,manualTimes(line).filter((_,i)=>i!==timeIndex))}>Rimuovi fase {timeIndex+1} riga {index+1}</button>}
      </div>)}
      <button type="button" className="secondary" onClick={()=>updateManualTimes(line,[...manualTimes(line),{phase:'',minutes:0}])}>+ Aggiungi fase riga {index+1}</button>
      <p>Un solo prezzo per la riga; il tempo totale è la somma delle fasi. Verniciatura: massimo 3 vetture contemporaneamente, inclusa l’asciugatura.</p>
+     <small>Le fasi aggiuntive lasciate completamente vuote non vengono salvate. Se scegli una fase, inserisci i minuti oppure rimuovila.</small>
     </section>}
+    {lineIssue?.lineId===line.id&&<p className="damage-incomplete">{lineIssue.message}</p>}
     <OptionalPanelPhases line={line} settings={data.plannerSettings} onChange={updated=>setLines(lines.map(item=>item.id===line.id?updated:item))}/><details open={line.manualFastLine||undefined}><summary>Modifica prezzo e tempi</summary><label>Prezzo riga {index+1} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
     {(!line.manualFastLine&&(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing))&&<label>Minuti riga {index+1}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
@@ -98,7 +110,7 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
    <label>Numero WhatsApp del cliente<input type="tel" value={targetPhone} placeholder="+39 333 1234567" onChange={e=>setWhatsappPhone(e.target.value)}/></label>
    <p>Il gestionale scarica il preventivo PDF e apre WhatsApp. Nella chat premi la graffetta → Documento e allega il PDF appena scaricato. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>
-   {lineError&&<p role="status">{lineError}</p>}
+   {lineError&&<p role="status">{lineError} <button type="button" className="secondary" onClick={goToIssue}>Vai alla riga {lineIssue!.lineIndex+1} da completare</button></p>}
    {error&&<p role="alert">{error}</p>}
    <div className="planner-actions"><button type="button" className="secondary" onClick={onCancel}>Annulla</button><button type="submit" className="primary" disabled={!lines.length||Boolean(lineError)}>{confirmed?'Conferma e crea commessa':'Salva preventivo fast'}</button><button type="submit" value="whatsapp" className="primary" disabled={!lines.length||Boolean(lineError)}>Salva e invia su WhatsApp</button></div>
   </form>

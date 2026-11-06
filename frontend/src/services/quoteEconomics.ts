@@ -1,8 +1,7 @@
 import type { AcceptanceQuote, EstimateLine, PlannerSettings } from '../types'
-import { damageQuoteError } from './damageQuote'
+import { damageQuoteError, damageLineForSave } from './damageQuote'
 import { calculateQuoteHourBudget } from './quoteHourBudget'
 import { monthlyTargetRate } from './monthlyTargetRate'
-import { buildSelectedWorkCycle } from './workCycle'
 
 type QuoteEconomicStatus = 'unknown' | 'loss' | 'break-even' | 'below-target' | 'on-target' | 'no-target'
 const round = (value:number) => Math.round(value * 100) / 100
@@ -11,14 +10,23 @@ const round = (value:number) => Math.round(value * 100) / 100
 export function quoteEconomics(quote:AcceptanceQuote, settings:PlannerSettings) {
  const budget = calculateQuoteHourBudget(quote,settings)
  const target = monthlyTargetRate(settings,quote.monthKey)
- const phases = buildSelectedWorkCycle((quote.damageLines ?? []) as EstimateLine[],quote.selectedPhases ?? [],settings.eliasExteriorWashMinutes ?? 25)
- const minutes = phases.reduce((sum,phase)=>sum+(phase.notRequired ? 0 : phase.estimatedMinutes),0)
+ // Pricing uses entered technical durations even while a manual phase is being assigned.
+ // Shared panel allowances are counted once, and a blank extra phase contributes nothing.
+ const positive = (value: number | undefined) => Number.isFinite(value) ? Math.max(0, value ?? 0) : 0
+ const lineMinutes = (line: EstimateLine) => line.manualPhaseTimes
+  ? damageLineForSave(line).manualPhaseTimes!.reduce((sum, item) => sum + positive(item.minutes), 0)
+  : line.minorDamageTimes ? Object.values(line.minorDamageTimes).reduce((sum, value) => sum + positive(value), 0) * (line.calculationType === 'per-panel' ? line.quantity : 1)
+  : positive(line.lineTotalMinutes ?? line.estimatedMinutes)
+ const laborMinutes = budget.plannedMinutes - budget.rows.reduce((sum, row) => sum + row.minutes, 0)
+ const hasWash = (quote.damageLines ?? []).some(line => line.manualPhaseTimes?.some(item => item.phase === 'Lavaggio esterno' && item.minutes > 0) || line.categoryOrPhase === 'Lavaggio esterno')
+ const minutes = Math.round((quote.damageLines ?? []).reduce((sum, line) => sum + lineMinutes(line), 0) + laborMinutes
+  + (!hasWash && quote.selectedPhases?.includes('Lavaggio esterno') ? settings.eliasExteriorWashMinutes ?? 25 : 0))
  const incomplete = damageQuoteError(quote.damageLines ?? [])
  const timingError = incomplete || (!quote.damageLines?.length || minutes <= 0 ? 'Aggiungi le lavorazioni e completa i tempi tecnici.' : '')
  const costError = budget.structure.productiveHours <= 0 ? 'Configura le ore produttive in Impostazioni → Costi e tariffe interne.'
-  : budget.structure.excludedPayroll <= 0 || budget.structure.monthlyOverhead <= 0 ? 'Completa i costi mensili di personale e struttura in Impostazioni → Costi e tariffe interne.' : ''
+  : budget.structure.totalMonthlyCosts <= 0 ? 'Completa i costi mensili di personale e struttura in Impostazioni → Costi e tariffe interne.' : ''
  const hours = minutes / 60
- const hourlyRevenue = !timingError && hours > 0 ? round(budget.revenue / hours) : null
+ const hourlyRevenue = hours > 0 ? round(budget.revenue / hours) : null
  // Payroll is already included in the monthly average: do not add operator hourly costs again.
  const hourlyCost = !costError ? budget.structure.allInRate : null
  const personnelAndStructureCost = !timingError && hourlyCost !== null ? round(hours * hourlyCost) : null
@@ -28,6 +36,6 @@ export function quoteEconomics(quote:AcceptanceQuote, settings:PlannerSettings) 
   ? round((personnelAndStructureCost + budget.directCosts) / (1 - budget.materialPercent / 100)) : null
  const status:QuoteEconomicStatus = margin === null ? 'unknown' : margin < 0 ? 'loss' : margin === 0 ? 'break-even'
   : target.hourlyRate === null ? 'no-target' : hourlyRevenue! < target.hourlyRate ? 'below-target' : 'on-target'
- return {revenue:budget.revenue,minutes,hourlyRevenue,target,materialPercent:budget.materialPercent,materialsCost:budget.materialsCost,
+ return {revenue:budget.revenue,minutes,hourlyRevenue,target,maxMinutes:!costError ? budget.baseMaxMinutes : null,targetMinutes:!costError ? budget.baseTargetMinutes : null,materialPercent:budget.materialPercent,materialsCost:budget.materialsCost,
   directCosts:budget.directCosts,hourlyCost,personnelAndStructureCost,totalCost,margin,breakEvenRevenue,status,timingError,costError}
 }

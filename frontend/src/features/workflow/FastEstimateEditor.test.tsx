@@ -121,8 +121,9 @@ it('permette più tempi sotto lo stesso prezzo nella riga manuale',()=>{
  fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'60'}})
  fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'185'}})
  fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 1'}))
- expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeDisabled()
+ expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeEnabled()
  fireEvent.change(screen.getByLabelText('Fase 2 riga 1'),{target:{value:'Incartatura'}})
+ expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeDisabled()
  fireEvent.change(screen.getByLabelText('Minuti fase 2 riga 1'),{target:{value:'20'}})
  fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 1'}))
  fireEvent.change(screen.getByLabelText('Fase 3 riga 1'),{target:{value:'Scartatura'}})
@@ -154,4 +155,46 @@ it('mostra il confronto economico prima della conferma e lo aggiorna cambiando p
  fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'15'}})
  expect(preview).toHaveTextContent('IN GUADAGNO · obiettivo orario raggiunto')
  expect(done).not.toHaveBeenCalled()
+})
+
+it('ignora una fase aggiuntiva intatta, mostra ore e tariffa dal listino e conferma senza costi suddivisi per categoria',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings.internalCostSettings={...data.plannerSettings.internalCostSettings!,usePlannerCapacity:false,minimumMarginPercent:20,budgetMaterialsPercent:20,
+  monthlyCostItems:[{id:'all',category:'altri-costi-generali',description:'Costi complessivi',monthlyAmount:10000,active:true}],
+  productiveCapacity:{productiveOperators:2,hoursPerOperatorPerDay:8,workingDaysPerMonth:20,efficiencyPercent:62.5}}
+ const done=vi.fn()
+ render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
+ fireEvent.change(screen.getByLabelText('Targa'),{target:{value:'AB123CD'}})
+ fireEvent.change(screen.getByLabelText('Cliente'),{target:{value:'new'}})
+ fireEvent.change(screen.getByLabelText('Nome nuovo cliente'),{target:{value:'Mario Rossi'}})
+ fireEvent.change(screen.getByLabelText('Telefono nuovo cliente'),{target:{value:'3331234567'}})
+ fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
+ fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
+ fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi lavorazione manuale'}))
+ fireEvent.change(screen.getByLabelText('Descrizione riga 2'),{target:{value:'Supporto'}})
+ fireEvent.change(screen.getByLabelText('Fase riga 2'),{target:{value:'Lattoneria'}})
+ fireEvent.change(screen.getByLabelText('Minuti riga 2'),{target:{value:'60'}})
+ fireEvent.change(screen.getByLabelText('Prezzo riga 2 €'),{target:{value:'50'}})
+ fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 2'}))
+ const preview=screen.getByLabelText('Convenienza del preventivo')
+ expect(preview).toHaveTextContent('50,00') // 150 € di listino + 50 € manuali / 4 ore
+ expect(preview).toHaveTextContent('4 h 0 min')
+ expect(preview).toHaveTextContent('3 h 12 min') // (200 - 20% materiali) / 50 €/h
+ expect(preview).not.toHaveTextContent('Completa i costi mensili')
+ expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeEnabled()
+ // A partially filled phase remains actionable and blocks confirmation.
+ fireEvent.change(screen.getByLabelText('Fase 2 riga 2'),{target:{value:'Ritocchi'}})
+ expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeDisabled()
+ fireEvent.click(screen.getByRole('button',{name:'Vai alla riga 2 da completare'}))
+ expect(screen.getByLabelText('Minuti fase 2 riga 2')).toHaveFocus()
+ expect(preview).toHaveTextContent('Ricavo orario provvisorio')
+ fireEvent.click(screen.getByRole('button',{name:'Rimuovi fase 2 riga 2'}))
+ fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 2'}))
+ fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
+ fireEvent.click(screen.getByRole('button',{name:'Conferma e crea commessa'}))
+ expect(done).toHaveBeenCalledOnce()
+ const next=done.mock.calls[0][0]
+ expect(next.jobs).toHaveLength(1)
+ expect(next.estimates[0].lines[1]).toMatchObject({unitPrice:50,estimatedMinutes:60,manualPhaseTimes:[{phase:'Lattoneria',minutes:60}]})
+ expect(next.jobs[0].phases.some((phase:{name:string})=>!phase.name)).toBe(false)
 })
