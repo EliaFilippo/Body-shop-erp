@@ -184,8 +184,10 @@ describe('Acceptance flow', () => {
     openQuote()
     fireEvent.click(screen.getByRole('button', { name: 'Porta anteriore SX' }))
     expect(screen.getByLabelText('Ore Lattoneria')).toHaveValue(2)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Crea preventivo numerato' })).toBeEnabled(), { timeout: 5000 })
     fireEvent.click(screen.getByRole('button', { name: 'Crea preventivo numerato' }))
-    await screen.findByRole('heading', { name: 'Flusso operativo completo vettura' })
+    // The workflow is lazy-loaded; CI may need more than the default one second.
+    await screen.findByRole('heading', { name: 'Flusso operativo completo vettura' }, { timeout: 5000 })
     await waitFor(() => {
       expect(persistedData.estimates).toHaveLength(1)
       expect(persistedData.quotes).toHaveLength(1)
@@ -193,7 +195,7 @@ describe('Acceptance flow', () => {
       expect(persistedData.estimates![0].total).toBe(146.4)
       expect(persistedData.quotes![0].total).toBe(146.4)
     })
-  })
+  }, 15000)
 
   it('salva un nuovo cliente da Accettazione, lo rilegge dal database e lo seleziona nella stessa pratica', async () => {
     render(<App />)
