@@ -1,3 +1,4 @@
+import { payableDueAlerts } from './services/finance'
 import { practiceQueueEntries, type PracticeQueueEntry } from './services/practiceQueues'
 import { useCompletionPlan } from './hooks/useCompletionPlan'
 import { overlayCompletionPlan, stripCompletionOverlay } from './services/completionPlanning'
@@ -1872,6 +1873,7 @@ function Dashboard({ data, setView, onNewVehicle, onNewCustomer }: { data: ErpDa
     { id: 'late-vehicles', label: 'Auto in ritardo', count: snapshot.vehiclesLate, detail: 'Verifica priorità e capacità residua del planner.', action: () => setView('vehicles') },
     { id: 'risk-deliveries', label: 'Consegne a rischio', count: deliveriesAtRisk, detail: 'Consegne nei prossimi 2 giorni con ore residue > 0.', action: () => setView('planner') },
     { id: 'to-invoice', label: 'Fatture da emettere', count: invoicesToIssue, detail: 'Vetture consegnate senza fattura collegata.', action: () => setView('finance') },
+    { id: 'payment-deadlines', label: 'Pagamenti in scadenza', count: payableDueAlerts(data).length, detail: 'Scaduti e pagamenti nei prossimi 15 giorni.', action: () => setView('finance') },
     { id: 'riba-deadlines', label: 'RIBA / scadenze imminenti', count: imminentInvoices + imminentRiba, detail: 'Scadenze finanziarie nei prossimi 7 giorni.', action: () => setView('finance') },
     { id: 'blocked', label: 'Pratiche bloccate', count: snapshot.blockedVehicles, detail: 'Pratiche ferme per ricambi mancanti o blocchi operativi.', action: () => setView('vehicles') },
     { id: 'production-alerts', label: 'Segnalazioni produzione', count: productionOpenReports, detail: 'Richieste operative inviate dai tablet reparto.', action: () => setView('today-shop') },

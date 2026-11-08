@@ -7,6 +7,7 @@ import {
   createInvoice,
   createRibaBatch,
   invoiceResidual,
+  payableDueAlerts,
   markRibaInsolvent,
   registerRibaAdvance,
   settleRibaBatch,
@@ -193,4 +194,20 @@ describe('RIBA per vetture e liquidità senza duplicazioni',()=>{
   expect(createVehicleRiba(data,input(data)).ribaBatches[0].total).toBe(2440)
   expect(()=>createVehicleRiba(data,{...input(data),mode:'advance',advanceAmount:1000})).toThrow('castelletto')
  })
+})
+
+
+it('lists unpaid deadlines through the fifteenth day, including overdue installments', () => {
+  const data = makeData()
+  data.payables = [{
+    id: 'p', description: 'Pagamento rateizzato', installments: [
+      {id:'late', dueDate:'2026-11-07', status:'Da pagare'},
+      {id:'today', dueDate:'2026-11-08', status:'Da pagare'},
+      {id:'boundary', dueDate:'2026-11-23', status:'Da pagare'},
+      {id:'later', dueDate:'2026-11-24', status:'Da pagare'},
+      {id:'paid', dueDate:'2026-11-06', status:'Pagato'},
+    ],
+  }] as NonNullable<ErpData['payables']>
+  expect(payableDueAlerts(data, '2026-11-08').map(({installment, overdue}) => [installment.id, overdue]))
+    .toEqual([['late', true], ['today', false], ['boundary', false]])
 })
