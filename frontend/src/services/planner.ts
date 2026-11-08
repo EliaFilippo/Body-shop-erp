@@ -1235,10 +1235,11 @@ export function simulateEstimateProductionForecast(
     requestedDeliveryDate?: string
     lines: EstimateLine[]
     referenceDate?: string
+    referenceAt?: string
     selectedPhases?: string[]
   },
 ): EstimateProductionSimulation {
-  const referenceDate = input.referenceDate ?? todayKey()
+  const referenceDate = input.referenceDate ?? input.referenceAt?.slice(0, 10) ?? todayKey()
   const priority = input.priority ?? 'Normale'
   const requestedDeliveryDate = input.requestedDeliveryDate?.trim() || undefined
   const productiveDurationMinutes = Math.max(0, estimateVehicleTotalMinutes(input.lines))
@@ -1292,6 +1293,7 @@ export function simulateEstimateProductionForecast(
   const occupiedUntil = new Map<string, string>()
   for (const program of basePrograms) {
     for (const task of program.tasks ?? []) {
+      if (task.vehicleId === syntheticVehicleId) continue
       const current = occupiedUntil.get(program.operatorId)
       if (!current || current < task.endAt) occupiedUntil.set(program.operatorId, task.endAt)
     }
@@ -1314,7 +1316,8 @@ export function simulateEstimateProductionForecast(
   if (!phaseSequence.length || productiveDurationMinutes <= 0) blockingReasons.push('Inserisci i tempi delle lavorazioni per calcolare la consegna.')
   const activeOperators = data.plannerSettings.operators.filter((operator) => operator.active)
   let dependencyCursor = nextWorkingInstant(`${firstAvailabilityDate}T00:00:00.000Z`, data.plannerSettings)
-  if (!input.referenceDate) dependencyCursor = nextWorkingInstant(dependencyCursor < new Date().toISOString() ? new Date().toISOString() : dependencyCursor, data.plannerSettings)
+  const earliestStartAt = input.referenceAt ?? (input.referenceDate ? undefined : new Date().toISOString())
+  if (earliestStartAt && earliestStartAt > dependencyCursor) dependencyCursor = nextWorkingInstant(earliestStartAt, data.plannerSettings)
   let compatibleOperatorsFound = true
 
   for (const phase of phaseSequence) {

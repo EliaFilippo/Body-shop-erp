@@ -181,11 +181,11 @@ it('ignora una fase aggiuntiva intatta, mostra ore e tariffa dal listino e confe
  fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
  fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
  fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi lavorazione manuale'}))
- fireEvent.change(screen.getByLabelText('Descrizione riga 2'),{target:{value:'Supporto'}})
- fireEvent.change(screen.getByLabelText('Fase riga 2'),{target:{value:'Lattoneria'}})
- fireEvent.change(screen.getByLabelText('Minuti riga 2'),{target:{value:'60'}})
- fireEvent.change(screen.getByLabelText('Prezzo riga 2 €'),{target:{value:'50'}})
- fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 2'}))
+ fireEvent.change(screen.getByLabelText('Descrizione riga 1'),{target:{value:'Supporto'}})
+ fireEvent.change(screen.getByLabelText('Fase riga 1'),{target:{value:'Lattoneria'}})
+ fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'60'}})
+ fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
+ fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 1'}))
  const preview=screen.getByLabelText('Convenienza del preventivo')
  expect(preview).toHaveTextContent('50,00') // 150 € di listino + 50 € manuali / 4 ore
  expect(preview).toHaveTextContent('4 h 0 min')
@@ -193,18 +193,51 @@ it('ignora una fase aggiuntiva intatta, mostra ore e tariffa dal listino e confe
  expect(preview).not.toHaveTextContent('Completa i costi mensili')
  expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeEnabled()
  // A partially filled phase remains actionable and blocks confirmation.
- fireEvent.change(screen.getByLabelText('Fase 2 riga 2'),{target:{value:'Ritocchi'}})
+ fireEvent.change(screen.getByLabelText('Fase 2 riga 1'),{target:{value:'Ritocchi'}})
  expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeDisabled()
- fireEvent.click(screen.getByRole('button',{name:'Vai alla riga 2 da completare'}))
- expect(screen.getByLabelText('Minuti fase 2 riga 2')).toHaveFocus()
+ fireEvent.click(screen.getByRole('button',{name:'Vai alla riga 1 da completare'}))
+ expect(screen.getByLabelText('Minuti fase 2 riga 1')).toHaveFocus()
  expect(preview).toHaveTextContent('Ricavo orario provvisorio')
- fireEvent.click(screen.getByRole('button',{name:'Rimuovi fase 2 riga 2'}))
- fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 2'}))
+ fireEvent.click(screen.getByRole('button',{name:'Rimuovi fase 2 riga 1'}))
+ fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 1'}))
  fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
  fireEvent.click(screen.getByRole('button',{name:'Conferma e crea commessa'}))
  expect(done).toHaveBeenCalledOnce()
  const next=done.mock.calls[0][0]
  expect(next.jobs).toHaveLength(1)
- expect(next.estimates[0].lines[1]).toMatchObject({unitPrice:50,estimatedMinutes:60,manualPhaseTimes:[{phase:'Lattoneria',minutes:60}]})
+ expect(next.estimates[0].lines[0]).toMatchObject({unitPrice:50,estimatedMinutes:60,manualPhaseTimes:[{phase:'Lattoneria',minutes:60}]})
  expect(next.jobs[0].phases.some((phase:{name:string})=>!phase.name)).toBe(false)
+})
+
+it('verifica dal calendario il primo giorno in cui è disponibile un operatore abilitato',()=>{
+ vi.useFakeTimers()
+ try {
+  vi.setSystemTime(new Date('2026-11-09T06:00:00.000Z'))
+  const data=structuredClone(emptyData)
+  data.plannerSettings.operators=[
+   {id:'painter',name:'Verniciatore',dailyHours:8,active:true,skills:['verniciatura']},
+   {id:'bodyworker',name:'Lattoniere',dailyHours:8,active:true,skills:['lattoneria']},
+  ]
+  data.plannerSettings.absences=[{id:'absence',operatorId:'bodyworker',startDate:'2026-11-09',endDate:'2026-11-09',hoursPerDay:null,reason:'Assenza'}]
+  render(<FastEstimateEditor data={data} onDone={vi.fn()} onCancel={()=>{}}/>)
+  const delivery=screen.getByLabelText('Data consegna concordata')
+  const forecast=screen.getByLabelText('Previsione consegna preventivo')
+  fireEvent.change(delivery,{target:{value:'2026-11-09'}})
+  expect(forecast).toHaveTextContent('Compatibilità da verificare')
+  fireEvent.change(screen.getByLabelText('Targa'),{target:{value:'AB123CD'}})
+  fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi lavorazione manuale'}))
+  fireEvent.change(screen.getByLabelText('Descrizione riga 1'),{target:{value:'Supporto'}})
+  fireEvent.change(screen.getByLabelText('Fase riga 1'),{target:{value:'Lattoneria'}})
+  fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'60'}})
+  fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
+  expect(forecast).toHaveTextContent('Data non compatibile')
+  expect(forecast).toHaveTextContent('10/11/2026')
+  fireEvent.change(delivery,{target:{value:'2026-11-10'}})
+  expect(forecast).toHaveTextContent('Data compatibile')
+  fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
+  fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
+  expect(screen.getByLabelText('Descrizione riga 2')).toHaveValue('Supporto')
+ } finally {
+  vi.useRealTimers()
+ }
 })

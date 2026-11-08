@@ -37,6 +37,7 @@ const OperatorProgramPage = lazy(() => import('./features/planner/OperatorProgra
 const PlannerSettingsPage = lazy(() => import('./features/planner/PlannerSettingsPage').then(module => ({default:module.PlannerSettingsPage})))
 const MonthlyGoalsSettingsPage = lazy(() => import('./features/planner/MonthlyGoalsSettingsPage').then(module => ({default:module.MonthlyGoalsSettingsPage})))
 const VehicleStatusesSettingsPage = lazy(() => import('./features/planner/VehicleStatusesSettingsPage').then(module => ({default:module.VehicleStatusesSettingsPage})))
+import { localizePlanningTimestamps } from './services/romePlanningClock'
 import { todayKey, calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
@@ -668,6 +669,7 @@ function App() {
   const [databaseLoaded, setDatabaseLoaded] = useState(false)
   const completion=useCompletionPlan(cloudReady&&cloudMembership?.role!=='production'?cloudMembership?.companyId:undefined,cloudSession,cloudConfig)
   const displayData=useMemo(()=>overlayCompletionPlan(data,completion.plan),[data,completion.plan])
+  const livePrograms=useMemo(()=>displayData!==data?localizePlanningTimestamps(displayData.operatorPrograms):undefined,[displayData,data])
   const activeUser = getDefaultActiveUser(data.users)
   const [view, setView] = useState<View>('dashboard')
   const [ribaVehicleId, setRibaVehicleId] = useState<string>()
@@ -1305,7 +1307,7 @@ function App() {
         }} setNotice={setNotice} setError={setError} /></>}
         {view === 'price-list' && <><EliasCatalogSettings settings={data.plannerSettings} onSave={plannerSettings => { setData({ ...data, plannerSettings }); setNotice('Tempi e prezzi preimpostati salvati.'); setError('') }} /><details className="panel"><summary>Listino avanzato e altre lavorazioni</summary><PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} /></details></>}
         {view === 'finance' && <FinancePage ribaVehicleId={ribaVehicleId} onRibaVehicleHandled={()=>setRibaVehicleId(undefined)} passwordConnection={cloudConfig && cloudSession && cloudMembership ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
-        {view === 'estimates-jobs' && <WorkflowPage noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
+        {view === 'estimates-jobs' && <WorkflowPage livePrograms={livePrograms} noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')
           const result = await productionRpc<{ok:boolean;message?:string}>('production_private_password', {p_company_id:cloudMembership.companyId,p_action:'unlock',p_password:password}, cloudSession, cloudConfig)
           if (!result.ok) throw new Error(result.message || 'Password dei blocchi non corretta.')
