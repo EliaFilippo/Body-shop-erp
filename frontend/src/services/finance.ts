@@ -1,3 +1,4 @@
+import { addDays } from './workCalendar'
 import { expectedPaymentDate } from './paymentTerms'
 import { ribaExposure, RIBA_CREDIT_LIMIT } from './treasury'
 import type {
@@ -23,6 +24,16 @@ const id = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
 const todayKey = () => new Date().toISOString().slice(0, 10)
+
+const romeDate = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Europe/Rome'})
+
+export function payableDueAlerts(data: Pick<ErpData, 'payables'>, referenceDate = romeDate.format(new Date())) {
+  const limit = addDays(referenceDate, 15)
+  return (data.payables ?? []).flatMap(payable => payable.installments
+    .filter(installment => installment.status !== 'Pagato' && Number.isFinite(Date.parse(installment.dueDate)) && installment.dueDate <= limit)
+    .map(installment => ({payable, installment, overdue: installment.dueDate < referenceDate})))
+    .sort((a, b) => a.installment.dueDate.localeCompare(b.installment.dueDate))
+}
 
 export interface OwnerWithdrawalSnapshot {
   monthKey: string

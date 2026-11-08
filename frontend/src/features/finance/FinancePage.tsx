@@ -25,6 +25,7 @@ import {
   markOwnerWithdrawalSettled,
   markPayableInstallmentPaid,
   markRibaInsolvent,
+  payableDueAlerts,
   payableResidual,
   registerRibaAdvance,
   setVatQuarterConfirmation,
@@ -52,7 +53,9 @@ import { calculateEconomicGoalSnapshot } from '../../services/economic'
 import { calculateVatQuarterDetail, calculateVatQuarterOutflows, calculateVatQuarterSnapshot, listVatQuarterKeysForYear } from '../../services/vatQuarterly'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
-const today = () => new Date().toISOString().slice(0, 10)
+const romeDate = new Intl.DateTimeFormat('sv-SE', {timeZone:'Europe/Rome'})
+const displayDate = new Intl.DateTimeFormat('it-IT', {timeZone:'UTC'})
+const today = () => romeDate.format(new Date())
 const dayDiff = (from: string, to: string) => Math.ceil((new Date(`${to}T12:00:00`).getTime() - new Date(`${from}T12:00:00`).getTime()) / 86400000)
 const addDaysKey = (value: string, days: number) => {
   const date = new Date(`${value}T12:00:00`)
@@ -467,13 +470,16 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
     projected(30) < data.financeSettings.minimumProjectedBalance ? 'Gli incassi previsti nei prossimi 30 giorni sono sotto la soglia impostata.' : '',
   ].filter(Boolean)
 
-  const cashAlerts = [
+  const liquidityWarnings = [
     minLiquidityPoint && minLiquidityPoint.balance < 0
       ? `Liquidità prevista sotto zero: minimo ${money(minLiquidityPoint.balance)} il ${minLiquidityPoint.date}.`
       : '',
     paymentCritical
       ? `Pagamento importante senza copertura sufficiente prima della scadenza: ${paymentCritical.label} (${money(paymentCritical.amount)}) il ${paymentCritical.date}.`
       : '',
+  ].filter(Boolean)
+  const cashAlerts = [
+    ...liquidityWarnings,
     overdueInvoicesAmount > 0
       ? `Fatture clienti scadute: ${money(overdueInvoicesAmount)} su ${overdueInvoices.length} documenti.`
       : '',
@@ -482,7 +488,27 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       : '',
   ].filter(Boolean)
 
+  const paymentDeadlines = payableDueAlerts(data, today())
+
   return <>
+    <section className="panel" aria-label="Scadenzario pagamenti">
+      <div className="panel-head">
+        <div><span className="eyebrow">PAGAMENTI</span><h3>Scadenzario pagamenti</h3></div>
+        <div className="row-actions">
+          <button className="primary" onClick={() => setModal({type:'payable-other-create'})}>+ Nuova scadenza</button>
+          <button onClick={() => setModal({type:'payable-supplier-create'})}>+ Fattura fornitore</button>
+          <button onClick={() => setModal({type:'payable-f24-create'})}>+ F24</button>
+        </div>
+      </div>
+      <p>Pagamenti aperti già scaduti o in scadenza entro 15 giorni.</p>
+      {liquidityWarnings.map(warning => <p key={warning}><strong>Attenzione</strong> · {warning}</p>)}
+      {paymentDeadlines.length ? <div className="activity">
+        {paymentDeadlines.map(({payable, installment, overdue}) => <div key={`${payable.id}:${installment.id}`}>
+          <b>!</b><span><strong>{overdue ? 'Scaduta' : installment.dueDate === today() ? 'Scade oggi' : 'In scadenza'} · {payable.description}</strong>
+          <small>{displayDate.format(new Date(`${installment.dueDate}T12:00:00Z`))} · {money(installment.amount)}</small></span>
+        </div>)}
+      </div> : <p>Nessun pagamento aperto in questa fascia.</p>}
+    </section>
     {!!bankReminders.length&&<section className="panel" aria-label="Avvisi scadenza RIBA"><h3>RIBA in scadenza entro 15 giorni</h3>{bankReminders.map(batch=><p key={batch.id}><strong>{batch.number} · {money(batch.total)}</strong> · scadenza {batch.dueDate} · {batch.dueDate<today()?'SCADUTA':`tra ${dayDiff(today(),batch.dueDate)} giorni`}</p>)}</section>}
     <TreasuryPanel data={data} />
     <SupplierInvoiceCapture data={data} onSave={input => { onChange(createPayableEntry(data, input)); setNotice('Fattura registrata nello scadenziario.') }} />
@@ -819,7 +845,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
     />}
 
     {modal?.type === 'payable-other-create' && <PayableModal
-      title="Nuova uscita pianificata"
+      title="Nuova scadenza di pagamento"
       kind="planned-outflow"
       initial={null}
       onClose={() => setModal(null)}
