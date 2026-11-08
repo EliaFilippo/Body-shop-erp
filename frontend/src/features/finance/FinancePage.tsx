@@ -270,13 +270,15 @@ type FinanceModalState =
   | { type: 'quote-convert'; quoteId: string }
   | { type: 'customer-terms'; customerId: string }
   | { type: 'invoice-create'; customerId: string; vehicleIds: string[] }
-  | { type: 'riba-vehicles' }
+  | { type: 'riba-vehicles'; vehicleId?: string }
   | { type: 'riba-create'; invoiceId: string }
   | { type: 'riba-advance'; batchId: string }
   | { type: 'communication'; draft: CommunicationDraft }
 
-export function FinancePage({ data, onChange, customerById, setError, setNotice, passwordConnection }: {
+export function FinancePage({ data, onChange, customerById, setError, setNotice, passwordConnection, ribaVehicleId, onRibaVehicleHandled }: {
   passwordConnection?: NoticesConnection
+  ribaVehicleId?: string
+  onRibaVehicleHandled?: () => void
   data: ErpData
   onChange: (data: ErpData) => void
   customerById: (id: string) => Customer | undefined
@@ -290,6 +292,11 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   const [liquidityRange, setLiquidityRange] = useState<7 | 30 | 60 | 90>(30)
   const [flowAggregation, setFlowAggregation] = useState<'settimana' | 'mese'>('settimana')
   const [modal, setModal] = useState<FinanceModalState | null>(null)
+  useEffect(() => {
+    if (!ribaVehicleId) return
+    setModal({type:'riba-vehicles', vehicleId:ribaVehicleId})
+    onRibaVehicleHandled?.()
+  }, [ribaVehicleId, onRibaVehicleHandled])
   const [vatYear, setVatYear] = useState(new Date().getFullYear())
   const [vatQuarter, setVatQuarter] = useState<1 | 2 | 3 | 4>(Math.floor((new Date().getMonth()) / 3 + 1) as 1 | 2 | 3 | 4)
   const [vatConfirmedDraft, setVatConfirmedDraft] = useState(0)
@@ -766,7 +773,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       {!communications.length && <div className="empty"><div>◇</div><p>Nessuna comunicazione registrata.</p></div>}
     </section>
 
-    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">DISTINTE BANCARIE</span><h3>R.I.B.A. e anticipi</h3></div><button className="primary" onClick={()=>setModal({type:'riba-vehicles'})}>Carica RIBA per vetture</button></div><p>Distinte effettive: date indipendenti dalle previsioni dei preventivi. L’anticipo aggiorna il saldo bancario al netto di commissioni e interessi.</p><div className="table-wrap"><table><thead><tr><th>Distinta</th><th>Banca</th><th>Totale</th><th>Anticipato</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>{data.ribaBatches.map((batch) => <tr key={batch.id}><td><strong>{batch.number}</strong><small>{batch.presentationDate}</small><small>{batch.vehicleLinks?.map(link=>link.plate).join(', ')||batch.allocations.map(allocation=>{const invoice=data.invoices.find(item=>item.id===allocation.invoiceId);return invoice?.lines.map(line=>data.vehicles.find(vehicle=>vehicle.id===line.vehicleId)?.plate).filter(Boolean).join(', ')}).join(', ')}</small></td><td>{data.bankAccounts.find((bank) => bank.id === batch.bankAccountId)?.name ?? '—'}</td><td>{money(batch.total)}</td><td>{money(batch.advancedAmount)}</td><td>{batch.dueDate}<small>Incasso previsto: {batch.collectionDate||batch.dueDate}</small><small>A maturazione: {money(Math.max(0,batch.total-batch.advancedAmount))}</small></td><td><span className="tag">{batch.status}</span></td><td><div className="row-actions">{batch.status === 'Presentata' && <button onClick={() => setModal({ type: 'riba-advance', batchId: batch.id })}>Registra anticipo</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button onClick={() => run(() => settleRibaBatch(data, batch.id, today()), 'Incasso definitivo registrato.')}>Incassata</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button className="danger" onClick={() => run(() => markRibaInsolvent(data, batch.id, today()), 'Insoluto registrato e credito riaperto.')}>Insoluta</button>}</div></td></tr>)}</tbody></table></div>{!data.ribaBatches.length && <div className="empty"><div>◇</div><p>Nessuna distinta R.I.B.A. registrata.</p></div>}</section>
+    <section id="riba-batches" className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">DISTINTE BANCARIE</span><h3>R.I.B.A. e anticipi</h3></div><button className="primary" onClick={()=>setModal({type:'riba-vehicles'})}>Carica RIBA per vetture</button></div><p>Distinte effettive: date indipendenti dalle previsioni dei preventivi. L’anticipo aggiorna il saldo bancario al netto di commissioni e interessi.</p><div className="table-wrap"><table><thead><tr><th>Distinta</th><th>Banca</th><th>Totale</th><th>Anticipato</th><th>Scadenza</th><th>Stato</th><th>Azioni</th></tr></thead><tbody>{data.ribaBatches.map((batch) => <tr key={batch.id}><td><strong>{batch.number}</strong><small>{batch.presentationDate}</small><small>{batch.vehicleLinks?.map(link=>link.plate).join(', ')||batch.allocations.map(allocation=>{const invoice=data.invoices.find(item=>item.id===allocation.invoiceId);return invoice?.lines.map(line=>data.vehicles.find(vehicle=>vehicle.id===line.vehicleId)?.plate).filter(Boolean).join(', ')}).join(', ')}</small></td><td>{data.bankAccounts.find((bank) => bank.id === batch.bankAccountId)?.name ?? '—'}</td><td>{money(batch.total)}</td><td>{money(batch.advancedAmount)}</td><td>{batch.dueDate}<small>Incasso previsto: {batch.collectionDate||batch.dueDate}</small><small>A maturazione: {money(Math.max(0,batch.total-batch.advancedAmount))}</small></td><td><span className="tag">{batch.status}</span></td><td><div className="row-actions">{batch.status === 'Presentata' && <button onClick={() => setModal({ type: 'riba-advance', batchId: batch.id })}>Registra anticipo</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button onClick={() => run(() => settleRibaBatch(data, batch.id, today()), 'Incasso definitivo registrato.')}>Incassata</button>}{!['Chiusa', 'Insoluta', 'Stornata'].includes(batch.status) && <button className="danger" onClick={() => run(() => markRibaInsolvent(data, batch.id, today()), 'Insoluto registrato e credito riaperto.')}>Insoluta</button>}</div></td></tr>)}</tbody></table></div>{!data.ribaBatches.length && <div className="empty"><div>◇</div><p>Nessuna distinta R.I.B.A. registrata.</p></div>}</section>
 
     {modal?.type === 'company-profile' && <CompanyProfileModal
       profile={data.companyProfile}
@@ -899,7 +906,12 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       />
     })()}
 
-    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} onClose={()=>setModal(null)} onSave={next=>{onChange(next);setNotice('RIBA registrata con riepilogo vetture e date bancarie separate.');setModal(null)}}/>}
+    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} vehicleId={modal.vehicleId} onClose={()=>setModal(null)} onSave={next=>{
+      onChange(next)
+      setNotice('RIBA registrata in R.I.B.A. e anticipi.')
+      setModal(null)
+      requestAnimationFrame(() => document.getElementById('riba-batches')?.scrollIntoView?.({block:'start'}))
+    }}/>}
     {modal?.type === 'riba-create' && (() => {
       const invoice = data.invoices.find((item) => item.id === modal.invoiceId)
       if (!invoice) return null

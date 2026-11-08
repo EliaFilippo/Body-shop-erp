@@ -1,6 +1,19 @@
 import type { ErpData } from '../types'
 import { createRibaBatch, invoiceResidual, registerRibaAdvance } from './finance'
 const round=(n:number)=>Math.round(n*100)/100
+function splitAmount(total: number, weights: number[]) {
+ const sum = weights.reduce((result, weight) => result + weight, 0)
+ if (sum <= 0) return weights.map(() => 0)
+ let cumulative = 0
+ let assigned = 0
+ return weights.map(weight => {
+  cumulative += weight
+  const next = round(total * cumulative / sum)
+  const amount = round(next - assigned)
+  assigned = next
+  return amount
+ })
+}
 export function ribaVehicleOptions(data:ErpData){
  return data.invoices.filter(invoice=>!['Incassata','Stornata','Insoluta','Contestata'].includes(invoice.status)).flatMap(invoice=>{
   const available=invoiceResidual(invoice)
@@ -8,13 +21,22 @@ export function ribaVehicleOptions(data:ErpData){
   const weights=new Map<string,number>()
   for(const line of invoice.lines)if(line.vehicleId)weights.set(line.vehicleId,(weights.get(line.vehicleId)??0)+Math.max(0,line.total))
   if(!weights.size&&invoice.vehicleId)weights.set(invoice.vehicleId,invoice.total)
-  const total=[...weights.values()].reduce((sum,n)=>sum+n,0)
-  let assigned=0
-  return [...weights].flatMap(([vehicleId,weight],index)=>{
-   const vehicle=data.vehicles.find(item=>item.id===vehicleId)
-   if(!vehicle)return []
-   const amount=index===weights.size-1?round(available-assigned):round(available*weight/Math.max(.01,total))
-   assigned=round(assigned+amount)
+  const vehicles = [...weights]
+  const shares = splitAmount(invoice.total, vehicles.map(([, weight]) => weight))
+  const linkedAmounts = new Map<string, number>()
+  for (const batch of data.ribaBatches) {
+   if (batch.status === 'Insoluta' || batch.status === 'Stornata') continue
+   for (const link of batch.vehicleLinks ?? []) {
+    if (link.invoiceId !== invoice.id) continue
+    linkedAmounts.set(link.vehicleId, (linkedAmounts.get(link.vehicleId) ?? 0) + link.amount)
+   }
+  }
+  const remainingShares = vehicles.map(([vehicleId], index) => Math.max(0, round(shares[index] - (linkedAmounts.get(vehicleId) ?? 0))))
+  const amounts = splitAmount(Math.min(available, remainingShares.reduce((sum, amount) => sum + amount, 0)), remainingShares)
+  return vehicles.flatMap(([vehicleId], index) => {
+   const vehicle = data.vehicles.find(item => item.id === vehicleId)
+   const amount = amounts[index]
+   if (!vehicle || amount <= 0) return []
    return [{key:`${invoice.id}|${vehicleId}`,vehicleId,invoiceId:invoice.id,plate:vehicle.plate,invoiceNumber:invoice.number,customerName:data.customers.find(customer=>customer.id===invoice.customerId)?.name||'',amount}]
   })
  })
