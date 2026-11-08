@@ -98,3 +98,17 @@ it('uses each operator’s recording start for the observed denominator',()=>{
  state.dailyWork=state.dailyWork!.filter(e=>e.operatorId!=='b')
  expect(calculateNightlyEconomics(data,state,'2026-09-15').capacitySource).toBe('configured')
 })
+
+it('include i consuntivi storici una sola volta nelle tariffe e nell’obiettivo notturno',()=>{
+ const {data,state}=setup()
+ data.invoices[0].number='F/1'
+ data.historicalActuals=[
+  {id:'old',kind:'hours',date:'2026-09-01',operatorId:'a',paidSeconds:28800,productiveSeconds:21600},
+  {id:'new',kind:'hours',date:'2026-09-12',operatorId:'a',paidSeconds:14400,productiveSeconds:7200},
+  {id:'cost',kind:'cost',date:'2026-09-10',reference:'extra',category:'Ricambi',amount:120},
+  {id:'duplicate',kind:'revenue',date:'2026-09-10',reference:'f/1',category:'Fattura cliente',amount:4000},
+  {id:'revenue',kind:'revenue',date:'2026-09-10',reference:'F/2',category:'Fattura cliente',amount:500},
+ ]
+ const result=calculateNightlyEconomics(data,state,'2026-09-15')
+ expect(result).toMatchObject({productiveHours:42,paidHours:52,accruedOperatingCosts:1532.5,realHourlyCost:36.49,realizedNetRevenue:4500,residualRevenue:5500})
+})

@@ -1242,7 +1242,12 @@ export interface NightlyEconomicSnapshot {
  dailyGoals:Array<{date:string;productiveHours:number;revenueGoal:number|null}>;warnings:string[]
 }
 
+export type HistoricalActual =
+  | { id: string; kind: 'hours'; date: string; operatorId: string; paidSeconds: number; productiveSeconds: number }
+  | { id: string; kind: 'cost' | 'revenue'; date: string; reference: string; category: string; amount: number }
+
 export interface ErpData {
+  historicalActuals?: HistoricalActual[]
   nightlyPlanning?: {enabled:boolean;plannedFor:string;generatedAt:string;hour:number;economics?:NightlyEconomicSnapshot;economicsHistory?:NightlyEconomicSnapshot[]}
   productionPlanningSampleAt?: string
   users?: AppUser[]

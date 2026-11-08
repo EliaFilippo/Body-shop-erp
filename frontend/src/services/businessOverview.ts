@@ -1,3 +1,4 @@
+import { historicalCosts, historicalRevenues, isRealizedInvoice } from './historicalActuals'
 import type { Customer, ErpData, Invoice, Vehicle } from '../types'
 import { calculateEconomicGoalSnapshot } from './economic'
 import { isVehicleDeliveredStatus } from './vehicleStatuses'
@@ -31,6 +32,7 @@ export interface CustomerRankingEntry {
 }
 
 interface DateRange { start: string; end: string }
+interface HistoricalAmounts { costs: ReturnType<typeof historicalCosts>; revenues: ReturnType<typeof historicalRevenues> }
 
 const round = (value: number) => Math.round(value * 100) / 100
 const startOfDay = (value: string) => value.slice(0, 10)
@@ -148,8 +150,9 @@ const withinRange = (value: string, range: DateRange) => {
   return value >= range.start && value <= range.end
 }
 
-const summarizeBucket = (invoices: Invoice[], vehicles: Vehicle[], range: DateRange, data: ErpData) => {
-  const revenue = invoices.reduce((sum, invoice) => sum + invoice.total, 0)
+const summarizeBucket = (invoices: Invoice[], vehicles: Vehicle[], range: DateRange, data: ErpData, historical: HistoricalAmounts) => {
+  const revenue = invoices.filter(isRealizedInvoice).reduce((sum, invoice) => sum + invoice.taxableAmount, 0)
+    + historical.revenues.filter(row => withinRange(row.date, range)).reduce((sum, row) => sum + row.amount, 0)
   const cost = vehicles.reduce((sum, vehicle) => {
     const vehicleCost = (vehicle.costEntries ?? []).reduce((entrySum, entry) => {
       const usedAt = entry.usedAt?.slice(0, 10)
@@ -157,6 +160,7 @@ const summarizeBucket = (invoices: Invoice[], vehicles: Vehicle[], range: DateRa
     }, 0)
     return sum + vehicleCost
   }, 0)
+    + historical.costs.filter(row => withinRange(row.date, range)).reduce((sum, row) => sum + row.amount, 0)
   const margin = revenue - cost
   const expectedCollections = invoices.reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0)
   const deliveredVehicles = vehicles.filter((vehicle) => vehicle.deliveredAt?.slice(0, 10) && withinRange(vehicle.deliveredAt.slice(0, 10), range)).length
@@ -164,7 +168,7 @@ const summarizeBucket = (invoices: Invoice[], vehicles: Vehicle[], range: DateRa
   return { revenue: round(revenue), cost: round(cost), margin: round(margin), expectedCollections: round(expectedCollections), deliveredVehicles, lateVehicles }
 }
 
-const summarizeRange = (invoices: Invoice[], vehicles: Vehicle[], range: DateRange, data: ErpData) => {
+const summarizeRange = (invoices: Invoice[], vehicles: Vehicle[], range: DateRange, data: ErpData, historical: HistoricalAmounts) => {
   const buckets = buildBuckets('mese', range)
   const totals = buckets.reduce((sum, bucket) => {
     const bucketInvoices = invoices.filter((invoice) => withinRange(invoice.issueDate, bucket))
@@ -174,7 +178,7 @@ const summarizeRange = (invoices: Invoice[], vehicles: Vehicle[], range: DateRan
       const requested = vehicle.requestedDeliveryDate && withinRange(vehicle.requestedDeliveryDate, bucket)
       return hasCost || delivered || requested
     })
-    const bucketSummary = summarizeBucket(bucketInvoices, bucketVehicles, bucket, data)
+    const bucketSummary = summarizeBucket(bucketInvoices, bucketVehicles, bucket, data, historical)
     return {
       revenue: sum.revenue + bucketSummary.revenue,
       cost: sum.cost + bucketSummary.cost,
@@ -196,7 +200,9 @@ const summarizeRange = (invoices: Invoice[], vehicles: Vehicle[], range: DateRan
 export function calculateBusinessOverviewSnapshot(data: ErpData, period: BusinessOverviewPeriod, referenceDate = new Date().toISOString().slice(0, 10)): BusinessOverviewSnapshot {
   const currentRange = getRange(period, referenceDate)
   const previousRange = getPreviousRange(period, currentRange)
-  const currentBuckets = buildBuckets(period, currentRange)
+  const historical = {costs: historicalCosts(data), revenues: historicalRevenues(data)}
+  const currentBuckets = period === 'oggi' && [...historical.costs, ...historical.revenues].some(row => row.date === currentRange.start)
+    ? [{label: 'Totale giornata', ...currentRange}] : buildBuckets(period, currentRange)
 
   const currentPoints = currentBuckets.map((bucket) => {
     const bucketInvoices = data.invoices.filter((invoice) => withinRange(invoice.issueDate, bucket))
@@ -206,12 +212,12 @@ export function calculateBusinessOverviewSnapshot(data: ErpData, period: Busines
       const requested = vehicle.requestedDeliveryDate && withinRange(vehicle.requestedDeliveryDate, bucket)
       return hasCost || delivered || requested
     })
-    const summary = summarizeBucket(bucketInvoices, bucketVehicles, bucket, data)
+    const summary = summarizeBucket(bucketInvoices, bucketVehicles, bucket, data, historical)
     return { label: bucket.label, revenue: summary.revenue, cost: summary.cost, margin: summary.margin }
   }).filter((point) => point.revenue > 0 || point.cost > 0 || point.margin > 0)
 
-  const currentSummary = summarizeRange(data.invoices, data.vehicles, currentRange, data)
-  const previousSummary = summarizeRange(data.invoices, data.vehicles, previousRange, data)
+  const currentSummary = summarizeRange(data.invoices, data.vehicles, currentRange, data, historical)
+  const previousSummary = summarizeRange(data.invoices, data.vehicles, previousRange, data, historical)
 
   return {
     period,

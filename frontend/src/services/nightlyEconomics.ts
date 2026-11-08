@@ -1,3 +1,4 @@
+import { historicalRevenues, historicalCosts, withHistoricalHours, isRealizedInvoice } from './historicalActuals'
 import type {ErpData,NightlyEconomicSnapshot} from '../types'
 import type {ProductionPlanningState} from './productionPlanningState'
 import {addDays,isWorkingDate,workingMinutesForDate} from './workCalendar'
@@ -12,7 +13,7 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(state.serverNow))
  const asOfDay=parts.slice(0,10),fraction=(Number(parts.slice(11,13))*60+Number(parts.slice(14,16)))/1440
  const daysInMonth=Number(end.slice(-2))
- const work=(state.dailyWork??[]).filter(e=>e.date>=start&&e.date<=end&&e.date<=asOfDay)
+ const work=withHistoricalHours(data,state.dailyWork??[]).filter(e=>e.date>=start&&e.date<=end&&e.date<=asOfDay)
  const observationStart=work.filter(e=>safe(e.paidSeconds)>0||safe(e.productiveSeconds)>0).map(e=>e.date).sort()[0]??null
  const observedDays=observationStart?Math.max(0,(Date.parse((asOfDay>end?addDays(end,1):asOfDay)+'T00:00:00Z')-Date.parse(observationStart+'T00:00:00Z'))/86400000+(asOfDay>end?0:fraction)):0
  const elapsedFraction=observedDays/daysInMonth
@@ -29,7 +30,8 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
   if(safe(entry.paidSeconds)>0&&rate<=0)missingLaborCost=true
   laborCosts+=safe(entry.paidSeconds)/3600*rate
  }
- const accruedCosts=monthlyFixedCosts*elapsedFraction+laborCosts
+ const historicalOperatingCosts=observationStart ? historicalCosts(data).filter(row=>row.date>=observationStart&&row.date<=end&&row.date<=asOfDay).reduce((sum,row)=>sum+row.amount,0) : 0
+ const accruedCosts=monthlyFixedCosts*elapsedFraction+laborCosts+historicalOperatingCosts
  const operators=settings.operators.filter(o=>o.active)
  const manual=settings.internalCostSettings?.productiveCapacity
  const calendarDates:string[]=[]
@@ -51,8 +53,9 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  const forecast=dates.map(d=>({date:d.date,hours:Math.max(0,d.hours*utilization-work.filter(e=>e.date===d.date).reduce((sum,e)=>sum+safe(e.productiveSeconds)/3600,0))}))
  const remainingProductiveHours=forecast.reduce((sum,d)=>sum+d.hours,0)
  const monthlyGoal=safe(settings.monthlyRevenueGoal)
- const realizedNetRevenue=round((data.invoices??[]).filter(i=>i.issueDate>=start&&i.issueDate<=end&&i.issueDate<=asOfDay&&i.documentStatus!=='bozza'&&i.status!=='Stornata')
-  .reduce((sum,i)=>sum+(Number.isFinite(i.taxableAmount)?i.taxableAmount:0),0))
+ const realizedNetRevenue=round((data.invoices??[]).filter(i=>i.issueDate>=start&&i.issueDate<=end&&i.issueDate<=asOfDay&&isRealizedInvoice(i))
+  .reduce((sum,i)=>sum+(Number.isFinite(i.taxableAmount)?i.taxableAmount:0),0)
+  + historicalRevenues(data).filter(row=>row.date>=start&&row.date<=end&&row.date<=asOfDay).reduce((sum,row)=>sum+row.amount,0))
  const residualRevenue=Math.max(0,monthlyGoal-realizedNetRevenue)
  const targetHourlyRate=monthlyGoal<=0?null:residualRevenue===0?0:remainingProductiveHours>0?ceil(residualRevenue/remainingProductiveHours):null
  let allocatedCents=0,cumulativeHours=0
@@ -70,7 +73,7 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  if(missingLaborCost)warnings.push('Manca il costo del personale per alcune ore registrate.')
  if(observationStart&&observedDays<5)warnings.push('Costo orario provvisorio: meno di cinque giorni di registrazioni. I costi precedenti all’inizio delle registrazioni sono esclusi.')
  if(!measured)warnings.push('Capacità residua stimata con l’efficienza configurata: storico produttivo insufficiente.')
- if(observationStart&&observationStart>start)warnings.push('Obiettivo residuo basato sulle sole fatture registrate: verifica che il fatturato del mese sia completo.')
+ if(observationStart&&observationStart>start)warnings.push('Verifica che fatture e ricavi storici coprano tutto il fatturato del mese.')
  if(monthlyGoal<=0)warnings.push('Imposta l’obiettivo di fatturato mensile.')
  if(monthlyGoal>0&&monthlyFixedCosts>monthlyGoal)warnings.push('L’obiettivo mensile è inferiore ai costi mensili configurati.')
  if(remainingProductiveHours<=0&&residualRevenue>0)warnings.push('Nessuna capacità produttiva residua nel mese: obiettivo da ripianificare.')
