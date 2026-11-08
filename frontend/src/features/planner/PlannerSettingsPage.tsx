@@ -1,3 +1,4 @@
+import { OperatorTabletQr, type OperatorTabletConnection } from '../production/OperatorPinAccess'
 import { parseTimeToMinutes } from '../../services/workCalendar'
 import { preferredOperatorDuties } from '../../services/operatorSkills'
 import { useEffect, useMemo, useState } from 'react'
@@ -50,11 +51,15 @@ function formatMinutesLabel(minutes: number) {
 export function PlannerSettingsPage({
   settings,
   onSave,
+  tabletConnection,
 }: {
   settings: PlannerSettings
+  tabletConnection?: OperatorTabletConnection
   onSave: (settings: PlannerSettings) => Promise<void>
 }) {
   const [draft, setDraft] = useState(() => structuredClone(settings))
+  const [qrOperatorId, setQrOperatorId] = useState<string | null>(null)
+  const qrOperator = settings.operators.find(operator => operator.active && operator.id === qrOperatorId)
   const [saved, setSaved] = useState(false)
   const [ruleSaved, setRuleSaved] = useState(false)
   const [validationError, setValidationError] = useState('')
@@ -458,6 +463,9 @@ export function PlannerSettingsPage({
       </div>
 
       <div className="settings-list">
+        {tabletConnection && qrOperator && <Modal title={`QR tablet · ${qrOperator.name}`} onClose={() => setQrOperatorId(null)}>
+          <OperatorTabletQr key={qrOperator.id} operator={qrOperator} connection={tabletConnection} />
+        </Modal>}
         {draft.operators.map((operator) => <div className="settings-row" key={operator.id}>
           <input aria-label="Nome operatore" placeholder="Nome operatore" value={operator.name} onChange={(event) => updateOperator(operator.id, { name: event.target.value })} />
           <input aria-label="Ore giornaliere" type="number" min="0.5" max="24" step="0.5" value={operator.dailyHours} onChange={(event) => updateOperator(operator.id, { dailyHours: Number(event.target.value) })} />
@@ -483,6 +491,8 @@ export function PlannerSettingsPage({
             <label>IVA costo %<input aria-label="IVA costo esterno" type="number" min="0" step="1" value={operator.externalVatRate ?? 0} onChange={(event) => updateOperator(operator.id, { externalVatRate: Number(event.target.value) })} /></label>
           </>}
           <label className="check"><input type="checkbox" checked={operator.active} onChange={(event) => updateOperator(operator.id, { active: event.target.checked })} /> Attivo</label>
+          {tabletConnection && operator.active && settings.operators.some(saved => saved.active && saved.id === operator.id) &&
+            <button type="button" className="secondary" onClick={() => setQrOperatorId(operator.id)}>QR tablet · {operator.name}</button>}
           <OperatorSchedule operator={operator} companySchedule={draft.weeklyWorkSchedule} onChange={weeklySchedule => updateOperator(operator.id, { weeklySchedule })} />
           <button
             className="danger"

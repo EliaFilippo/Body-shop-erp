@@ -27,7 +27,7 @@ Deno.serve(async req => {
     if (!/^[0-9a-f-]{36}$/i.test(companyId || '') || typeof operatorId !== 'string' || !operatorId || operatorId.length>128)
       return response({ message:'Tablet non configurato.' },400)
     const db = admin()
-    if (action === 'configure') {
+    if (action === 'configure' || action === 'tablet-qr') {
       const token = req.headers.get('Authorization')?.replace(/^Bearer /i,'') || ''
       const { data: identity, error: authError } = await db.auth.getUser(token)
       if (authError || !identity.user) return response({ message:'Accedi con il profilo titolare.' },401)
@@ -39,14 +39,26 @@ Deno.serve(async req => {
         .eq('company_id',companyId).eq('user_id',identity.user.id).eq('role','owner').eq('active',true).maybeSingle()
       if (ownerError) return response({ message:'Verifica del ruolo non riuscita. Contatta l’assistenza.' },503)
       if (!owner) return response({ message:'Solo il titolare può configurare i PIN.' },403)
-      if (!/^[0-9]{6}$/.test(body.pin || '') || /^(\d)\1{5}$/.test(body.pin) || ['123456','654321'].includes(body.pin))
+      if (action === 'configure' && (!/^[0-9]{6}$/.test(body.pin || '') || /^(\d)\1{5}$/.test(body.pin) || ['123456','654321'].includes(body.pin)))
         return response({ message:'Scegli un PIN di 6 cifre non ripetute o consecutive.' },400)
       // Verifica la destinazione prima di creare un account tecnico.
       const { data: snapshot } = await ownerDb.from('erp_snapshots').select('payload').eq('company_id',companyId).single()
       const operator = snapshot?.payload?.plannerSettings?.operators?.find((o: { id:string; active:boolean }) => o.id===operatorId && o.active)
       if (!operator) return response({ message:'Operatore non attivo.' },400)
-      const { data: existing, error: readError } = await db.from('production_pin_accounts').select('user_id').eq('company_id',companyId).eq('operator_id',operatorId).maybeSingle()
+      const { data: existing, error: readError } = await db.from('production_pin_accounts').select('user_id,pairing_hash').eq('company_id',companyId).eq('operator_id',operatorId).maybeSingle()
       if (readError) return response({ message:'Attivazione PIN sul server ancora da completare.' },503)
+      if (action === 'tablet-qr') {
+        if (!existing) return response({ name: operator.name, pairing: null })
+        const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(serviceKey), {name:'HMAC',hash:'SHA-256'}, false, ['sign'])
+        const material = JSON.stringify(['tablet-qr-v1', companyId.toLowerCase(), operatorId, existing.pairing_hash])
+        const pairing = hex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(material)))
+        const { data: registered, error } = await db.rpc('production_pin_register_qr', {
+          p_owner_id: identity.user.id, p_company_id: companyId, p_operator_id: operatorId,
+          p_expected_hash: existing.pairing_hash, p_pairing: pairing,
+        })
+        if (error || !registered) return response({ message: 'Profilo PIN non disponibile. Verifica il collegamento dell’operatore.' }, 409)
+        return response({ name: operator.name, pairing })
+      }
       const { data: feed, error: boundError } = await ownerDb.rpc('production_live_feed',{ p_company_id:companyId })
       const bound = feed?.members?.find((member: { operatorId?:string;userId:string }) => member.operatorId===operatorId)
       if (boundError || (bound && bound.userId!==existing?.user_id)) return response({ message:'Operatore già collegato a un altro account. Contatta il titolare per scollegarlo prima di attivare il PIN.' },409)

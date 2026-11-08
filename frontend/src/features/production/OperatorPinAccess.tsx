@@ -1,7 +1,8 @@
+import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useState } from 'react'
 import type { CloudAuthConfig, CloudAuthSession } from '../../services/cloudAuth'
 import type { PlannerOperator } from '../../types'
-import { configureOperatorPin, identifyTablet, signInWithPin, tabletLink, type TabletPairing } from '../../services/operatorPin'
+import { configureOperatorPin, getOperatorTabletQr, identifyTablet, signInWithPin, tabletLink, type TabletPairing } from '../../services/operatorPin'
 
 export function OperatorPinLogin({ pairing,config,onLogin }:{pairing:TabletPairing;config:CloudAuthConfig;onLogin:(s:CloudAuthSession)=>void}) {
   const [name,setName]=useState('')
@@ -20,7 +21,7 @@ export function OperatorPinLogin({ pairing,config,onLogin }:{pairing:TabletPairi
     {error && <p role="alert">{error}</p>}{!name&&error&&<button type="button" onClick={()=>setIdentifyAttempt(n=>n+1)}>Riprova collegamento</button>}<button disabled={busy || !name}>{busy?'Accesso…':'Inizia giornata'}</button></form>
 }
 export function OperatorPinAdmin({companyId,operators,session,config}:{companyId:string;operators:PlannerOperator[];session:CloudAuthSession;config:CloudAuthConfig}) {
-  const [operatorId,setOperatorId]=useState('')
+  const [operatorId,setOperatorId]=useState(operators.length === 1 ? operators[0].id : '')
   const [pin,setPin]=useState('')
   const [confirm,setConfirm]=useState('')
   const [link,setLink]=useState('')
@@ -43,7 +44,47 @@ export function OperatorPinAdmin({companyId,operators,session,config}:{companyId
       <p>Configurare di nuovo il PIN sostituisce anche il link: dovrai riaprire quello nuovo sul tablet. Il lavoro già registrato resta associato all’operatore.</p>
       <button disabled={busy}>{busy?'Configurazione…':'Attiva PIN e prepara tablet'}</button></form>
     {error && <p role="alert">{error}</p>}
-    {link && <div><p>Profilo produzione di {name} pronto. Apri questo link sul tablet assegnato.</p><label>Link personale del tablet <input readOnly value={link} onFocus={e=>e.target.select()} /></label>
+    {link && <div><p>Profilo produzione di {name} pronto. Inquadra il QR con il tablet assegnato.</p><TabletQrImage link={link} name={name} /><label>Link personale del tablet <input readOnly value={link} onFocus={e=>e.target.select()} /></label>
       <button onClick={async()=>{try{await navigator.clipboard.writeText(link);setCopied(true)}catch{setError('Seleziona il link e copialo manualmente.')}}}>{copied?'Link copiato':'Copia link tablet'}</button></div>}
   </section>
+}
+
+function TabletQrImage({link, name}: {link: string; name: string}) {
+  return <QRCodeSVG value={link} size={256} marginSize={4} title={`QR tablet di ${name}`} role="img" />
+}
+
+export type OperatorTabletConnection = {
+  companyId: string
+  session: CloudAuthSession
+  config: CloudAuthConfig
+}
+
+export function OperatorTabletQr({operator, connection}: {operator: PlannerOperator; connection: OperatorTabletConnection}) {
+  const {companyId, session, config} = connection
+  const [result, setResult] = useState<{name: string; pairing: string | null} | null>(null)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    setResult(null)
+    setError('')
+    void getOperatorTabletQr(companyId, operator.id, session, config).then(value => {
+      if (!cancelled) setResult(value)
+    }).catch(problem => {
+      if (!cancelled) setError(problem instanceof Error ? problem.message : 'QR tablet non disponibile.')
+    })
+    return () => { cancelled = true }
+  }, [companyId, operator.id, session, config, attempt])
+
+  if (error) return <div><p role="alert">{error}</p><button type="button" onClick={() => setAttempt(value => value + 1)}>Riprova</button></div>
+  if (!result) return <p role="status">Preparazione QR tablet…</p>
+  if (!result.pairing) return <OperatorPinAdmin companyId={companyId} operators={[operator]} session={session} config={config} />
+
+  const link = tabletLink({companyId, operatorId: operator.id, pairing: result.pairing})
+  return <div>
+    <p>Inquadra il QR con la fotocamera del tablet, apri il collegamento e inserisci il PIN personale di {result.name}.</p>
+    <TabletQrImage link={link} name={result.name} />
+    <label>Link personale del tablet <input readOnly value={link} onFocus={event => event.target.select()} /></label>
+  </div>
 }
