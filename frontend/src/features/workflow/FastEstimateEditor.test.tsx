@@ -232,15 +232,16 @@ it('verifica dal calendario il primo giorno in cui è disponibile un operatore a
   fireEvent.change(screen.getByLabelText('Fase riga 1'),{target:{value:'Lattoneria'}})
   fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'60'}})
   fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
-  expect(forecast).toHaveTextContent('Data non compatibile')
+  expect(forecast).toHaveTextContent('Data verificata 09/11/2026 · Data non compatibile')
   expect(forecast).toHaveTextContent('10/11/2026')
   expect(screen.getByRole('radio',{name:'Segui il programma'})).toBeChecked()
   fireEvent.click(screen.getByRole('radio',{name:'Dai precedenza a questa vettura'}))
   expect(forecast).toHaveTextContent('Data non compatibile anche con precedenza')
   expect(forecast).toHaveTextContent('10/11/2026')
 
-  fireEvent.change(delivery,{target:{value:'2026-11-10'}})
-  expect(forecast).toHaveTextContent('Data compatibile con precedenza')
+  fireEvent.change(delivery,{target:{value:'2026-11-11'}})
+  expect(forecast).toHaveTextContent('Data verificata 11/11/2026 · Data compatibile con precedenza')
+  expect(forecast).toHaveTextContent('Prima consegna stimata: 10/11/2026')
   fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
   fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
   expect(screen.getByLabelText('Descrizione riga 2')).toHaveValue('Supporto')
@@ -249,8 +250,8 @@ it('verifica dal calendario il primo giorno in cui è disponibile un operatore a
   fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
   fireEvent.click(screen.getByRole('button',{name:'Conferma e crea commessa'}))
   const snapshot=done.mock.calls[0][0]
-  expect(snapshot.estimates[0]).toMatchObject({planningPrecedence:true,requestedDeliveryDate:'2026-11-10'})
-  expect(snapshot.jobs[0]).toMatchObject({planningPrecedence:true,agreedDeliveryDate:'2026-11-10'})
+  expect(snapshot.estimates[0]).toMatchObject({planningPrecedence:true,requestedDeliveryDate:'2026-11-11'})
+  expect(snapshot.jobs[0]).toMatchObject({planningPrecedence:true,agreedDeliveryDate:'2026-11-11'})
  } finally {
   vi.useRealTimers()
  }
