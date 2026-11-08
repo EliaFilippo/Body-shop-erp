@@ -26,7 +26,7 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
     const detail = description.toLowerCase() === panel?.toLowerCase() || /^verniciatura$/i.test(description)
       ? '' : description
     const printedWork = painting
-      ? `<strong>${escapeHtml(panel)} · Verniciatura</strong>${detail ? `<br>${escapeHtml(detail)}` : ''}`
+      ? `<strong>Verniciatura · ${escapeHtml(panel)}</strong>${detail ? `<br>${escapeHtml(detail)}` : ''}`
       : escapeHtml(work)
     return `<tr>
       <td class="check"><span aria-label="Da spuntare"></span></td>

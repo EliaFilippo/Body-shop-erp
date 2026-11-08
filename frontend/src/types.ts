@@ -1178,6 +1178,7 @@ export interface JobHistoryEntry {
 }
 
 export interface RepairJob {
+  workSheetPrintedAt?: string
   materialActualCost?: { amount: number; at: string; note: string }
   materialCostHistory?: Array<{ at: string; before: number | null; amount: number; note: string }>
 

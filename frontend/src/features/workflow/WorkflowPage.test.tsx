@@ -569,7 +569,7 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
     expect([...printed.querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['Fatto', 'Lavorazione'])
     expect(printed.body.textContent).toContain('Porta anteriore SX · Riparare ammaccatura')
     expect(printed.body.textContent).toContain('Lavaggio interni')
-    expect([...printed.querySelectorAll('tbody strong')].map(label => label.textContent)).toEqual(['Parafango anteriore DX · Verniciatura'])
+    expect([...printed.querySelectorAll('tbody strong')].map(label => label.textContent)).toEqual(['Verniciatura · Parafango anteriore DX'])
     expect(printed.querySelector('header .cone-label')?.textContent).toBe('CONO')
     expect(printed.querySelector('header .cone-number')?.textContent).toBe(String(onChange.mock.calls[0][0].jobs[0].coneNumber))
     expect(printed.body.textContent).not.toMatch(/lieve|materiali inclusi|vettura intera/i)
@@ -578,7 +578,49 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
     expect(printed.body.textContent).toContain('AB123CD')
     expect(printed.body.textContent).not.toContain('12345.67')
     expect(printed.body.textContent).not.toContain('Imponibile')
+    expect(screen.getAllByRole('button', {name:'Stampa scheda lavori'})[0]).toHaveClass('work-sheet-print-pending')
+    fireEvent.click(screen.getByRole('button', {name:'Da stampare'}))
+    expect(onChange).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getAllByRole('button', {name:'Stampa scheda lavori'})[0])
+    fireEvent.click(screen.getByRole('button', {name:'Stampa riuscita'}))
+    expect(onChange).toHaveBeenCalledTimes(2)
+    const saved = onChange.mock.calls[1][0]
+    expect(saved.jobs[0].workSheetPrintedAt).toBeTruthy()
+    rerender(page(saved))
+    expect(screen.getAllByRole('button', {name:'Stampa scheda lavori'})[0]).not.toHaveClass('work-sheet-print-pending')
+
   } finally {
     open.mockRestore()
+  }
+})
+
+
+it('opens the work-sheet print dialog only after saving a confirmed Fast estimate', () => {
+  const data = makeData()
+  const onChange = vi.fn()
+  const print = vi.fn()
+  const contentWindow = vi.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get')
+    .mockReturnValue({focus:vi.fn(), print} as unknown as Window)
+  const page = (snapshot: ErpData) => <WorkflowPage
+    data={snapshot} customerById={id => snapshot.customers.find(customer => customer.id === id)}
+    query="" onChange={onChange} setError={vi.fn()} setNotice={vi.fn()}
+    onUpdateVehicleStatus={vi.fn()} statusOptions={[]} statusLabel={status => status}
+  />
+  try {
+    const {rerender} = render(page(data))
+    fireEvent.click(screen.getByRole('button', {name:'Preventivo fast'}))
+    fireEvent.change(screen.getByLabelText('Targa'), {target:{value:'AB123CD'}})
+    fireEvent.change(screen.getByLabelText('Pannello'), {target:{value:'porta-ant-sx'}})
+    fireEvent.click(screen.getByRole('button', {name:/^Porta anteriore SX ·/}))
+    fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
+    expect(print).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', {name:'Conferma e crea commessa'}))
+    expect(onChange).toHaveBeenCalledOnce()
+    rerender(page(onChange.mock.calls[0][0]))
+    fireEvent.load(screen.getByTitle('Anteprima scheda lavori'))
+    expect(print).toHaveBeenCalledOnce()
+    expect(onChange.mock.calls[0][0].jobs[0].workSheetPrintedAt).toBeUndefined()
+  } finally {
+    contentWindow.mockRestore()
   }
 })
