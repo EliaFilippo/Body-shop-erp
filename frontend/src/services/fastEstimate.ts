@@ -44,7 +44,7 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
  const productionForecast=simulateEstimateProductionForecast(next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,requestedDeliveryDate:input.requestedDeliveryDate,referenceDate:date})
  next=createEstimate(next,{customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined})
  const estimate=next.estimates![0]
- next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:0}))})
+ next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0}))})
  if(input.confirmed)next=recalculateOperatorPrograms(approveEstimateAndCreateJob(next,estimate.id),date,'Preventivo fast confermato')
  return next
 }

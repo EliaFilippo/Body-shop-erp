@@ -162,10 +162,13 @@ export function acceptanceEstimateLines(quote: AcceptanceQuote, settings?: Plann
   if (!lines.length) throw new Error('Seleziona un pannello e aggiungi almeno una lavorazione con tempo e prezzo.')
   const total = round(lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0))
   const discount = Math.min(total, round(quote.lines.filter((line) => line.kind === 'discount').reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)))
-  let remaining = discount
+  let cumulativeGross = 0
+  let allocatedDiscount = 0
   return lines.map((line, index) => {
-    const amount = index === lines.length - 1 ? remaining : Math.min(remaining, round(discount * line.quantity * line.unitPrice / total))
-    remaining = round(remaining - amount)
+    cumulativeGross += line.quantity * line.unitPrice
+    const cumulativeDiscount = index === lines.length - 1 ? discount : round(discount * cumulativeGross / total)
+    const amount = round(cumulativeDiscount - allocatedDiscount)
+    allocatedDiscount = cumulativeDiscount
     return { ...line, discount: amount }
   })
 }
