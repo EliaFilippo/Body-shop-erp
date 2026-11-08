@@ -269,6 +269,7 @@ export interface VehicleStatusChange {
 }
 
 export interface Vehicle {
+  planningPrecedence?: boolean
   id: string
   customerId: string
   plate: string
@@ -1083,6 +1084,7 @@ export interface EstimatePaymentTerms {
 }
 
 export interface EstimateDocument {
+  planningPrecedence?: boolean
   selectedPhases?: string[]
   id: string
   number: string
@@ -1178,6 +1180,7 @@ export interface JobHistoryEntry {
 }
 
 export interface RepairJob {
+  planningPrecedence?: boolean
   workSheetPrintedAt?: string
   materialActualCost?: { amount: number; at: string; note: string }
   materialCostHistory?: Array<{ at: string; before: number | null; amount: number; note: string }>

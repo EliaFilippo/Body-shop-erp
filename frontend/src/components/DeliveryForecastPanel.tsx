@@ -4,7 +4,7 @@ import { acceptanceEstimateLines } from '../services/damageQuote'
 import { toRomePlanningClock } from '../services/romePlanningClock'
 import { simulateEstimateProductionForecast } from '../services/planner'
 
-export function DeliveryForecastPanel({ data, vehicleId, plate, requestedDeliveryDate, onRequestedDeliveryDateChange, quote, estimate }: { data: ErpData; vehicleId?: string; plate?: string; requestedDeliveryDate?: string; onRequestedDeliveryDateChange?: (date: string) => void; quote?: AcceptanceQuote; estimate?: EstimateDocument }) {
+export function DeliveryForecastPanel({ data, vehicleId, plate, requestedDeliveryDate, onRequestedDeliveryDateChange, planningPrecedence, onPlanningPrecedenceChange, quote, estimate }: { data: ErpData; vehicleId?: string; plate?: string; requestedDeliveryDate?: string; onRequestedDeliveryDateChange?: (date: string) => void; planningPrecedence?: boolean; onPlanningPrecedenceChange?: (value: boolean) => void; quote?: AcceptanceQuote; estimate?: EstimateDocument }) {
   const [revision, setRevision] = useState(0)
   const result = useMemo(() => {
     void revision // Explicit refresh without changing the quote.
@@ -12,20 +12,27 @@ export function DeliveryForecastPanel({ data, vehicleId, plate, requestedDeliver
       const vehicle = data.vehicles.find(item => item.id === vehicleId)
       const lines = quote ? acceptanceEstimateLines(quote, data.plannerSettings) as EstimateLine[] : estimate?.lines ?? []
       const targetPlate = vehicle?.plate || plate?.trim()
-      if (!lines.length || !targetPlate) return { error: 'Aggiungi la vettura e le lavorazioni per vedere la previsione.' }
-      return { forecast: simulateEstimateProductionForecast(data, { vehicleId, plate: targetPlate, lines, selectedPhases: quote?.selectedPhases ?? estimate?.selectedPhases, priority: estimate?.priority, requestedDeliveryDate: requestedDeliveryDate ?? estimate?.requestedDeliveryDate, referenceAt: onRequestedDeliveryDateChange ? toRomePlanningClock(new Date().toISOString()) : undefined }) }
+      if (!targetPlate) return { error: 'Inserisci la targa per verificare la consegna.' }
+      if (!lines.length) return { error: 'Aggiungi una lavorazione per verificare la consegna.' }
+      return { forecast: simulateEstimateProductionForecast(data, { vehicleId, plate: targetPlate, lines, selectedPhases: quote?.selectedPhases ?? estimate?.selectedPhases, priority: estimate?.priority, planningPrecedence: planningPrecedence ?? estimate?.planningPrecedence, requestedDeliveryDate: requestedDeliveryDate ?? estimate?.requestedDeliveryDate, referenceAt: onRequestedDeliveryDateChange ? toRomePlanningClock(new Date().toISOString()) : undefined }) }
     } catch (problem) { return { error: problem instanceof Error ? problem.message : 'Completa le lavorazioni.' } }
-  }, [data, vehicleId, plate, requestedDeliveryDate, onRequestedDeliveryDateChange, quote, estimate, revision])
+  }, [data, vehicleId, plate, requestedDeliveryDate, onRequestedDeliveryDateChange, planningPrecedence, quote, estimate, revision])
   const forecast = result.forecast
   const date = forecast?.advisedDeliveryDate
   const startDate = forecast && (onRequestedDeliveryDateChange ? forecast.estimatedStartAt.slice(0, 10) : forecast.firstAvailabilityDate)
   return <section className="panel" aria-label="Previsione consegna preventivo">
     <h3>Previsione di consegna prima dell’invio</h3>
     {onRequestedDeliveryDateChange && <label>Data consegna concordata<input type="date" value={requestedDeliveryDate ?? ''} onChange={event => onRequestedDeliveryDateChange(event.target.value)} /></label>}
+    {requestedDeliveryDate && onPlanningPrecedenceChange && <fieldset>
+      <legend>Ordine di lavorazione</legend>
+      <label><input type="radio" name="fast-planning-order" checked={!planningPrecedence} onChange={() => onPlanningPrecedenceChange(false)} /> Segui il programma</label>
+      <label><input type="radio" name="fast-planning-order" checked={Boolean(planningPrecedence)} onChange={() => onPlanningPrecedenceChange(true)} /> Dai precedenza a questa vettura</label>
+      {planningPrecedence && <p>Alla conferma della commessa, la vettura passa davanti alle lavorazioni ancora da avviare. Le consegne già previste possono slittare.</p>}
+    </fieldset>}
     {onRequestedDeliveryDateChange && requestedDeliveryDate && <p role="status"><strong>{forecast?.requestedDeliveryCompatible === true
-      ? 'Data compatibile con il piano attuale.'
+      ? planningPrecedence ? 'Data compatibile con precedenza.' : 'Data compatibile con il piano attuale.'
       : forecast?.requestedDeliveryCompatible === false
-        ? 'Data non compatibile con il piano attuale.'
+        ? planningPrecedence ? 'Data non compatibile anche con precedenza.' : 'Data non compatibile con il piano attuale.'
         : 'Compatibilità da verificare.'}</strong></p>}
     <strong>{date ? `Consegna indicativa: ${date.split('-').reverse().join('/')}` : 'Data da calcolare'}</strong>
     {result.error && <p role="status">{result.error}</p>}

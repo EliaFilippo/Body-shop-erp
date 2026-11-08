@@ -30,6 +30,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
  const [wash,setWash]=useState(false)
  const [confirmed,setConfirmed]=useState(false)
  const [delivery,setDelivery]=useState('')
+ const [planningPrecedence,setPlanningPrecedence]=useState(false)
  const [termsOverride,setTermsOverride]=useState<EstimatePaymentTerms|null>(null)
  const [notes,setNotes]=useState('')
  const [error,setError]=useState('')
@@ -89,7 +90,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
  return <Modal title="Preventivo fast" onClose={onCancel}>
   <form onSubmit={e=>{e.preventDefault();if(busy.current||invalidDiscount)return;busy.current=true;try{
-   const next=createFastEstimate(data,{plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,notes,paymentTerms:terms},undefined,livePrograms)
+   const next=createFastEstimate(data,{plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
    const send=(e.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='whatsapp'
    const link=send?fastEstimateWhatsAppLink(next.estimates![0],targetPhone):null
    const file=send?estimatePdfFile(next,next.estimates![0]):null
@@ -130,7 +131,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
    </section>)}
    <label><input type="checkbox" checked={wash} onChange={e=>setWash(e.target.checked)}/>Includi lavaggio esterno · {data.plannerSettings.eliasExteriorWashMinutes??25} min</label>
-   <DeliveryForecastPanel data={forecastData} vehicleId={existing?.id} plate={plate} quote={quote} requestedDeliveryDate={delivery} onRequestedDeliveryDateChange={setDelivery}/>
+   <DeliveryForecastPanel data={forecastData} vehicleId={existing?.id} plate={plate} quote={quote} requestedDeliveryDate={delivery} onRequestedDeliveryDateChange={date=>{setDelivery(date);if(!date)setPlanningPrecedence(false)}} planningPrecedence={planningPrecedence} onPlanningPrecedenceChange={setPlanningPrecedence}/>
    <details><summary>Note</summary><label>Note<input value={notes} onChange={e=>setNotes(e.target.value)}/></label></details>
    <FastPaymentTerms value={terms} delivery={delivery} onChange={setTermsOverride}/>
    <section className="panel" aria-label="Riepilogo preventivo fast"><label>Sconto (%)<input inputMode="decimal" value={discountInput} onChange={e => setDiscountInput(e.target.value)} placeholder="0" aria-invalid={invalidDiscount}/></label>

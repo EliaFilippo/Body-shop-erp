@@ -15,6 +15,7 @@ export interface FastEstimateInput {
  paymentTerms?:EstimatePaymentTerms
  confirmed:boolean
  requestedDeliveryDate?:string
+ planningPrecedence?:boolean
  notes?:string
 }
 /** Creates one complete snapshot; validation failures never persist half a customer/vehicle. */
@@ -42,8 +43,9 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
  const lines=acceptanceEstimateLines(input.quote,next.plannerSettings)
  const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(at)
  const selectedPhases=input.quote.selectedPhases??[]
- const productionForecast=simulateEstimateProductionForecast(livePrograms?{...next,operatorPrograms:livePrograms}:next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,requestedDeliveryDate:input.requestedDeliveryDate,referenceAt:toRomePlanningClock(at.toISOString())})
- next=createEstimate(next,{customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined})
+ const planningPrecedence=Boolean(input.requestedDeliveryDate?.trim()&&input.planningPrecedence)
+ const productionForecast=simulateEstimateProductionForecast(livePrograms?{...next,operatorPrograms:livePrograms}:next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate,referenceAt:toRomePlanningClock(at.toISOString())})
+ next=createEstimate(next,{customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined})
  const estimate=next.estimates![0]
  next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0}))})
  if(input.confirmed)next=recalculateOperatorPrograms(approveEstimateAndCreateJob(next,estimate.id),date,'Preventivo fast confermato')

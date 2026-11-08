@@ -329,6 +329,7 @@ export function sortPlanningVehicles(vehicles: Vehicle[]) {
     const aBlocked = Boolean(a.blockReason) || a.partsStatus === 'Mancanti'
     const bBlocked = Boolean(b.blockReason) || b.partsStatus === 'Mancanti'
     return Number(aBlocked) - Number(bBlocked)
+      || Number(Boolean(b.planningPrecedence)) - Number(Boolean(a.planningPrecedence))
       || (a.requestedDeliveryDate || '9999-12-31').localeCompare(b.requestedDeliveryDate || '9999-12-31')
       || b.expectedMargin - a.expectedMargin
       || a.createdAt.localeCompare(b.createdAt)
@@ -949,6 +950,12 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const paintPriority=(candidate:{job:RepairJob;phase:JobPhase})=>paintFlowPriority(candidate.job,candidate.phase,originalJobs.get(candidate.job.id))
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
   const openJobs = (data.jobs ?? []).filter((job) => isJobActive(job) && job.vehicleId)
+  const hasPrecedence = openJobs.some(job => job.planningPrecedence)
+  const precedenceRank = ({ job, phase }: {job: RepairJob; phase: JobPhase}) => {
+    if (!hasPrecedence) return 0
+    if (phase.status === 'In lavorazione') return 0
+    return job.planningPrecedence ? 1 : 2
+  }
   const candidates = openJobs
     .map((job, arrivalIndex) => {
       const selectedPhase = selectSchedulablePhase(job)
@@ -982,7 +989,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .sort((a, b) => {
       if (Number(a.blocked) !== Number(b.blocked)) return Number(a.blocked) - Number(b.blocked)
-      const boothOrder=paintPriority(a).rank-paintPriority(b).rank
+      const boothOrder=precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
       if(boothOrder)return boothOrder
       // Dentro la stessa priorità operativa: consegna, margine, attesa di oltre quattro giorni.
       if (a.score.dueDate !== b.score.dueDate) return a.score.dueDate.localeCompare(b.score.dueDate)
@@ -1034,7 +1041,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const a=candidates[index],b=candidates[nextIndex]
       const ageA=Math.max(0,betweenDays(a.job.createdAt.slice(0,10),effectiveDate))
       const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
-      const priorityOrder=paintPriority(a).rank-paintPriority(b).rank
+      const priorityOrder=precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
         || a.score.dueDate.localeCompare(b.score.dueDate)
         || b.score.totalMargin-a.score.totalMargin
         || Number(ageB>4)-Number(ageA>4)
@@ -1128,7 +1135,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         endAt:workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
+        reason: `${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
@@ -1236,6 +1243,7 @@ export function simulateEstimateProductionForecast(
     lines: EstimateLine[]
     referenceDate?: string
     referenceAt?: string
+    planningPrecedence?: boolean
     selectedPhases?: string[]
   },
 ): EstimateProductionSimulation {
@@ -1273,6 +1281,7 @@ export function simulateEstimateProductionForecast(
     id: syntheticVehicleId,
     plate: input.plate.trim().toUpperCase(),
     priority,
+    planningPrecedence: input.planningPrecedence || undefined,
     status: 'Confermata',
     blockReason: '',
     partsStatus: 'Disponibili',
@@ -1289,7 +1298,13 @@ export function simulateEstimateProductionForecast(
   const plannerResult = calculatePlanner([...plannerVehicles, simulatedVehicle], data.plannerSettings, referenceDate)
   const plan = plannerResult.vehicles.find((vehicle) => vehicle.vehicleId === simulatedVehicle.id)
   const firstAvailabilityDate = plan?.assignments[0]?.date || referenceDate
-  const basePrograms = (data.operatorPrograms ?? []).filter((program) => program.date >= firstAvailabilityDate)
+  const jobById = new Map((data.jobs ?? []).map(job => [job.id, job]))
+  const basePrograms = (data.operatorPrograms ?? []).filter(program => program.date >= firstAvailabilityDate)
+    .map(program => input.planningPrecedence ? {...program, tasks: (program.tasks ?? []).filter(task => {
+      if (task.id.startsWith('running:')) return true
+      const job = jobById.get(task.jobId)
+      return job?.planningPrecedence || job?.phases.some(phase => phase.id === task.phaseId && phase.status === 'In lavorazione')
+    })} : program)
   const occupiedUntil = new Map<string, string>()
   for (const program of basePrograms) {
     for (const task of program.tasks ?? []) {

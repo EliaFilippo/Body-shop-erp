@@ -815,6 +815,20 @@ describe('12 scenari priorita planner', () => {
     return data
   }
 
+  it('dà precedenza alla nuova commessa sulle attività in coda senza spostare quella in corso', () => {
+    const data = makePriorityData()
+    data.plannerSettings.operators = data.plannerSettings.operators.slice(0, 1)
+    const existing = [
+      { id: 'j1', number: 'COMM-1', vehicleId: 'v1', plate: 'OLD001', priority: 'Urgente' as const, expectedDeliveryDate: '2026-08-14', minutes: 60, taxableAmount: 700 },
+      { id: 'j2', number: 'COMM-2', vehicleId: 'v2', plate: 'NEW002', priority: 'Normale' as const, expectedDeliveryDate: '2026-08-17', minutes: 60, taxableAmount: 100 },
+      { id: 'j3', number: 'COMM-3', vehicleId: 'v3', plate: 'RUN003', priority: 'Normale' as const, minutes: 60, taxableAmount: 100, phaseStatus: 'In lavorazione' as const },
+    ]
+    data.vehicles = existing.map(item => priorityVehicle(item.vehicleId, item.plate, item.priority, item.expectedDeliveryDate))
+    data.jobs = existing.map(item => ({...priorityJob(item), planningPrecedence: item.id === 'j2'}))
+    const result = generateOperatorPrograms(data, '2026-08-14')
+    expect(result.programs.flatMap(program => program.tasks).map(task => task.plate)).toEqual(['RUN003', 'NEW002', 'OLD001'])
+  })
+
   it('1) preventivo senza data -> data automatica', () => {
     const data = makePriorityData()
     const simulation = simulateEstimateProductionForecast(data, {
