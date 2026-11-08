@@ -533,3 +533,19 @@ main{min-width:0}header{height:92px;padding:0 32px;display:flex;align-items:cent
 .sidebar:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
 
 .day-job.operator-live{cursor:default;border:2px solid #777;color:#fff;background:#303038;padding:12px}.day-job.operator-live.on-time{background:#125b37;border-color:#43db8e}.day-job.operator-live.late{background:#8a2330;border-color:#ff8390}.day-job.operator-live span,.day-job.operator-live small{color:#fff;font-size:12px}.day-job.operator-live strong{font-size:14px}
+
+
+button.work-sheet-print-pending {
+  background: #a71924;
+  border-color: #ff626e;
+  color: #fff;
+  font-weight: 700;
+  animation: work-sheet-print-pulse 1.4s ease-in-out infinite alternate;
+}
+@keyframes work-sheet-print-pulse {
+  from { box-shadow: 0 0 0 0 rgba(255, 72, 89, .15) }
+  to { box-shadow: 0 0 0 4px rgba(255, 72, 89, .55); background: #d12635 }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.work-sheet-print-pending { animation: none }
+}

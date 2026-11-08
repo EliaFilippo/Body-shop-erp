@@ -1,4 +1,4 @@
-import { printWorkSheet } from '../../services/workSheet'
+import { buildWorkSheetHtml, printWorkSheet } from '../../services/workSheet'
 import { EstimatePdfPreview } from './EstimatePdfPreview'
 import { DeliveredJobReports } from './DeliveredJobReports'
 import { JobMaterialCosts } from './JobMaterialCosts'
@@ -62,6 +62,7 @@ type WorkflowModal =
   | { type: 'estimate-pdf'; estimateId:string }
   | { type: 'estimate-create' }
   | { type: 'estimate-fast' }
+  | { type: 'job-print'; jobId: string; auto: boolean }
   | { type: 'estimate-edit'; estimateId: string }
   | { type: 'job-create' }
   | { type: 'job-edit'; jobId: string }
@@ -196,15 +197,45 @@ function phaseManMinutes(phase: JobPhase) {
   }, 0)
 }
 
-function WorkSheetButton({data, job, onError}: {data: ErpData; job: RepairJob; onError: (message: string) => void}) {
-  return <button type="button" onClick={() => {
+function WorkSheetButton({job, onPrint}: {job: RepairJob; onPrint: (job: RepairJob) => void}) {
+  const pending = !job.workSheetPrintedAt && !['Consegnata', 'Annullata'].includes(job.status)
+  return <button type="button" className={pending ? 'work-sheet-print-pending' : undefined}
+    title={pending ? 'Scheda lavori da stampare' : undefined} onClick={() => onPrint(job)}>Stampa scheda lavori</button>
+}
+
+function WorkSheetPrintConfirmation({data, job, auto, onClose, onConfirm}: {
+  data: ErpData; job: RepairJob; auto: boolean; onClose: () => void; onConfirm: () => void
+}) {
+  const frame = useRef<HTMLIFrameElement>(null)
+  const attempted = useRef(false)
+  const [error, setError] = useState('')
+  const html = useMemo(() => auto ? buildWorkSheetHtml(data, job) : '', [auto, data, job])
+  const printFrame = () => {
     try {
-      printWorkSheet(data, job)
-      onError('')
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Stampa scheda lavori non riuscita.')
+      const target = frame.current?.contentWindow
+      if (!target) throw new Error('Anteprima non ancora pronta.')
+      target.focus()
+      target.print()
+      setError('')
+    } catch {
+      setError('La stampa non si è aperta. Riprova con Stampa adesso.')
     }
-  }}>Stampa scheda lavori</button>
+  }
+  return <Modal title={`Conferma stampa · ${job.plate}`} onClose={onClose}>
+    {auto && <iframe ref={frame} title="Anteprima scheda lavori" srcDoc={html} sandbox="allow-same-origin allow-modals"
+      style={{width:'100%', height:'55vh', background:'white'}} onLoad={() => {
+        if (attempted.current) return
+        attempted.current = true
+        printFrame()
+      }} />}
+    <p>Se la scheda è stata stampata, confermalo qui. Se hai annullato la stampa, scegli «Da stampare».</p>
+    {error && <p role="alert">{error}</p>}
+    <div className="planner-actions">
+      {auto && <button type="button" onClick={printFrame}>Stampa adesso</button>}
+      <button type="button" onClick={onClose}>Da stampare</button>
+      <button type="button" className="primary" onClick={onConfirm}>Stampa riuscita</button>
+    </div>
+  </Modal>
 }
 
 export function WorkflowPage({
@@ -297,6 +328,16 @@ export function WorkflowPage({
     setNotice(notice)
   }
 
+  const openWorkSheet = (job: RepairJob) => {
+    try {
+      printWorkSheet(data, job)
+      setError('')
+      setModal({type:'job-print', jobId:job.id, auto:false})
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Stampa scheda lavori non riuscita.')
+    }
+  }
+
   if(deliveredReportQuery!==null)return <DeliveredJobReports jobs={jobs} customerById={customerById} initialQuery={deliveredReportQuery} onBack={()=>setDeliveredReportQuery(null)} onSaveMaterials={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Materiali reali salvati. Report aggiornato.')}/>
 
   return <>
@@ -366,7 +407,7 @@ export function WorkflowPage({
             <td><span className="tag">{estimateFinancialStage(data, estimate)}</span></td>
             <td><div className="row-actions">
               <button className="primary" onClick={()=>setModal({type:'estimate-pdf',estimateId:estimate.id})}>PDF / WhatsApp</button>
-              {linkedJob && <WorkSheetButton data={data} job={linkedJob} onError={setError} />}
+              {linkedJob && <WorkSheetButton job={linkedJob} onPrint={openWorkSheet} />}
               <button onClick={() => setModal({ type: 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
               <button className="primary" onClick={() => {
                 try {
@@ -427,7 +468,7 @@ export function WorkflowPage({
             <td>{job.progressPercent}%</td>
             <td>{money(job.total)}</td>
             <td>{coneLabelForJob(job)}</td>
-            <td><div className="row-actions">{job.status==='Consegnata'&&<button className="primary" onClick={()=>setDeliveredReportQuery(job.plate)}>Report ore e materiali</button>}<button onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri scheda</button>{job.estimateId && <WorkSheetButton data={data} job={job} onError={setError} />}</div></td>
+            <td><div className="row-actions">{job.status==='Consegnata'&&<button className="primary" onClick={()=>setDeliveredReportQuery(job.plate)}>Report ore e materiali</button>}<button onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri scheda</button>{job.estimateId && <WorkSheetButton job={job} onPrint={openWorkSheet} />}</div></td>
           </tr>
         })}
       </tbody></table></div>
@@ -435,7 +476,25 @@ export function WorkflowPage({
     </section>
 
     {modal?.type==='estimate-pdf'&&estimates.find(e=>e.id===modal.estimateId)&&<EstimatePdfPreview data={data} estimate={estimates.find(e=>e.id===modal.estimateId)!} onClose={()=>setModal(null)}/>}
-    {modal?.type === 'estimate-fast' && <FastEstimateEditor data={data} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => { apply(next, pdfPrepared ? 'PDF scaricato e chat WhatsApp aperta: allega il file come Documento e conferma l’invio.' : confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.'); setModal(null) }} />}
+    {modal?.type === 'estimate-fast' && <FastEstimateEditor data={data} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => {
+      apply(next, pdfPrepared ? 'PDF scaricato e chat WhatsApp aperta: allega il file come Documento e conferma l’invio.' : confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.')
+      const createdJob = confirmed ? next.jobs?.find(job => job.id === next.estimates?.[0]?.convertedJobId) : undefined
+      setModal(createdJob ? {type:'job-print', jobId:createdJob.id, auto:true} : null)
+    }} />}
+    {modal?.type === 'job-print' && (() => {
+      const job = jobs.find(item => item.id === modal.jobId)
+      if (!job) return null
+      return <WorkSheetPrintConfirmation key={job.id} data={data} job={job} auto={modal.auto} onClose={() => setModal(null)}
+        onConfirm={() => {
+          if (!job.workSheetPrintedAt) {
+            const printedAt = new Date().toISOString()
+            apply({...data, jobs:jobs.map(item => item.id === job.id
+              ? {...item, workSheetPrintedAt:printedAt, updatedAt:printedAt} : item)}, 'Stampa scheda lavori confermata.')
+          }
+          setModal(null)
+        }} />
+    })()}
+
     {modal?.type === 'estimate-create' && <EstimateEditor
       title="Nuovo preventivo"
       data={data}
@@ -511,7 +570,7 @@ export function WorkflowPage({
       }}
     />}
 
-    {modal?.type === 'job-edit' && <JobEditor noticesConnection={noticesConnection} onPrintError={setError}
+    {modal?.type === 'job-edit' && <JobEditor noticesConnection={noticesConnection} onPrintWorkSheet={openWorkSheet}
       onSaveMaterialCost={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Costo reale materiali salvato e margine aggiornato.')}
       data={data}
       customerById={customerById}
@@ -1732,7 +1791,7 @@ function DirectJobEditor({
 function JobEditor({
   noticesConnection,
   onSaveMaterialCost,
-  onPrintError,
+  onPrintWorkSheet,
   data,
   customerById,
   job,
@@ -1743,7 +1802,7 @@ function JobEditor({
   onUpdatePhaseEstimatedMinutes,
   onToggleChecklist,
 }: {
-  onPrintError: (message: string) => void
+  onPrintWorkSheet: (job: RepairJob) => void
   onSaveMaterialCost: (jobId:string,amount:number,note:string)=>void
   noticesConnection?: NoticesConnection
   data: ErpData
@@ -1777,7 +1836,7 @@ function JobEditor({
   const totalPlannedMinutes = job.phases.filter((phase) => !phase.notRequired).reduce((sum, phase) => sum + Math.max(0, phase.estimatedMinutes), 0)
 
   return <Modal title={`Scheda commessa ${job.number}`} onClose={onCancel}>
-    {job.estimateId && <div className="planner-actions"><WorkSheetButton data={data} job={job} onError={onPrintError} /></div>}
+    {job.estimateId && <div className="planner-actions"><WorkSheetButton job={job} onPrint={onPrintWorkSheet} /></div>}
     <JobMaterialCosts job={job} onSave={(amount,note)=>onSaveMaterialCost(job.id,amount,note)}/>
     <form className="form-grid" onSubmit={(event) => {
       event.preventDefault()
