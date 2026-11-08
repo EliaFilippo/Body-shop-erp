@@ -1,3 +1,4 @@
+import { HistoricalActualsPanel } from './HistoricalActualsPanel'
 import { receivableFlows, ribaDueAlerts } from '../../services/receivableFlows'
 import { VehicleRibaModal } from './VehicleRibaModal'
 import { OwnerPasswordGate } from '../production/OwnerPasswordGate'
@@ -491,6 +492,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   const paymentDeadlines = payableDueAlerts(data, today())
 
   return <>
+    <HistoricalActualsPanel data={data} connection={passwordConnection} onChange={onChange} />
     <section className="panel" aria-label="Scadenzario pagamenti">
       <div className="panel-head">
         <div><span className="eyebrow">PAGAMENTI</span><h3>Scadenzario pagamenti</h3></div>

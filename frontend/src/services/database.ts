@@ -939,6 +939,7 @@ export function normalizeData(value: unknown): ErpData {
   const dbUpdatedAt = String(candidate.dbUpdatedAt ?? '')
   const normalized: ErpData = {
     nightlyPlanning: candidate.nightlyPlanning,
+    historicalActuals: Array.isArray(candidate.historicalActuals) ? candidate.historicalActuals : undefined,
     productionPlanningSampleAt: candidate.productionPlanningSampleAt,
     users,
     customers,

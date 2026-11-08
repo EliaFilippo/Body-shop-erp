@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ErpData } from '../types'
+import { emptyData } from './erp'
 import { calculateBusinessOverviewSnapshot, calculateCustomerRankingSnapshot } from './businessOverview'
 
 const makeInvoice = (id: string, issueDate: string, dueDate: string, total: number, collectedAmount: number) => ({
@@ -149,4 +150,16 @@ describe('business overview', () => {
     expect(snapshot.points).toHaveLength(0)
     expect(snapshot.current.revenue).toBe(0)
   })
+})
+
+it('combina fatture e consuntivi al netto dell’IVA senza duplicare il documento', () => {
+  const data = structuredClone(emptyData)
+  data.invoices = [{...makeInvoice('1', '2026-11-05', '2026-12-05', 1220, 0), taxableAmount: 1000, vatAmount: 220}]
+  data.historicalActuals = [
+    {id: 'old', kind: 'revenue', date: '2026-11-05', reference: '1', category: 'Fattura cliente', amount: 1000},
+    {id: 'revenue', kind: 'revenue', date: '2026-11-06', reference: '2', category: 'Fattura cliente', amount: 400},
+    {id: 'cost', kind: 'cost', date: '2026-11-06', reference: 'spesa', category: 'Ricambi', amount: 150},
+  ]
+  expect(calculateBusinessOverviewSnapshot(data, 'mese', '2026-11-08').current)
+    .toMatchObject({revenue: 1400, cost: 150, margin: 1250, expectedCollections: 1220})
 })
