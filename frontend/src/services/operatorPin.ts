@@ -49,3 +49,7 @@ export async function configureOperatorPin(companyId:string,operatorId:string,pi
   if (!/^\d{6}$/.test(pin) || /^(\d)\1{5}$/.test(pin) || ['123456','654321'].includes(pin)) throw new Error('Scegli un PIN di 6 cifre non ripetute o consecutive.')
   return callPin<{name:string;pairing:string}>({ action:'configure',companyId,operatorId,pin },config,session,fetcher)
 }
+
+export function getOperatorTabletQr(companyId: string, operatorId: string, session: CloudAuthSession, config: CloudAuthConfig, fetcher: typeof fetch = fetch) {
+  return callPin<{name: string; pairing: string | null}>({ action: 'tablet-qr', companyId, operatorId }, config, session, fetcher)
+}

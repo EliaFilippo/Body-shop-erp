@@ -1206,7 +1206,10 @@ function App() {
           setData({ ...data, vehicles: data.vehicles.map((item) => item.id === vehicleId ? { ...item, manualPlanningDate: date } : item) })
         }} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'operator-program' && <OperatorProgramPage liveClock={displayData!==data} data={displayData} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
-        {view === 'planner-settings' && <PlannerSettingsPage settings={data.plannerSettings} onSave={async (plannerSettings) => {
+        {view === 'planner-settings' && <PlannerSettingsPage settings={data.plannerSettings}
+          tabletConnection={cloudReady && cloudMembership?.role === 'owner' && cloudSession && cloudConfig
+            ? {companyId: cloudMembership.companyId, session: cloudSession, config: cloudConfig} : undefined}
+          onSave={async (plannerSettings) => {
           const nextData = { ...data, plannerSettings }
           try {
             await saveDatabase(nextData)
