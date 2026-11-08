@@ -33,3 +33,10 @@ describe('whole-day absences',()=>{
   expect(workingMinutesForDate('2026-10-27',s,op)).toBe(0)
  })
 })
+
+it('blocks the morning without shortening the afternoon or reopening the absence through extensions', () => {
+ const {plannerSettings: settings}=fixture(), operator=settings.operators[0]
+ settings.absences[0]={...settings.absences[0],hoursPerDay:4,startTime:'08:00',endTime:'12:30'}
+ settings.operatorDayExtensions=[{id:'extra',operatorId:operator.id,date:'2026-10-27',startMinute:540,endMinute:600}]
+ expect(getOperatorWorkingIntervals('2026-10-27',settings,operator)).toEqual([{startMinute:780,endMinute:1020}])
+})
