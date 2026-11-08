@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { createEstimate } from '../../services/workflow'
 import { emptyData } from '../../services/erp'
 import { WorkflowPage } from './WorkflowPage'
 import type { ErpData } from '../../types'
@@ -527,4 +528,43 @@ describe('WorkflowPage esploso interattivo preventivo', () => {
     expect(scope.getByDisplayValue(/200,00/)).toBeInTheDocument()
     expect(scope.getByText(/Override tempo:/)).toHaveTextContent(/Override prezzo:\s*No/)
   })
+})
+
+
+it('prints the confirmed job with panel details and no estimate prices', () => {
+  const draft = createEstimate(makeData(), {
+    customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD', companyName: '', contactName: '',
+    date: '2026-11-08', notes: '', lines: [{
+      description: 'Riparare ammaccatura', category: 'carrozzeria', panelName: 'Porta anteriore SX',
+      panelWorkNote: 'Proteggere <guarnizione>', quantity: 1, unitPrice: 12345.67, vatRate: 22, discount: 0,
+    }],
+  })
+  const onChange = vi.fn()
+  const page = (data: ErpData) => <WorkflowPage
+    data={data} customerById={id => data.customers.find(customer => customer.id === id)}
+    query="" onChange={onChange} setError={vi.fn()} setNotice={vi.fn()}
+    onUpdateVehicleStatus={vi.fn()} statusOptions={[]} statusLabel={status => status}
+  />
+  const {rerender} = render(page(draft))
+  expect(screen.queryByRole('button', {name:'Stampa scheda lavori'})).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', {name:'Approva e crea commessa'}))
+  expect(onChange).toHaveBeenCalledOnce()
+  rerender(page(onChange.mock.calls[0][0]))
+
+  const popup = {opener: window, document:{open:vi.fn(),write:vi.fn(),close:vi.fn()}, focus:vi.fn(), print:vi.fn()}
+  const open = vi.spyOn(window,'open').mockReturnValue(popup as unknown as Window)
+  try {
+    fireEvent.click(screen.getAllByRole('button', {name:'Stampa scheda lavori'})[0])
+    expect(popup.print).toHaveBeenCalledOnce()
+    expect(popup.opener).toBeNull()
+    const printed = new DOMParser().parseFromString(popup.document.write.mock.calls[0][0], 'text/html')
+    expect(printed.body.textContent).toContain('Porta anteriore SX')
+    expect(printed.body.textContent).toContain('Proteggere <guarnizione>')
+    expect(printed.querySelector('guarnizione')).toBeNull()
+    expect(printed.body.textContent).toContain('AB123CD')
+    expect(printed.body.textContent).not.toContain('12345.67')
+    expect(printed.body.textContent).not.toContain('Imponibile')
+  } finally {
+    open.mockRestore()
+  }
 })

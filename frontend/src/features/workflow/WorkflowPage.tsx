@@ -1,3 +1,4 @@
+import { printWorkSheet } from '../../services/workSheet'
 import { EstimatePdfPreview } from './EstimatePdfPreview'
 import { DeliveredJobReports } from './DeliveredJobReports'
 import { JobMaterialCosts } from './JobMaterialCosts'
@@ -195,6 +196,17 @@ function phaseManMinutes(phase: JobPhase) {
   }, 0)
 }
 
+function WorkSheetButton({data, job, onError}: {data: ErpData; job: RepairJob; onError: (message: string) => void}) {
+  return <button type="button" onClick={() => {
+    try {
+      printWorkSheet(data, job)
+      onError('')
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Stampa scheda lavori non riuscita.')
+    }
+  }}>Stampa scheda lavori</button>
+}
+
 export function WorkflowPage({
   data,
   customerById,
@@ -333,6 +345,7 @@ export function WorkflowPage({
       <div className="table-wrap"><table><thead><tr><th>Numero</th><th>Cliente / targa</th><th>Stato</th><th>Data</th><th>Totale</th><th>Stadio economico</th><th>Azioni</th></tr></thead><tbody>
         {filteredEstimates.map((estimate) => {
           const customer = customerById(estimate.customerId)
+          const linkedJob = estimate.convertedJobId ? jobs.find(job => job.id === estimate.convertedJobId) : undefined
           const editable = ownerUnlocked || (!estimate.convertedJobId && estimate.status !== 'Approvato')
           return <tr key={estimate.id}>
             <td><strong>{estimate.number}</strong><small>{estimate.companyName || 'Nessuna azienda'}</small></td>
@@ -353,6 +366,7 @@ export function WorkflowPage({
             <td><span className="tag">{estimateFinancialStage(data, estimate)}</span></td>
             <td><div className="row-actions">
               <button className="primary" onClick={()=>setModal({type:'estimate-pdf',estimateId:estimate.id})}>PDF / WhatsApp</button>
+              {linkedJob && <WorkSheetButton data={data} job={linkedJob} onError={setError} />}
               <button onClick={() => setModal({ type: 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
               <button className="primary" onClick={() => {
                 try {
@@ -413,7 +427,7 @@ export function WorkflowPage({
             <td>{job.progressPercent}%</td>
             <td>{money(job.total)}</td>
             <td>{coneLabelForJob(job)}</td>
-            <td><div className="row-actions">{job.status==='Consegnata'&&<button className="primary" onClick={()=>setDeliveredReportQuery(job.plate)}>Report ore e materiali</button>}<button onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri scheda</button></div></td>
+            <td><div className="row-actions">{job.status==='Consegnata'&&<button className="primary" onClick={()=>setDeliveredReportQuery(job.plate)}>Report ore e materiali</button>}<button onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri scheda</button>{job.estimateId && <WorkSheetButton data={data} job={job} onError={setError} />}</div></td>
           </tr>
         })}
       </tbody></table></div>
@@ -497,7 +511,7 @@ export function WorkflowPage({
       }}
     />}
 
-    {modal?.type === 'job-edit' && <JobEditor noticesConnection={noticesConnection}
+    {modal?.type === 'job-edit' && <JobEditor noticesConnection={noticesConnection} onPrintError={setError}
       onSaveMaterialCost={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Costo reale materiali salvato e margine aggiornato.')}
       data={data}
       customerById={customerById}
@@ -1718,6 +1732,7 @@ function DirectJobEditor({
 function JobEditor({
   noticesConnection,
   onSaveMaterialCost,
+  onPrintError,
   data,
   customerById,
   job,
@@ -1728,6 +1743,7 @@ function JobEditor({
   onUpdatePhaseEstimatedMinutes,
   onToggleChecklist,
 }: {
+  onPrintError: (message: string) => void
   onSaveMaterialCost: (jobId:string,amount:number,note:string)=>void
   noticesConnection?: NoticesConnection
   data: ErpData
@@ -1761,6 +1777,7 @@ function JobEditor({
   const totalPlannedMinutes = job.phases.filter((phase) => !phase.notRequired).reduce((sum, phase) => sum + Math.max(0, phase.estimatedMinutes), 0)
 
   return <Modal title={`Scheda commessa ${job.number}`} onClose={onCancel}>
+    {job.estimateId && <div className="planner-actions"><WorkSheetButton data={data} job={job} onError={onPrintError} /></div>}
     <JobMaterialCosts job={job} onSave={(amount,note)=>onSaveMaterialCost(job.id,amount,note)}/>
     <form className="form-grid" onSubmit={(event) => {
       event.preventDefault()
