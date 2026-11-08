@@ -219,7 +219,9 @@ it('verifica dal calendario il primo giorno in cui è disponibile un operatore a
    {id:'bodyworker',name:'Lattoniere',dailyHours:8,active:true,skills:['lattoneria']},
   ]
   data.plannerSettings.absences=[{id:'absence',operatorId:'bodyworker',startDate:'2026-11-09',endDate:'2026-11-09',hoursPerDay:null,reason:'Assenza'}]
-  render(<FastEstimateEditor data={data} onDone={vi.fn()} onCancel={()=>{}}/>)
+  const done=vi.fn()
+  data.customers=[{id:'c',name:'Mario Rossi',phone:'333',type:'Privato',email:'',taxId:'',address:'',createdAt:''}]
+  render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
   const delivery=screen.getByLabelText('Data consegna concordata')
   const forecast=screen.getByLabelText('Previsione consegna preventivo')
   fireEvent.change(delivery,{target:{value:'2026-11-09'}})
@@ -232,11 +234,23 @@ it('verifica dal calendario il primo giorno in cui è disponibile un operatore a
   fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
   expect(forecast).toHaveTextContent('Data non compatibile')
   expect(forecast).toHaveTextContent('10/11/2026')
+  expect(screen.getByRole('radio',{name:'Segui il programma'})).toBeChecked()
+  fireEvent.click(screen.getByRole('radio',{name:'Dai precedenza a questa vettura'}))
+  expect(forecast).toHaveTextContent('Data non compatibile anche con precedenza')
+  expect(forecast).toHaveTextContent('10/11/2026')
+
   fireEvent.change(delivery,{target:{value:'2026-11-10'}})
-  expect(forecast).toHaveTextContent('Data compatibile')
+  expect(forecast).toHaveTextContent('Data compatibile con precedenza')
   fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
   fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
   expect(screen.getByLabelText('Descrizione riga 2')).toHaveValue('Supporto')
+  fireEvent.click(screen.getByRole('button',{name:/^Rimuovi Porta anteriore SX/}))
+  fireEvent.change(screen.getByLabelText('Cliente'),{target:{value:'c'}})
+  fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
+  fireEvent.click(screen.getByRole('button',{name:'Conferma e crea commessa'}))
+  const snapshot=done.mock.calls[0][0]
+  expect(snapshot.estimates[0]).toMatchObject({planningPrecedence:true,requestedDeliveryDate:'2026-11-10'})
+  expect(snapshot.jobs[0]).toMatchObject({planningPrecedence:true,agreedDeliveryDate:'2026-11-10'})
  } finally {
   vi.useRealTimers()
  }

@@ -1064,6 +1064,7 @@ function validatedPaymentTerms(terms: EstimateDocument['paymentTerms']) {
 }
 
 export function createEstimate(data: ErpData, input: {
+	planningPrecedence?: boolean
 	customerId: string
 	vehicleId?: string
 	plate: string
@@ -1102,6 +1103,7 @@ export function createEstimate(data: ErpData, input: {
 		companyName: input.companyName.trim(),
 		contactName: input.contactName.trim(),
 		priority: input.priority ?? 'Normale',
+		planningPrecedence: input.planningPrecedence || undefined,
 		requestedDeliveryDate: String(input.requestedDeliveryDate ?? '').trim(),
 		notes: input.notes.trim(),
 		paymentTerms: validatedPaymentTerms(input.paymentTerms ?? (() => { const customer = data.customers.find(item => item.id === input.customerId); return { method: customer?.usualPaymentMethod ?? 'Bonifico', days: customer?.paymentDays ?? data.financeSettings.defaultPaymentDays, endOfMonth: Boolean(customer?.endOfMonth), expectedInvoiceDate: '' } })()),
@@ -1226,6 +1228,7 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 		expectedDeliveryDate: estimate.requestedDeliveryDate || estimate.productionForecast?.advisedDeliveryDate || estimate.date,
 		agreedDeliveryDate: estimate.requestedDeliveryDate || vehicle?.requestedDeliveryDate || '',
 		priority: estimate.priority ?? 'Normale',
+		planningPrecedence: estimate.planningPrecedence || undefined,
 		responsible: '',
 		status: 'Da pianificare',
 		companyName: estimate.companyName,
@@ -1715,6 +1718,7 @@ export function syncJobsWithVehicles(data: ErpData): ErpData {
 		return {
 			...vehicle,
 			priority: job.priority,
+			planningPrecedence: job.planningPrecedence || undefined,
 			requestedDeliveryDate: job.expectedDeliveryDate || vehicle.requestedDeliveryDate,
 			manualPlanningDate: job.entryDate || vehicle.manualPlanningDate,
 			estimatedHours: Math.max(0, Math.round((plannedMinutes / 60) * 100) / 100),

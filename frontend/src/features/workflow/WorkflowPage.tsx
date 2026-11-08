@@ -41,7 +41,7 @@ import {
   updateQualityChecklistTemplates,
   workTypeTimeComparison,
 } from '../../services/workflow'
-import { simulateEstimateProductionForecast } from '../../services/planner'
+import { recalculateOperatorPrograms, simulateEstimateProductionForecast } from '../../services/planner'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 
@@ -413,7 +413,9 @@ export function WorkflowPage({
               <button onClick={() => setModal({ type: 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
               <button className="primary" onClick={() => {
                 try {
-                  apply(approveEstimateAndCreateJob(data, estimate.id), `Preventivo ${estimate.number} approvato e convertito in commessa.`)
+                  const approved = approveEstimateAndCreateJob(data, estimate.id)
+                  apply(estimate.planningPrecedence ? recalculateOperatorPrograms(approved, undefined, 'Precedenza consegna confermata') : approved,
+                    `Preventivo ${estimate.number} approvato e convertito in commessa.`)
                 } catch (error) {
                   setError(error instanceof Error ? error.message : 'Conversione non riuscita.')
                 }

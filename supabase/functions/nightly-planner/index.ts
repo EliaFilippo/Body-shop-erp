@@ -694,7 +694,7 @@ function sortPlanningVehicles(vehicles) {
   return [...vehicles].sort((a, b) => {
     const aBlocked = Boolean(a.blockReason) || a.partsStatus === "Mancanti";
     const bBlocked = Boolean(b.blockReason) || b.partsStatus === "Mancanti";
-    return Number(aBlocked) - Number(bBlocked) || (a.requestedDeliveryDate || "9999-12-31").localeCompare(b.requestedDeliveryDate || "9999-12-31") || b.expectedMargin - a.expectedMargin || a.createdAt.localeCompare(b.createdAt) || (a.plannedEntryDate || a.createdAt).localeCompare(b.plannedEntryDate || b.createdAt) || (a.manualPlanningDate || "9999-12-31").localeCompare(b.manualPlanningDate || "9999-12-31") || a.createdAt.localeCompare(b.createdAt);
+    return Number(aBlocked) - Number(bBlocked) || Number(Boolean(b.planningPrecedence)) - Number(Boolean(a.planningPrecedence)) || (a.requestedDeliveryDate || "9999-12-31").localeCompare(b.requestedDeliveryDate || "9999-12-31") || b.expectedMargin - a.expectedMargin || a.createdAt.localeCompare(b.createdAt) || (a.plannedEntryDate || a.createdAt).localeCompare(b.plannedEntryDate || b.createdAt) || (a.manualPlanningDate || "9999-12-31").localeCompare(b.manualPlanningDate || "9999-12-31") || a.createdAt.localeCompare(b.createdAt);
   });
 }
 function availableFor(date, settings, usage, protectedMode) {
@@ -960,6 +960,12 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
   const paintPriority = (candidate) => paintFlowPriority(candidate.job, candidate.phase, originalJobs.get(candidate.job.id));
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const openJobs = (data.jobs ?? []).filter((job) => isJobActive(job) && job.vehicleId);
+  const hasPrecedence = openJobs.some((job) => job.planningPrecedence);
+  const precedenceRank = ({ job, phase }) => {
+    if (!hasPrecedence) return 0;
+    if (phase.status === "In lavorazione") return 0;
+    return job.planningPrecedence ? 1 : 2;
+  };
   const candidates = openJobs.map((job, arrivalIndex) => {
     const selectedPhase = selectSchedulablePhase(job);
     if (!selectedPhase) return null;
@@ -990,7 +996,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     };
   }).filter((item) => Boolean(item)).sort((a, b) => {
     if (Number(a.blocked) !== Number(b.blocked)) return Number(a.blocked) - Number(b.blocked);
-    const boothOrder = paintPriority(a).rank - paintPriority(b).rank;
+    const boothOrder = precedenceRank(a) - precedenceRank(b) || paintPriority(a).rank - paintPriority(b).rank;
     if (boothOrder) return boothOrder;
     if (a.score.dueDate !== b.score.dueDate) return a.score.dueDate.localeCompare(b.score.dueDate);
     if (a.score.totalMargin !== b.score.totalMargin) return b.score.totalMargin - a.score.totalMargin;
@@ -1033,7 +1039,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
       const a = candidates[index], b = candidates[nextIndex];
       const ageA = Math.max(0, betweenDays(a.job.createdAt.slice(0, 10), effectiveDate));
       const ageB = Math.max(0, betweenDays(b.job.createdAt.slice(0, 10), effectiveDate));
-      const priorityOrder = paintPriority(a).rank - paintPriority(b).rank || a.score.dueDate.localeCompare(b.score.dueDate) || b.score.totalMargin - a.score.totalMargin || Number(ageB > 4) - Number(ageA > 4) || (ageA > 4 && ageB > 4 ? ageB - ageA : 0) || a.arrivalIndex - b.arrivalIndex;
+      const priorityOrder = precedenceRank(a) - precedenceRank(b) || paintPriority(a).rank - paintPriority(b).rank || a.score.dueDate.localeCompare(b.score.dueDate) || b.score.totalMargin - a.score.totalMargin || Number(ageB > 4) - Number(ageA > 4) || (ageA > 4 && ageB > 4 ? ageB - ageA : 0) || a.arrivalIndex - b.arrivalIndex;
       if (slot < earliest || slot === earliest && priorityOrder < 0) {
         earliest = slot;
         nextIndex = index;
@@ -1121,7 +1127,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
         endAt: workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${paintPriority(item).reason ? paintPriority(item).reason + " \xB7 " : ""}${ranking.reason} \xB7 ${reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)} \xB7 Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
+        reason: `${item.job.planningPrecedence ? "Precedenza consegna \xB7 " : ""}${paintPriority(item).reason ? paintPriority(item).reason + " \xB7 " : ""}${ranking.reason} \xB7 ${reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)} \xB7 Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
