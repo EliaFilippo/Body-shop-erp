@@ -134,8 +134,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
-      - run: deno check supabase/functions/operator-pin/index.ts
-      - run: deno check supabase/functions/nightly-planner/index.ts
+          node-version: 22
+      - name: Type-check Edge Functions with pinned Deno
+        run: npx --yes deno@2.9.6 check supabase/functions/operator-pin/index.ts supabase/functions/nightly-planner/index.ts

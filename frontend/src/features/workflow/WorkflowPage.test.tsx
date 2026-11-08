@@ -534,7 +534,7 @@ describe('WorkflowPage esploso interattivo preventivo', () => {
 it('prints the confirmed job with panel details and no estimate prices', () => {
   const draft = createEstimate(makeData(), {
     customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD', companyName: '', contactName: '',
-    date: '2026-11-08', notes: '', lines: [{
+    date: '2026-11-08', notes: '', selectedPhases: ['Verniciatura'], lines: [{
       description: 'Riparare ammaccatura (lieve) · materiali inclusi', category: 'carrozzeria',
       panelName: 'Porta anteriore SX', damageSeverity: 'lieve', materialsIncluded: true,
       panelWorkNote: 'Proteggere <guarnizione>', quantity: 1, unitPrice: 12345.67, vatRate: 22, discount: 0,
@@ -542,6 +542,9 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
       description: 'Lavaggio interni (lieve) · Vettura intera / interni · materiali inclusi',
       category: 'carrozzeria', panelId: 'vettura-intera', panelName: 'Vettura intera / interni',
       quantity: 1, unitPrice: 80, vatRate: 22, discount: 0,
+    }, {
+      description: 'Ripristino parafango', category: 'verniciatura', panelName: 'Parafango anteriore DX',
+      minorDamageTimes: {v:60}, quantity: 1, unitPrice: 100, vatRate: 22, discount: 0,
     }],
   })
   const onChange = vi.fn()
@@ -566,6 +569,9 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
     expect([...printed.querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['Fatto', 'Lavorazione'])
     expect(printed.body.textContent).toContain('Porta anteriore SX · Riparare ammaccatura')
     expect(printed.body.textContent).toContain('Lavaggio interni')
+    expect([...printed.querySelectorAll('tbody strong')].map(label => label.textContent)).toEqual(['Parafango anteriore DX · Verniciatura'])
+    expect(printed.querySelector('header .cone-label')?.textContent).toBe('CONO')
+    expect(printed.querySelector('header .cone-number')?.textContent).toBe(String(onChange.mock.calls[0][0].jobs[0].coneNumber))
     expect(printed.body.textContent).not.toMatch(/lieve|materiali inclusi|vettura intera/i)
     expect(printed.body.textContent).toContain('Proteggere <guarnizione>')
     expect(printed.querySelector('guarnizione')).toBeNull()
