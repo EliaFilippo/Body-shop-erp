@@ -535,7 +535,8 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
   const draft = createEstimate(makeData(), {
     customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD', companyName: '', contactName: '',
     date: '2026-11-08', notes: '', lines: [{
-      description: 'Riparare ammaccatura', category: 'carrozzeria', panelName: 'Porta anteriore SX',
+      description: 'Riparare ammaccatura (lieve) · materiali inclusi', category: 'carrozzeria',
+      panelName: 'Porta anteriore SX', damageSeverity: 'lieve', materialsIncluded: true,
       panelWorkNote: 'Proteggere <guarnizione>', quantity: 1, unitPrice: 12345.67, vatRate: 22, discount: 0,
     }],
   })
@@ -558,7 +559,9 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
     expect(popup.print).toHaveBeenCalledOnce()
     expect(popup.opener).toBeNull()
     const printed = new DOMParser().parseFromString(popup.document.write.mock.calls[0][0], 'text/html')
-    expect(printed.body.textContent).toContain('Porta anteriore SX')
+    expect([...printed.querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['Fatto', 'Lavorazione'])
+    expect(printed.body.textContent).toContain('Porta anteriore SX · Riparare ammaccatura')
+    expect(printed.body.textContent).not.toMatch(/lieve|materiali inclusi/i)
     expect(printed.body.textContent).toContain('Proteggere <guarnizione>')
     expect(printed.querySelector('guarnizione')).toBeNull()
     expect(printed.body.textContent).toContain('AB123CD')
