@@ -167,17 +167,24 @@ export function getOperatorWorkingIntervals(date: string, settings: PlannerSetti
   const nominalMinutes = targetOperator.weeklySchedule?.length ? intervalsMinutes(companyIntervals)
     : Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)))
   const absences = (settings.absences ?? []).filter((entry: PlannerAbsence) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate)
-  // A blank hours field explicitly means the whole day, never zero absent hours.
-  // It also overrides extensions requested before the absence was entered.
-  if (absences.some(entry => entry.hoursPerDay == null)) return []
-  const absentMinutes = Math.max(0, ...absences.map(entry => Math.round(Math.max(0, entry.hoursPerDay ?? 0) * 60)))
+  const timedAbsences: TimeInterval[] = []
+  const durationAbsences = absences.filter(entry => {
+    const startMinute = parseTimeToMinutes(entry.startTime)
+    const endMinute = parseTimeToMinutes(entry.endTime)
+    if (startMinute == null || endMinute == null || endMinute <= startMinute) return true
+    timedAbsences.push({ startMinute, endMinute })
+    return false
+  })
+  // Keep existing whole-day and duration-only records compatible.
+  if (durationAbsences.some(entry => entry.hoursPerDay == null)) return []
+  const absentMinutes = Math.max(0, ...durationAbsences.map(entry => Math.round(Math.max(0, entry.hoursPerDay ?? 0) * 60)))
   if (nominalMinutes > 0 && absentMinutes >= nominalMinutes) return []
   const availableMinutes = Math.max(0, nominalMinutes - absentMinutes)
   const ordinary=trimIntervalsToMinutes(companyIntervals, availableMinutes)
   const extra=(settings.operatorDayExtensions??[]).filter(entry=>entry.operatorId===targetOperator.id&&entry.date===date)
     .map(entry=>({startMinute:Math.max(0,entry.startMinute),endMinute:Math.min(1439,entry.endMinute)}))
     .filter(entry=>entry.endMinute>entry.startMinute)
-  return mergeIntervals([...ordinary,...extra])
+  return mergeIntervals(subtractIntervals([...ordinary, ...extra], timedAbsences))
 }
 
 export function isWorkingDate(date: string, settings: PlannerSettings) {

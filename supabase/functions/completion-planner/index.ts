@@ -92,7 +92,7 @@ function applyProductionPlanningState(data, state) {
         manualExtra: p.manualExtra,
         serverWorkTracked: true,
         remainingTimeUnknown: !!p.remainingTimeUnknown && !(Number(base?.estimatedMinutes ?? p.estimatedMinutes) > 0 || Number(base?.sharedTimeMinutes ?? p.sharedTimeMinutes) > 0),
-        actualMinutes: Math.max(base?.actualMinutes ?? 0, p.actualMinutes ?? 0),
+        actualMinutes: p.status === "Completata" && Number.isFinite(p.tabletWorkedSeconds) && p.tabletWorkedSeconds >= 0 ? p.tabletWorkedSeconds / 60 : Number.isFinite(p.actualMinutes) && p.actualMinutes >= 0 ? p.actualMinutes : base?.actualMinutes ?? 0,
         startedAt: p.startedAt,
         technicalWaitMinutes: Math.max(base?.technicalWaitMinutes ?? 0, p.technicalWaitMinutes ?? 0),
         technicalWaitBlocksPhaseNames: [.../* @__PURE__ */ new Set([...base?.technicalWaitBlocksPhaseNames ?? [], ...p.technicalWaitBlocksPhaseNames ?? []])]
@@ -128,7 +128,7 @@ function applyProductionPlanningState(data, state) {
       phases.sort((a, b) => order(a) - order(b));
     }
     phases = phases.map((phase) => {
-      if (phase.status === "Completata") return phase;
+      if (phase.status === "Completata" && !phase.serverWorkTracked) return phase;
       const entries = state.entries.filter((e) => e.jobId === job.id && e.phaseId === phase.id && Number.isFinite(e.closedSeconds) && e.closedSeconds >= 0);
       if (!entries.length) return phase;
       const assignments = entries.map((e) => ({
@@ -290,13 +290,21 @@ function getOperatorWorkingIntervals(date, settings, operator) {
   ]);
   const nominalMinutes = targetOperator.weeklySchedule?.length ? intervalsMinutes(companyIntervals) : Math.min(intervalsMinutes(companyIntervals), Math.max(0, Math.round((targetOperator.dailyHours ?? 0) * 60)));
   const absences = (settings.absences ?? []).filter((entry) => entry.operatorId === targetOperator.id && date >= entry.startDate && date <= entry.endDate);
-  if (absences.some((entry) => entry.hoursPerDay == null)) return [];
-  const absentMinutes = Math.max(0, ...absences.map((entry) => Math.round(Math.max(0, entry.hoursPerDay ?? 0) * 60)));
+  const timedAbsences = [];
+  const durationAbsences = absences.filter((entry) => {
+    const startMinute = parseTimeToMinutes(entry.startTime);
+    const endMinute = parseTimeToMinutes(entry.endTime);
+    if (startMinute == null || endMinute == null || endMinute <= startMinute) return true;
+    timedAbsences.push({ startMinute, endMinute });
+    return false;
+  });
+  if (durationAbsences.some((entry) => entry.hoursPerDay == null)) return [];
+  const absentMinutes = Math.max(0, ...durationAbsences.map((entry) => Math.round(Math.max(0, entry.hoursPerDay ?? 0) * 60)));
   if (nominalMinutes > 0 && absentMinutes >= nominalMinutes) return [];
   const availableMinutes = Math.max(0, nominalMinutes - absentMinutes);
   const ordinary = trimIntervalsToMinutes(companyIntervals, availableMinutes);
   const extra = (settings.operatorDayExtensions ?? []).filter((entry) => entry.operatorId === targetOperator.id && entry.date === date).map((entry) => ({ startMinute: Math.max(0, entry.startMinute), endMinute: Math.min(1439, entry.endMinute) })).filter((entry) => entry.endMinute > entry.startMinute);
-  return mergeIntervals([...ordinary, ...extra]);
+  return mergeIntervals(subtractIntervals([...ordinary, ...extra], timedAbsences));
 }
 function isWorkingDate(date, settings) {
   return getOperatorWorkingIntervals(date, settings).length > 0;

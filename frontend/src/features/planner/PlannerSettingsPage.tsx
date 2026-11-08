@@ -1,3 +1,4 @@
+import { parseTimeToMinutes } from '../../services/workCalendar'
 import { preferredOperatorDuties } from '../../services/operatorSkills'
 import { useEffect, useMemo, useState } from 'react'
 import { MoneyInput } from '../../components/MoneyInput'
@@ -391,7 +392,10 @@ export function PlannerSettingsPage({
               ? 'Completa correttamente le regole tempi.'
                 : (draft.standardWorkTimePresets ?? []).some((preset) => !preset.workName.trim() || !preset.panelName.trim() || Number(preset.minutes) <= 0)
                   ? 'Completa correttamente i tempi predefiniti per pannello e lavorazione.'
-              : draft.absences.some((absence) => !absence.startDate || !absence.endDate || absence.endDate < absence.startDate)
+              : draft.absences.some((absence) => !absence.startDate || !absence.endDate || absence.endDate < absence.startDate ||
+                ((absence.startTime || absence.endTime) &&
+                  (parseTimeToMinutes(absence.startTime) == null || parseTimeToMinutes(absence.endTime) == null ||
+                    parseTimeToMinutes(absence.startTime)! >= parseTimeToMinutes(absence.endTime)!)))
                 ? 'Completa correttamente gli intervalli di ferie e assenze.'
                 : ''
 
@@ -783,7 +787,7 @@ export function PlannerSettingsPage({
       <div className="panel-head">
         <div>
           <span className="eyebrow">FERIE E ASSENZE</span>
-          <h3>Disponibilita operatori</h3><p>Lascia vuoto «Ore assenza» per indicare tutto il giorno. Per un’assenza parziale inserisci il numero di ore. Le date di inizio e fine sono comprese.</p>
+          <h3>Disponibilita operatori</h3><p>Per bloccare una fascia precisa indica gli orari di inizio e fine. Se inserisci solo le ore, il turno si accorcia dalla fine. Lascia orari e ore vuoti per un’assenza di tutto il giorno.</p>
         </div>
         <button
           className="secondary"
@@ -817,7 +821,10 @@ export function PlannerSettingsPage({
           </select>
           <input aria-label="Inizio assenza" type="date" value={absence.startDate} onChange={(event) => updateAbsence(absence.id, { startDate: event.target.value })} />
           <input aria-label="Fine assenza" type="date" value={absence.endDate} onChange={(event) => updateAbsence(absence.id, { endDate: event.target.value })} />
-          <input aria-label="Ore assenza" type="number" min="0" step="0.5" placeholder="Tutto il giorno" value={absence.hoursPerDay ?? ''} onChange={(event) => updateAbsence(absence.id, { hoursPerDay: event.target.value ? Number(event.target.value) : null })} />
+          <div><input aria-label="Ore assenza" disabled={Boolean(absence.startTime || absence.endTime)} type="number" min="0" step="0.5" placeholder="Tutto il giorno" value={absence.hoursPerDay ?? ''} onChange={(event) => updateAbsence(absence.id, { hoursPerDay: event.target.value ? Number(event.target.value) : null })} />
+            <label>Dalle <input aria-label="Ora inizio assenza" type="time" value={absence.startTime ?? ''} onChange={event => updateAbsence(absence.id, { startTime: event.target.value })} /></label>
+            <label>Alle <input aria-label="Ora fine assenza" type="time" value={absence.endTime ?? ''} onChange={event => updateAbsence(absence.id, { endTime: event.target.value })} /></label>
+          </div>
           <input aria-label="Motivo assenza" placeholder="Motivo" value={absence.reason} onChange={(event) => updateAbsence(absence.id, { reason: event.target.value })} />
           <button
             className="danger"

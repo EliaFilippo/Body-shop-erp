@@ -413,6 +413,8 @@ export interface PlannerAbsence {
   startDate: string
   endDate: string
   hoursPerDay: number | null
+  startTime?: string
+  endTime?: string
   reason: string
 }
 
