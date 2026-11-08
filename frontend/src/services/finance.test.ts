@@ -159,6 +159,14 @@ describe('RIBA per vetture e liquidità senza duplicazioni',()=>{
   expect(ribaVehicleOptions(next)).toHaveLength(0)
   expect(data.ribaBatches).toHaveLength(0)
  })
+ it('non ripropone la quota di una vettura già registrata nella fattura condivisa', () => {
+  const data = source()
+  const [first, second] = ribaVehicleOptions(data)
+  const next = createVehicleRiba(data, {...input(data), selections:[{key:first.key, amount:first.amount}]})
+  expect(ribaVehicleOptions(next)).toEqual([second])
+  const settled = settleRibaBatch(next, next.ribaBatches[0].id, '2026-03-31')
+  expect(ribaVehicleOptions(settled)).toEqual([second])
+ })
  it('l’anticipo incrementa il saldo netto e a maturazione rimane soltanto il residuo',()=>{
   const data=source()
   const next=createVehicleRiba(data,{...input(data),mode:'advance',advanceAmount:1000,fees:20,interest:10})
