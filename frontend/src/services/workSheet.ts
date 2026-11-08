@@ -10,11 +10,15 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
   const vehicleDetails = [vehicle?.make, vehicle?.model, vehicle?.color].filter(Boolean).join(' · ')
   const rows = job.lines.map(line => {
     const panel = line.panelName?.trim()
-    const description = line.description.trim() || line.standardWorkName?.trim() || 'Lavorazione'
+    const description = line.description
+      .replace(/\s*\((?:lieve|grave)\)/gi, '')
+      .replace(/(?:^|\s*·\s*)materiali inclusi(?=\s*(?:·|$))/gi, '')
+      .trim() || line.standardWorkName?.trim() || panel || 'Lavorazione'
+    const work = panel && !line.manualFastLine && !description.toLowerCase().includes(panel.toLowerCase())
+      ? `${panel} · ${description}` : description
     return `<tr>
       <td class="check"><span aria-label="Da spuntare"></span></td>
-      <td><strong>${escapeHtml(panel || 'Altra lavorazione')}</strong>${line.damageSeverity ? `<small>Danno ${escapeHtml(line.damageSeverity)}</small>` : ''}</td>
-      <td>${escapeHtml(description)}${line.quantity > 1 ? ` <small>Quantità ${escapeHtml(line.quantity)}</small>` : ''}
+      <td>${escapeHtml(work)}${line.quantity > 1 ? ` <small>Quantità ${escapeHtml(line.quantity)}</small>` : ''}
         ${line.panelWorkNote?.trim() ? `<small>Nota operativa · ${escapeHtml(line.panelWorkNote)}</small>` : ''}</td>
     </tr>`
   }).join('')
@@ -33,7 +37,6 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
   small { display: block; margin-top: 1mm; white-space: pre-wrap }
   .check { width: 10mm; text-align: center }
   .check span { display: inline-block; width: 4mm; height: 4mm; border: 1px solid #111 }
-  .panel-name { width: 48mm }
   .notes { break-inside: avoid; margin-top: 7mm }
   .line { min-height: 8mm; border-bottom: 1px solid #999 }
   @media screen { body { max-width: 185mm; margin: 14mm auto; padding: 0 4mm } }
@@ -44,8 +47,8 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
   <p>Commessa ${escapeHtml(job.number)}${estimate ? ` · Preventivo ${escapeHtml(estimate.number)}` : ''}${job.coneNumber ? ` · Cono ${escapeHtml(job.coneNumber)}` : ''}</p>
   ${job.expectedDeliveryDate ? `<p>Consegna prevista ${escapeHtml(displayDate(job.expectedDeliveryDate))}</p>` : ''}
 </header>
-<table><thead><tr><th class="check">Fatto</th><th class="panel-name">Pannello</th><th>Lavorazione</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="3">Nessuna lavorazione indicata nella commessa.</td></tr>'}</tbody></table>
+<table><thead><tr><th class="check">Fatto</th><th>Lavorazione</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="2">Nessuna lavorazione indicata nella commessa.</td></tr>'}</tbody></table>
 <section class="notes"><strong>Note degli operatori</strong><div class="line"></div><div class="line"></div></section>
 </body></html>`
 }
