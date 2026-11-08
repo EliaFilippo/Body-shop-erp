@@ -19,6 +19,7 @@ export function DeliveryForecastPanel({ data, vehicleId, plate, requestedDeliver
   }, [data, vehicleId, plate, requestedDeliveryDate, onRequestedDeliveryDateChange, planningPrecedence, quote, estimate, revision])
   const forecast = result.forecast
   const date = forecast?.advisedDeliveryDate
+  const verifiedDate = onRequestedDeliveryDateChange && requestedDeliveryDate
   const startDate = forecast && (onRequestedDeliveryDateChange ? forecast.estimatedStartAt.slice(0, 10) : forecast.firstAvailabilityDate)
   return <section className="panel" aria-label="Previsione consegna preventivo">
     <h3>Previsione di consegna prima dell’invio</h3>
@@ -29,15 +30,16 @@ export function DeliveryForecastPanel({ data, vehicleId, plate, requestedDeliver
       <label><input type="radio" name="fast-planning-order" checked={Boolean(planningPrecedence)} onChange={() => onPlanningPrecedenceChange(true)} /> Dai precedenza a questa vettura</label>
       {planningPrecedence && <p>Alla conferma della commessa, la vettura passa davanti alle lavorazioni ancora da avviare. Le consegne già previste possono slittare.</p>}
     </fieldset>}
-    {onRequestedDeliveryDateChange && requestedDeliveryDate && <p role="status"><strong>{forecast?.requestedDeliveryCompatible === true
+    {verifiedDate && <p role="status">Data verificata {verifiedDate.split('-').reverse().join('/')} · <strong>{forecast?.requestedDeliveryCompatible === true
       ? planningPrecedence ? 'Data compatibile con precedenza.' : 'Data compatibile con il piano attuale.'
       : forecast?.requestedDeliveryCompatible === false
         ? planningPrecedence ? 'Data non compatibile anche con precedenza.' : 'Data non compatibile con il piano attuale.'
         : 'Compatibilità da verificare.'}</strong></p>}
-    <strong>{date ? `Consegna indicativa: ${date.split('-').reverse().join('/')}` : 'Data da calcolare'}</strong>
+    <strong>{date ? `${verifiedDate ? 'Prima consegna stimata' : 'Consegna indicativa'}: ${date.split('-').reverse().join('/')}` : 'Data da calcolare'}</strong>
     {result.error && <p role="status">{result.error}</p>}
     {!!forecast?.blockingReasons?.length && <p role="status">{forecast.blockingReasons.join(' ')}</p>}
     {date && <p>Inizio previsto: {startDate?.split('-').reverse().join('/')} · Affidabilità: {forecast?.reliability}.</p>}
+    {verifiedDate && forecast?.requestedDeliveryCompatible === true && forecast.reliability === 'Bassa' && <p>La data è compatibile, ma il carico dell’officina è alto.</p>}
     {forecast?.requestedDeliveryCompatible === false && <p role="status">La data richiesta è precedente alla prima consegna prevista.</p>}
     <p>Stima indicativa sul carico e sui calendari attuali, sulle mansioni abilitate, sui tempi inseriti e sull’attesa dopo la verniciatura. Ricalcolala prima di comunicarla al cliente.{!onRequestedDeliveryDateChange && ' Non imposta la data di consegna concordata.'}</p>
     <button type="button" className="secondary" onClick={() => setRevision(value => value + 1)}>Ricalcola previsione consegna</button>
