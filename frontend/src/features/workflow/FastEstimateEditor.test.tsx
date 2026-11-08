@@ -28,9 +28,19 @@ describe('percorso fast in ufficio',()=>{
   fireEvent.change(screen.getByLabelText('Telefono nuovo cliente'),{target:{value:'3331234567'}})
   fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
   fireEvent.click(screen.getByRole('button',{name:/^Porta anteriore SX ·/}))
+  const discount = screen.getByLabelText('Sconto (%)')
+  fireEvent.change(discount, {target:{value:'101'}})
+  expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeDisabled()
+  fireEvent.change(discount, {target:{value:'10,5'}})
+  expect(screen.getByLabelText('Riepilogo preventivo fast')).toHaveTextContent('134,25')
   fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
   fireEvent.click(screen.getByRole('button',{name:'Conferma e crea commessa'}))
-  expect(done.mock.calls[0][0].jobs).toHaveLength(1)
+  const next = done.mock.calls[0][0]
+  expect(next.jobs).toHaveLength(1)
+  for (const saved of [next.estimates[0], next.quotes[0], next.jobs[0]]) {
+   expect(saved).toMatchObject({taxableAmount:134.25,vatAmount:29.54,total:163.79})
+  }
+  expect(next.estimates[0].lines[0]).toMatchObject({unitPrice:150,discount:15.75,estimatedMinutes:180})
  })
  it('apre WhatsApp Web al cliente senza approvare automaticamente il preventivo',()=>{
   const data=structuredClone(emptyData)

@@ -8,7 +8,7 @@ import type { ErpData, EstimateLine, EstimatePaymentTerms } from '../../types'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
 import { createDefaultQuote } from '../../services/acceptance'
-import { chooseEliasPrice, recalculateDamageLine, damageQuoteIssue, damageLineForSave, damageLineDescription } from '../../services/damageQuote'
+import { chooseEliasPrice, recalculateDamageLine, damageQuoteIssue, damageLineForSave, damageLineDescription, acceptanceEstimateLines } from '../../services/damageQuote'
 import { eliasPricesForPanel, eliasEntryForWork } from '../../services/eliasPriceList'
 import { createFastEstimate } from '../../services/fastEstimate'
 import { fastEstimateWhatsAppLink } from '../../services/fastEstimateWhatsApp'
@@ -18,6 +18,7 @@ import { QUOTE_PANELS } from './vehiclePanels'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 
 export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(next:ErpData,confirmed:boolean,pdfPrepared?:boolean)=>void;onCancel:()=>void}) {
+ const [discountInput, setDiscountInput] = useState('')
  const [plate,setPlate]=useState('')
  const [customerId,setCustomerId]=useState('')
  const [name,setName]=useState('')
@@ -40,7 +41,25 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
  const targetPhone=whatsappPhone??(recipient?.phone||phone)
  const panel=QUOTE_PANELS.find(p=>p.id===panelId)
  const choices=panel?eliasPricesForPanel(panel.id,panel.name,data.plannerSettings):[]
- const quote=useMemo(()=>({...createDefaultQuote(data.plannerSettings,new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome',year:'numeric',month:'2-digit'}).format(new Date())),manualOnlyPricing:true,damageLines:lines.map(damageLineForSave),selectedPhases:wash?['Lavaggio esterno']:[]}),[data.plannerSettings,lines,wash])
+ const discountPercent = Number(discountInput.trim().replace(',', '.'))
+ const invalidDiscount = !Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100
+ const subtotal = lines.reduce((sum, line) => sum + line.unitPrice, 0)
+ const discount = invalidDiscount ? 0 : Math.round(subtotal * discountPercent) / 100
+ const quote = useMemo(() => {
+  const base = createDefaultQuote(data.plannerSettings, new Intl.DateTimeFormat('sv-SE', {
+   timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit',
+  }).format(new Date()))
+  return {
+   ...base,
+   manualOnlyPricing: true,
+   damageLines: lines.map(damageLineForSave),
+   selectedPhases: wash ? ['Lavaggio esterno'] : [],
+   lines: discount > 0 ? [...base.lines, {
+    id: 'fast-discount', kind: 'discount' as const, description: 'Sconto preventivo',
+    quantity: 1, unitPrice: discount, unitCost: 0, source: 'manual' as const,
+   }] : base.lines,
+  }
+ }, [data.plannerSettings, lines, wash, discount])
  const lineIssue=damageQuoteIssue(lines)
  const lineError=lineIssue?.message??''
  const goToIssue=()=>{
@@ -60,10 +79,15 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
  },data.plannerSettings)])
  const manualTimes=(line:EstimateLine)=>line.manualPhaseTimes??[{phase:line.categoryOrPhase||'',minutes:line.estimatedMinutes||0}]
  const updateManualTimes=(line:EstimateLine,times:Array<{phase:string;minutes:number}>)=>setLines(current=>current.map(item=>item.id!==line.id?item:recalculateDamageLine({...item,manualPhaseTimes:times,standardWorkName:times[0]?.phase||'',categoryOrPhase:times[0]?.phase||'',requiredSkill:times[0]?.phase||''},data.plannerSettings)))
- const taxable=lines.reduce((sum,line)=>sum+line.unitPrice,0)
+ const taxable = subtotal - discount
+ const netLines = lines.length && !lineError ? acceptanceEstimateLines(quote) : []
+ const total = netLines.length ? netLines.reduce((sum, line) => {
+  const net = Math.round((line.quantity * line.unitPrice - line.discount) * 100) / 100
+  return sum + net + Math.round(net * line.vatRate) / 100
+ }, 0) : taxable * (1 + quote.appliedVatRate / 100)
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
  return <Modal title="Preventivo fast" onClose={onCancel}>
-  <form onSubmit={e=>{e.preventDefault();if(busy.current)return;busy.current=true;try{
+  <form onSubmit={e=>{e.preventDefault();if(busy.current||invalidDiscount)return;busy.current=true;try{
    const next=createFastEstimate(data,{plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,notes,paymentTerms:terms})
    const send=(e.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='whatsapp'
    const link=send?fastEstimateWhatsAppLink(next.estimates![0],targetPhone):null
@@ -104,7 +128,10 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <label><input type="checkbox" checked={wash} onChange={e=>setWash(e.target.checked)}/>Includi lavaggio esterno · {data.plannerSettings.eliasExteriorWashMinutes??25} min</label>
    <details><summary>Consegna concordata e note</summary><label>Data consegna concordata<input type="date" value={delivery} onChange={e=>setDelivery(e.target.value)}/></label><label>Note<input value={notes} onChange={e=>setNotes(e.target.value)}/></label></details>
    <FastPaymentTerms value={terms} delivery={delivery} onChange={setTermsOverride}/>
-   <section className="panel" aria-label="Riepilogo preventivo fast"><h3>{euro(taxable)} + IVA · {euro(lines.reduce((sum,l)=>sum+l.total,0))} totale</h3><p>Tempo tecnico: {minutes} min. I prezzi non allungano il tempario.</p><p>Condizioni di pagamento del cliente precompilate. Alla conferma: commessa, cono, pianificazione e pubblicazione sui tablet automatiche, con mansioni e disponibilità degli operatori.</p></section>
+   <section className="panel" aria-label="Riepilogo preventivo fast"><label>Sconto (%)<input inputMode="decimal" value={discountInput} onChange={e => setDiscountInput(e.target.value)} placeholder="0" aria-invalid={invalidDiscount}/></label>
+    {invalidDiscount && <p role="alert">Inserisci una percentuale da 0 a 100.</p>}
+    {discount > 0 && <p>Imponibile prima dello sconto {euro(subtotal)} · Sconto {euro(discount)}</p>}
+    <h3>{euro(taxable)} + IVA · {euro(total)} totale</h3><p>Tempo tecnico: {minutes} min. I prezzi non allungano il tempario.</p><p>Condizioni di pagamento del cliente precompilate. Alla conferma: commessa, cono, pianificazione e pubblicazione sui tablet automatiche, con mansioni e disponibilità degli operatori.</p></section>
    <DeliveryForecastPanel data={data} vehicleId={existing?.id} plate={plate} quote={quote} requestedDeliveryDate={delivery}/>
    <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings}/>
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
@@ -112,7 +139,7 @@ export function FastEstimateEditor({data,onDone,onCancel}:{data:ErpData;onDone:(
    <p>Il gestionale scarica il preventivo PDF e apre WhatsApp. Nella chat premi la graffetta → Documento e allega il PDF appena scaricato. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>
    {lineError&&<p role="status">{lineError} <button type="button" className="secondary" onClick={goToIssue}>Vai alla riga {lineIssue!.lineIndex+1} da completare</button></p>}
    {error&&<p role="alert">{error}</p>}
-   <div className="planner-actions"><button type="button" className="secondary" onClick={onCancel}>Annulla</button><button type="submit" className="primary" disabled={!lines.length||Boolean(lineError)}>{confirmed?'Conferma e crea commessa':'Salva preventivo fast'}</button><button type="submit" value="whatsapp" className="primary" disabled={!lines.length||Boolean(lineError)}>Salva e invia su WhatsApp</button></div>
+   <div className="planner-actions"><button type="button" className="secondary" onClick={onCancel}>Annulla</button><button type="submit" className="primary" disabled={!lines.length||Boolean(lineError)||invalidDiscount}>{confirmed?'Conferma e crea commessa':'Salva preventivo fast'}</button><button type="submit" value="whatsapp" className="primary" disabled={!lines.length||Boolean(lineError)||invalidDiscount}>Salva e invia su WhatsApp</button></div>
   </form>
  </Modal>
 }
