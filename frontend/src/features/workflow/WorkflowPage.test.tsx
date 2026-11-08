@@ -538,6 +538,10 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
       description: 'Riparare ammaccatura (lieve) · materiali inclusi', category: 'carrozzeria',
       panelName: 'Porta anteriore SX', damageSeverity: 'lieve', materialsIncluded: true,
       panelWorkNote: 'Proteggere <guarnizione>', quantity: 1, unitPrice: 12345.67, vatRate: 22, discount: 0,
+    }, {
+      description: 'Lavaggio interni (lieve) · Vettura intera / interni · materiali inclusi',
+      category: 'carrozzeria', panelId: 'vettura-intera', panelName: 'Vettura intera / interni',
+      quantity: 1, unitPrice: 80, vatRate: 22, discount: 0,
     }],
   })
   const onChange = vi.fn()
@@ -561,7 +565,8 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
     const printed = new DOMParser().parseFromString(popup.document.write.mock.calls[0][0], 'text/html')
     expect([...printed.querySelectorAll('th')].map(cell => cell.textContent)).toEqual(['Fatto', 'Lavorazione'])
     expect(printed.body.textContent).toContain('Porta anteriore SX · Riparare ammaccatura')
-    expect(printed.body.textContent).not.toMatch(/lieve|materiali inclusi/i)
+    expect(printed.body.textContent).toContain('Lavaggio interni')
+    expect(printed.body.textContent).not.toMatch(/lieve|materiali inclusi|vettura intera/i)
     expect(printed.body.textContent).toContain('Proteggere <guarnizione>')
     expect(printed.querySelector('guarnizione')).toBeNull()
     expect(printed.body.textContent).toContain('AB123CD')

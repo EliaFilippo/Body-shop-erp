@@ -9,11 +9,15 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
   const estimate = data.estimates?.find(item => item.id === job.estimateId)
   const vehicleDetails = [vehicle?.make, vehicle?.model, vehicle?.color].filter(Boolean).join(' · ')
   const rows = job.lines.map(line => {
-    const panel = line.panelName?.trim()
-    const description = line.description
+    const wholeVehicleLabel = /vettura intera\s*\/\s*interni/i
+    const panel = line.panelId === 'vettura-intera' || wholeVehicleLabel.test(line.panelName ?? '')
+      ? '' : line.panelName?.trim()
+    const cleanDescription = (value: string) => value
       .replace(/\s*\((?:lieve|grave)\)/gi, '')
-      .replace(/(?:^|\s*·\s*)materiali inclusi(?=\s*(?:·|$))/gi, '')
-      .trim() || line.standardWorkName?.trim() || panel || 'Lavorazione'
+      .split('·').map(part => part.trim())
+      .filter(part => part && !/^(?:materiali inclusi|vettura intera\s*\/\s*interni)$/i.test(part))
+      .join(' · ')
+    const description = cleanDescription(line.description) || cleanDescription(line.standardWorkName ?? '') || panel || 'Lavorazione'
     const work = panel && !line.manualFastLine && !description.toLowerCase().includes(panel.toLowerCase())
       ? `${panel} · ${description}` : description
     return `<tr>
