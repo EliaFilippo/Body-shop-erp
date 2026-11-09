@@ -75,6 +75,9 @@ function isVehicleStatusSemantic(settings, status, semantic) {
   const legacyFound = statusById(settings, legacy);
   return legacyFound?.semantic === semantic;
 }
+function isVehicleWaitingForParts(settings, vehicle) {
+  return vehicle.partsStatus === "Mancanti" || vehicle.partsStatus === "Ordinati" || isVehicleStatusSemantic(settings, vehicle.status, "waiting-parts");
+}
 
 // frontend/src/services/closedPlanningWork.ts
 function closedPlanningWork(data) {
@@ -84,6 +87,14 @@ function closedPlanningWork(data) {
   const jobIds = new Set((data.jobs ?? []).filter(
     (job) => job.status === "Consegnata" || job.status === "Annullata" || vehicleIds.has(job.vehicleId ?? "")
   ).map((job) => job.id));
+  return {
+    jobIds,
+    hasTask: (task) => jobIds.has(task.jobId) || vehicleIds.has(task.vehicleId)
+  };
+}
+function waitingPartsPlanningWork(data) {
+  const vehicleIds = new Set(data.vehicles.filter((vehicle) => isVehicleWaitingForParts(data.plannerSettings, vehicle)).map((vehicle) => vehicle.id));
+  const jobIds = new Set((data.jobs ?? []).filter((job) => vehicleIds.has(job.vehicleId ?? "")).map((job) => job.id));
   return {
     jobIds,
     hasTask: (task) => jobIds.has(task.jobId) || vehicleIds.has(task.vehicleId)
@@ -860,7 +871,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     if (!selectedPhase) return null;
     const vehicle = vehiclesById.get(job.vehicleId ?? "");
     if (!vehicle) return null;
-    const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason);
+    const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle);
     const compatibleCount = operators.filter((operator) => operatorCompatible(operator, selectedPhase.phase)).length;
     const score = computePriorityScore({
       job,
@@ -1406,6 +1417,7 @@ var romeDate = (iso) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Rom
 function buildCompletionPlan(data, state, generation) {
   const actual = applyLivePhaseChecks(applyProductionPlanningState(data, state), state.checks ?? []);
   const { jobIds: closedJobs } = closedPlanningWork(actual);
+  const { jobIds: waitingJobs } = waitingPartsPlanningWork(actual);
   const availability = { operators: {}, jobs: {} };
   const fixed = [], warnings = [];
   const now = new Date(state.serverNow).toISOString(), day = romeDate(now), revision = (actual.operatorProgramRevision ?? 0) + 1;
@@ -1432,7 +1444,7 @@ function buildCompletionPlan(data, state, generation) {
       const finish = nextShift > clockNow ? new Date(Date.parse(clockNow) + minutes * 6e4).toISOString() : addWorkingMinutes(start, minutes, actual.plannerSettings, operator);
       availability.operators[operator.id] = [availability.operators[operator.id] ?? "", finish].sort().at(-1);
       end = [end, finish].sort().at(-1);
-      fixed.push({ id: `running:${job.id}:${phase.id}:${operator.id}`, operatorId: operator.id, operatorName: operator.name, vehicleId: job.vehicleId ?? "", plate: job.plate, jobId: job.id, jobNumber: job.number, phaseId: phase.id, phaseName: phase.name, startAt: start, endAt: finish, plannedMinutes: minutes, priority: job.priority, reason: "Lavorazione gi\xE0 avviata \xB7 operatore mantenuto sulla vettura", panelNames: [], panelNotes: [], originalPlannedDate: day, scheduleDeltaMinutes: 0, isAdvancedFromFuture: false, overtimeMinutes: 0, revision });
+      if (!waitingJobs.has(job.id)) fixed.push({ id: `running:${job.id}:${phase.id}:${operator.id}`, operatorId: operator.id, operatorName: operator.name, vehicleId: job.vehicleId ?? "", plate: job.plate, jobId: job.id, jobNumber: job.number, phaseId: phase.id, phaseName: phase.name, startAt: start, endAt: finish, plannedMinutes: minutes, priority: job.priority, reason: "Lavorazione gi\xE0 avviata \xB7 operatore mantenuto sulla vettura", panelNames: [], panelNotes: [], originalPlannedDate: day, scheduleDeltaMinutes: 0, isAdvancedFromFuture: false, overtimeMinutes: 0, revision });
     }
     availability.jobs[job.id] = [availability.jobs[job.id] ?? "", end].sort().at(-1);
     return { ...calendarPhase(phase), status: "Completata", completedAt: end, endedAt: end, operatorAssignments: [] };
@@ -1471,7 +1483,7 @@ function buildCompletionPlan(data, state, generation) {
       const remaining = Math.max(1, (phase.sharedTimeKey ? phase.sharedTimeMinutes ?? phase.estimatedMinutes : phase.estimatedMinutes) - members.reduce((sum, p) => sum + worked(p), 0));
       return planned.filter((t) => members.some((p) => p.id === t.phaseId)).reduce((sum, t) => sum + t.plannedMinutes, 0) + 1e-3 >= remaining;
     };
-    const known = !job.blocks?.length && !actual.vehicles.find((v) => v.id === job.vehicleId)?.blockReason && required.every((p) => !p.remainingTimeUnknown && p.status !== "Bloccata" && planned.some((t) => t.phaseId === p.id) && covered(p));
+    const known = !waitingJobs.has(job.id) && !job.blocks?.length && !actual.vehicles.find((v) => v.id === job.vehicleId)?.blockReason && required.every((p) => !p.remainingTimeUnknown && p.status !== "Bloccata" && planned.some((t) => t.phaseId === p.id) && covered(p));
     const drying = job.phases.filter((p) => !p.notRequired && p.status === "Completata" && (p.completedAt || p.endedAt) && Math.max(0, p.name === "Verniciatura" ? Math.max(60, p.technicalWaitMinutes ?? 60) : p.technicalWaitMinutes ?? 0) > 0).map((p) => new Date(Date.parse(p.completedAt || p.endedAt) + Math.max(0, p.name === "Verniciatura" ? Math.max(60, p.technicalWaitMinutes ?? 60) : p.technicalWaitMinutes ?? 0) * 6e4).toISOString());
     const endAt = known ? [now, ...planned.map((t) => t.endAt), ...drying].sort().at(-1) : null;
     if (!known) warnings.push(`${job.plate}: consegna non stimabile, verifica tempi, mansioni o blocchi.`);

@@ -1,6 +1,6 @@
 import type { ConeEvent, Customer, ErpData, InternalMonthlyCostCategory, InternalMonthlyCostItem, PlannerSettings, Vehicle, VehicleCostEntry, VehicleStatus, VehicleStatusChange } from '../types'
 import { calculateVehicleEconomicSnapshot } from './economic'
-import { defaultVehicleStatus, isVehicleConeRequiredStatus, resolveVehicleStatusId } from './vehicleStatuses'
+import { defaultVehicleStatus, isVehicleConeRequiredStatus, isVehicleStatusSemantic, resolveVehicleStatusId } from './vehicleStatuses'
 import { DEFAULT_WEEKLY_WORK_SCHEDULE } from './workCalendar'
 
 export const TOTAL_CONES = 30
@@ -467,6 +467,12 @@ export function changeVehicleStatus(
     ))
   }
 
+  const waitingForParts = isVehicleStatusSemantic(data.plannerSettings, nextStatus, 'waiting-parts')
+  const wasWaitingForParts = isVehicleStatusSemantic(data.plannerSettings, vehicle.status, 'waiting-parts')
+  let partsStatus = vehicle.partsStatus
+  if (source === 'manual' && waitingForParts && partsStatus === 'Disponibili') partsStatus = 'Mancanti'
+  if (source === 'manual' && wasWaitingForParts && !waitingForParts) partsStatus = 'Disponibili'
+
   return reconcileVehicleCones({
     ...data,
     coneHistory: history,
@@ -475,6 +481,7 @@ export function changeVehicleStatus(
         ? {
             ...item,
             status: nextStatus,
+            partsStatus,
             statusMode: source,
             suggestedStatus: source === 'automatic' ? item.suggestedStatus : null,
             coneNumber: item.coneNumber,

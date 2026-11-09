@@ -1,4 +1,4 @@
-import { closedPlanningWork } from './closedPlanningWork'
+import { closedPlanningWork, waitingPartsPlanningWork } from './closedPlanningWork'
 import { paintFlowPriority } from './paintFlowPriority'
 import { isWashingPhase, findWashStationStart, currentWashReservations } from './washStation'
 import { findPaintStationStart, type PaintReservation } from './paintStations'
@@ -23,7 +23,7 @@ import type {
   Vehicle,
 } from '../types'
 import { estimatePhaseTotals, estimateVehicleTotalMinutes, JOB_PHASE_TEMPLATE, resolveInternalHourlyRate } from './workflow'
-import { isVehicleDeliveredStatus } from './vehicleStatuses'
+import { isVehicleDeliveredStatus, isVehicleWaitingForParts } from './vehicleStatuses'
 import {
   addDays as calendarAddDays,
   addWorkingMinutes,
@@ -382,7 +382,7 @@ export function calculatePlanner(vehicles: Vehicle[], settings: PlannerSettings,
   const results: VehiclePlanResult[] = []
 
   for (const vehicle of active) {
-    const blocked = Boolean(vehicle.blockReason) || vehicle.partsStatus === 'Mancanti'
+    const blocked = Boolean(vehicle.blockReason) || isVehicleWaitingForParts(settings, vehicle)
     if (blocked) {
       results.push({
         vehicleId: vehicle.id,
@@ -629,7 +629,7 @@ export function buildPlannerQueue(data: ErpData, referenceDate = todayKey(), hor
         reason: 'Commessa gia consegnata',
       }
     }
-    const blockedByParts = vehicle.partsStatus === 'Mancanti' || /ricambi/i.test(vehicle.blockReason || '')
+    const blockedByParts = isVehicleWaitingForParts(data.plannerSettings, vehicle) || /ricambi/i.test(vehicle.blockReason || '')
     if (blockedByParts) {
       return {
         jobId: job.id,
@@ -965,7 +965,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       if (!selectedPhase) return null
       const vehicle = vehiclesById.get(job.vehicleId ?? '')
       if (!vehicle) return null
-      const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason)
+      const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle)
       const compatibleCount = operators.filter((operator) => operatorCompatible(operator, selectedPhase.phase)).length
       const score = computePriorityScore({
         job,
@@ -1232,7 +1232,8 @@ export function nextTaskForOperator(data: ErpData, operatorId: string, atIso = n
   const program = (data.operatorPrograms ?? []).find((item) => item.date === date && item.operatorId === operatorId)
   if (!program) return null
   const closed = closedPlanningWork(data)
-  const tasks = program.tasks.filter(task => !closed.hasTask(task))
+  const waiting = waitingPartsPlanningWork(data)
+  const tasks = program.tasks.filter(task => !closed.hasTask(task) && !waiting.hasTask(task))
   const current = tasks.find((task) => task.startAt <= atIso && task.endAt >= atIso)
   if (current) return current
   return tasks.find((task) => task.startAt > atIso) ?? null
@@ -1305,9 +1306,10 @@ export function simulateEstimateProductionForecast(
   const firstAvailabilityDate = plan?.assignments[0]?.date || referenceDate
   const jobById = new Map((data.jobs ?? []).map(job => [job.id, job]))
   const closed = closedPlanningWork(data)
+  const waiting = waitingPartsPlanningWork(data)
   const basePrograms = (data.operatorPrograms ?? []).filter(program => program.date >= firstAvailabilityDate)
     .map(program => ({...program, tasks: (program.tasks ?? []).filter(task => {
-      if (closed.hasTask(task)) return false
+      if (closed.hasTask(task) || waiting.hasTask(task)) return false
       if (!input.planningPrecedence) return true
       if (task.id.startsWith('running:')) return true
       const job = jobById.get(task.jobId)

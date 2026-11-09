@@ -1,4 +1,4 @@
-import { closedPlanningWork } from '../../services/closedPlanningWork'
+import { closedPlanningWork, waitingPartsPlanningWork } from '../../services/closedPlanningWork'
 import { RemoteTimers } from '../production/RemoteTimers'
 import { DailyEmployeeHours } from '../production/DailyEmployeeHours'
 import { RunningTaskCard, useOperatorStatus } from './operatorLiveStatus'
@@ -20,12 +20,13 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
   const [date, setDate] = useState(todayKey)
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const closed = useMemo(() => closedPlanningWork(data), [data])
+  const waiting = useMemo(() => waitingPartsPlanningWork(data), [data])
   const openJobs = (data.jobs ?? []).filter(job => !closed.jobIds.has(job.id))
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => {
     const program = (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id)
-    return program ? {...program, tasks: program.tasks.filter(task => !closed.hasTask(task))}
+    return program ? {...program, tasks: program.tasks.filter(task => !closed.hasTask(task) && !waiting.hasTask(task))}
       : { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }
-  }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date, closed])
+  }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date, closed, waiting])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
   const attendanceMinutes=(id:string)=>workingMinutesForDate(date,data.plannerSettings,data.plannerSettings.operators.find(o=>o.id===id))
   const idleReason=(id:string)=>{
@@ -34,7 +35,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     if(!openJobs.length)return 'Non ci sono commesse aperte da assegnare.'
     const compatible=openJobs.filter(j=>j.phases.some(p=>!p.notRequired&&p.status!=='Completata'&&p.name!=='Consegna'&&supportsOperatorDuty(op,p.requiredSkill||p.name)))
     if(!compatible.length)return 'Nessuna fase da svolgere compatibile con le mansioni abilitate.'
-    if(compatible.every(j=>j.blocks.length>0||!!data.vehicles.find(v=>v.id===j.vehicleId)?.blockReason))return 'Le commesse compatibili sono bloccate: verifica ricambi e blocchi operativi.'
+    if(compatible.every(j=>waiting.jobIds.has(j.id)||j.blocks.length>0||!!data.vehicles.find(v=>v.id===j.vehicleId)?.blockReason))return 'Le commesse compatibili sono bloccate: verifica ricambi e blocchi operativi.'
     return 'Nessuna assegnazione nella data scelta. Verifica disponibilità delle vetture, fasi precedenti e assegnazioni manuali delle commesse compatibili.'
   }
   const coneLabelByTask = (jobId: string, vehicleId: string) => {
@@ -67,7 +68,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     <section className="panel table-panel">
       <h3>Assegna il prossimo lavoro</h3>
       <p>Scegli un operatore per la fase, oppure lascia Automatico. Il prezzo del preventivo resta invariato.</p>
-      {openJobs.map(job => {
+      {openJobs.filter(job => !waiting.jobIds.has(job.id)).map(job => {
         const phase = selectSchedulablePhase(job)?.phase
         if (!phase) return null
         const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))

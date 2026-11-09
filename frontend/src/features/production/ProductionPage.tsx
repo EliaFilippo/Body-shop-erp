@@ -1,4 +1,4 @@
-import { closedPlanningWork } from '../../services/closedPlanningWork'
+import { closedPlanningWork, waitingPartsPlanningWork } from '../../services/closedPlanningWork'
 import { useEffect, useState, type FormEvent } from 'react'
 import '../../App.css'
 import { loadDatabase, saveDatabase } from '../../services/database'
@@ -133,7 +133,8 @@ export function ProductionPage() {
     .filter(Boolean)))
   const assignedProgram = (data.operatorPrograms ?? []).find((program) => program.date === todayKey() && program.operatorId === identity.operatorId)
   const closed = closedPlanningWork(data)
-  const assignedTasks = (assignedProgram?.tasks ?? []).filter(task => !closed.hasTask(task))
+  const waiting = waitingPartsPlanningWork(data)
+  const assignedTasks = (assignedProgram?.tasks ?? []).filter(task => !closed.hasTask(task) && !waiting.hasTask(task))
   const nextTask = nextTaskForOperator(data, identity.operatorId)
   const selectedPace = selected ? paceStateByVehicle(data, selected.job.vehicleId) : null
   const latePace = rows

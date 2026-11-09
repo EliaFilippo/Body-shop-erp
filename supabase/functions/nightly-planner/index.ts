@@ -457,6 +457,9 @@ function isVehicleStatusSemantic(settings, status, semantic) {
   const legacyFound = statusById(settings, legacy);
   return legacyFound?.semantic === semantic;
 }
+function isVehicleWaitingForParts(settings, vehicle) {
+  return vehicle.partsStatus === "Mancanti" || vehicle.partsStatus === "Ordinati" || isVehicleStatusSemantic(settings, vehicle.status, "waiting-parts");
+}
 function isVehicleDeliveredStatus(settings, status) {
   return isVehicleStatusSemantic(settings, status, "delivered");
 }
@@ -770,7 +773,7 @@ function calculatePlanner(vehicles, settings, referenceDate = todayKey(), nowIso
   const normalUsage = /* @__PURE__ */ new Map();
   const results = [];
   for (const vehicle of active) {
-    const blocked = Boolean(vehicle.blockReason) || vehicle.partsStatus === "Mancanti";
+    const blocked = Boolean(vehicle.blockReason) || isVehicleWaitingForParts(settings, vehicle);
     if (blocked) {
       results.push({
         vehicleId: vehicle.id,
@@ -1013,7 +1016,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     if (!selectedPhase) return null;
     const vehicle = vehiclesById.get(job.vehicleId ?? "");
     if (!vehicle) return null;
-    const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason);
+    const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle);
     const compatibleCount = operators.filter((operator) => operatorCompatible(operator, selectedPhase.phase)).length;
     const score = computePriorityScore({
       job,
