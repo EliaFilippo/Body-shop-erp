@@ -1,3 +1,4 @@
+import { isFastEstimateDraft } from '../../services/fastEstimate'
 import { buildWorkSheetHtml, printWorkSheet } from '../../services/workSheet'
 import { EstimatePdfPreview } from './EstimatePdfPreview'
 import { DeliveredJobReports } from './DeliveredJobReports'
@@ -61,7 +62,7 @@ const marginStatusLabel = (value?: EstimateLine['marginStatus']) => {
 type WorkflowModal =
   | { type: 'estimate-pdf'; estimateId:string }
   | { type: 'estimate-create' }
-  | { type: 'estimate-fast' }
+  | { type: 'estimate-fast'; estimateId?: string }
   | { type: 'job-print'; jobId: string; auto: boolean }
   | { type: 'estimate-edit'; estimateId: string }
   | { type: 'job-create' }
@@ -410,7 +411,7 @@ export function WorkflowPage({
             <td><div className="row-actions">
               <button className="primary" onClick={()=>setModal({type:'estimate-pdf',estimateId:estimate.id})}>PDF / WhatsApp</button>
               {linkedJob && <WorkSheetButton job={linkedJob} onPrint={openWorkSheet} />}
-              <button onClick={() => setModal({ type: 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
+              <button onClick={() => setModal({ type: isFastEstimateDraft(data, estimate) ? 'estimate-fast' : 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
               <button className="primary" onClick={() => {
                 try {
                   const approved = approveEstimateAndCreateJob(data, estimate.id)
@@ -480,9 +481,9 @@ export function WorkflowPage({
     </section>
 
     {modal?.type==='estimate-pdf'&&estimates.find(e=>e.id===modal.estimateId)&&<EstimatePdfPreview data={data} estimate={estimates.find(e=>e.id===modal.estimateId)!} onClose={()=>setModal(null)}/>}
-    {modal?.type === 'estimate-fast' && <FastEstimateEditor data={data} livePrograms={livePrograms} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => {
+    {modal?.type === 'estimate-fast' && <FastEstimateEditor key={modal.estimateId??'new'} initial={estimates.find(estimate=>estimate.id===modal.estimateId)} data={data} livePrograms={livePrograms} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => {
       apply(next, pdfPrepared ? 'PDF scaricato e chat WhatsApp aperta: allega il file come Documento e conferma l’invio.' : confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.')
-      const createdJob = confirmed ? next.jobs?.find(job => job.id === next.estimates?.[0]?.convertedJobId) : undefined
+      const createdJob = confirmed ? next.jobs?.find(job => job.id === (modal.estimateId ? next.estimates?.find(estimate=>estimate.id===modal.estimateId) : next.estimates?.[0])?.convertedJobId) : undefined
       setModal(createdJob ? {type:'job-print', jobId:createdJob.id, auto:true} : null)
     }} />}
     {modal?.type === 'job-print' && (() => {
