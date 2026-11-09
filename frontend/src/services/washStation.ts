@@ -1,7 +1,7 @@
 import { closedPlanningWork } from './closedPlanningWork'
 import type { ErpData } from '../types'
 import type { PaintReservation } from './paintStations'
-export const isWashingPhase=(name:string)=>['Lavaggio esterno','Lavaggio interni','Lavaggio'].includes(name)
+export const isWashingPhase=(name:string)=>['Lavaggio esterno','Lavaggio'].includes(name)
 export function findWashStationStart(requestedAt:string,jobId:string,reservations:PaintReservation[],endForStart:(start:string)=>string,normalizeStart:(start:string)=>string=(start)=>start) {
  let start=normalizeStart(requestedAt)
  for(let attempt=0;attempt<=reservations.length;attempt++){
