@@ -1,13 +1,14 @@
 import { toRomePlanningClock } from './romePlanningClock'
 import { expectedPaymentDate } from './paymentTerms'
-import type { AcceptanceQuote, ErpData, EstimateLine, EstimatePaymentTerms } from '../types'
+import type { AcceptanceQuote, ErpData, EstimateDocument, EstimateLine, EstimatePaymentTerms } from '../types'
 import { addVehicle, createCustomer, normalizePlate } from './erp'
 import { acceptanceEstimateLines, damageQuoteError } from './damageQuote'
-import { approveEstimateAndCreateJob, createEstimate } from './workflow'
+import { approveEstimateAndCreateJob, createEstimate, updateEstimate } from './workflow'
 import { createQuoteDocument } from './documents'
 import { recalculateOperatorPrograms, simulateEstimateProductionForecast } from './planner'
 
 export interface FastEstimateInput {
+ estimateId?:string
  plate:string
  customerId?:string
  newCustomer?:{name:string;phone:string}
@@ -18,14 +19,26 @@ export interface FastEstimateInput {
  planningPrecedence?:boolean
  notes?:string
 }
+export function isFastEstimateDraft(data:ErpData, estimate:EstimateDocument) {
+ return estimate.status==='Bozza' && !estimate.convertedJobId && (
+  estimate.source==='fast' ||
+  (Boolean(estimate.productionForecast) && data.quotes?.some(quote=>quote.estimateId===estimate.id)
+   && estimate.lines.length>0
+   && estimate.lines.every(line=>line.manualFastLine || line.standardWorkId?.startsWith('elias-listino:')))
+ )
+}
+
 /** Creates one complete snapshot; validation failures never persist half a customer/vehicle. */
 export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new Date(),livePrograms?:ErpData['operatorPrograms']):ErpData {
+ const current=data.estimates?.find(estimate=>estimate.id===input.estimateId)
+ if(input.estimateId && (!current || !isFastEstimateDraft(data,current)))throw new Error('La bozza fast non è più modificabile.')
  const plate=normalizePlate(input.plate)
+ if(current && plate!==normalizePlate(current.plate))throw new Error('La bozza conserva la targa originale.')
  if(plate.length<5)throw new Error('Inserisci una targa valida.')
  const error=damageQuoteError(input.quote.damageLines||[])
  if(error)throw new Error(error)
  if((data.jobs||[]).some(j=>normalizePlate(j.plate)===plate&&!['Consegnata','Annullata'].includes(j.status)))throw new Error('Esiste già una commessa aperta per questa targa. Aprila da Preventivi / Commesse.')
- if((data.estimates||[]).some(e=>normalizePlate(e.plate)===plate&&!e.convertedJobId&&!['Rifiutato','Scaduto'].includes(e.status)))throw new Error('Esiste già un preventivo aperto per questa targa. Aprilo da Preventivi / Commesse.')
+ if((data.estimates||[]).some(e=>e.id!==input.estimateId&&normalizePlate(e.plate)===plate&&!e.convertedJobId&&!['Rifiutato','Scaduto'].includes(e.status)))throw new Error('Esiste già un preventivo aperto per questa targa. Aprilo da Preventivi / Commesse.')
  let next=data
  let vehicle=next.vehicles.find(v=>normalizePlate(v.plate)===plate)
  let customer=next.customers.find(c=>c.id===(vehicle?.customerId||input.customerId))
@@ -41,13 +54,15 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
   vehicle=next.vehicles[0]
  }
  const lines=acceptanceEstimateLines(input.quote,next.plannerSettings)
- const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(at)
+ const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(at)
  const selectedPhases=input.quote.selectedPhases??[]
  const planningPrecedence=Boolean(input.requestedDeliveryDate?.trim()&&input.planningPrecedence)
- const productionForecast=simulateEstimateProductionForecast(livePrograms?{...next,operatorPrograms:livePrograms}:next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate,referenceAt:toRomePlanningClock(at.toISOString())})
- next=createEstimate(next,{customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined})
- const estimate=next.estimates![0]
- next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0}))})
- if(input.confirmed)next=recalculateOperatorPrograms(approveEstimateAndCreateJob(next,estimate.id),date,'Preventivo fast confermato')
+ const productionForecast=simulateEstimateProductionForecast(livePrograms?{...next,operatorPrograms:livePrograms}:next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,priority:current?.priority,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate,referenceAt:toRomePlanningClock(at.toISOString())})
+ const fields={customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date:current?.date??today,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined}
+ next=current ? updateEstimate(next,current.id,{...fields,source:'fast',lines:lines as EstimateLine[]}) : createEstimate(next,fields)
+ const estimate=current ? next.estimates!.find(item=>item.id===current.id)! : {...next.estimates![0],source:'fast' as const}
+ if(!current)next={...next,estimates:[estimate,...next.estimates!.slice(1)]}
+ if(!current)next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0}))})
+ if(input.confirmed)next=recalculateOperatorPrograms(approveEstimateAndCreateJob(next,estimate.id),today,'Preventivo fast confermato')
  return next
 }

@@ -3,12 +3,13 @@ import { describe,it,expect,vi } from 'vitest'
 import { emptyData } from '../../services/erp'
 import { downloadEstimatePdf,estimatePdfFile } from '../../services/estimatePdf'
 vi.mock('../../services/estimatePdf',()=>({estimatePdfFile:vi.fn(()=>new File(['pdf'],'AB123CD.pdf',{type:'application/pdf'})),downloadEstimatePdf:vi.fn()}))
+import { isFastEstimateDraft } from '../../services/fastEstimate'
 import { FastEstimateEditor } from './FastEstimateEditor'
 describe('percorso fast in ufficio',()=>{
  it('bastano targa, cliente, pezzo e lavorazione per salvare un preventivo',()=>{
   const data=structuredClone(emptyData)
   data.customers=[{id:'c',name:'Mario Rossi',phone:'333',type:'Privato',email:'',taxId:'',address:'',createdAt:''}]
-  const done=vi.fn();render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
+  const done=vi.fn();const {unmount}=render(<FastEstimateEditor data={data} onDone={done} onCancel={()=>{}}/>)
   fireEvent.change(screen.getByLabelText('Targa'),{target:{value:'AB123CD'}})
   fireEvent.change(screen.getByLabelText('Cliente'),{target:{value:'c'}})
   fireEvent.change(screen.getByLabelText('Pannello'),{target:{value:'porta-ant-sx'}})
@@ -18,6 +19,20 @@ describe('percorso fast in ufficio',()=>{
   expect(done).toHaveBeenCalledOnce()
   const [next,confirmed]=done.mock.calls[0]
   expect(confirmed).toBe(false);expect(next.estimates).toHaveLength(1);expect(next.jobs||[]).toHaveLength(0)
+  const original = next.estimates[0]
+  const legacy = {...original, source: undefined}
+  expect(isFastEstimateDraft(next, legacy)).toBe(true)
+  unmount()
+  done.mockClear()
+  render(<FastEstimateEditor data={{...next,estimates:[legacy]}} initial={legacy} onDone={done} onCancel={()=>{}}/>)
+  expect(screen.getByLabelText('Targa')).toHaveValue('AB123CD')
+  expect(screen.getByLabelText('Previsione consegna preventivo')).toBeVisible()
+  fireEvent.change(screen.getByLabelText('Data consegna concordata'),{target:{value:'2027-12-20'}})
+  fireEvent.click(screen.getByRole('button',{name:'Salva preventivo fast'}))
+  const edited = done.mock.calls[0][0]
+  expect(edited.estimates).toHaveLength(1)
+  expect(edited.quotes).toHaveLength(1)
+  expect(edited.estimates[0]).toMatchObject({id:original.id,number:original.number,source:'fast',requestedDeliveryDate:'2027-12-20'})
  })
  it('solo la spunta cliente confermato abilita la creazione della commessa',()=>{
   const data=structuredClone(emptyData)
