@@ -17,7 +17,7 @@ import {
 } from './planner'
 import { addWorkingMinutes, getCompanyWorkingIntervals, nextWorkingInstant } from './workCalendar'
 import { buildIntegritySnapshot, loadDatabase, saveDatabase } from './database'
-import { emptyData } from './erp'
+import { changeVehicleStatus, emptyData } from './erp'
 import { syncOperationalStateFromJobs } from './workflow'
 
 const settings: PlannerSettings = {
@@ -845,6 +845,27 @@ describe('12 scenari priorita planner', () => {
     expect(buildPlannerQueue(data, day)).toEqual([])
     expect(nextTaskForOperator(data, program.operatorId, program.tasks[0].startAt)).toBeNull()
     expect(generateOperatorPrograms(data, day).programs.flatMap(item => item.tasks)).toEqual([])
+  })
+
+  it('toglie dal programma una vettura in attesa ricambi e la ripianifica quando sono disponibili', () => {
+    let data = makePriorityData()
+    const work = {id:'j1', number:'COMM-1', vehicleId:'v1', plate:'PART01', priority:'Normale' as const, minutes:60, taxableAmount:100}
+    const day = '2026-08-14'
+    data.vehicles = [priorityVehicle(work.vehicleId, work.plate, work.priority)]
+    data.jobs = [priorityJob(work)]
+    data.operatorPrograms = generateOperatorPrograms(data, day).programs
+    const program = data.operatorPrograms.find(item => item.tasks.length)!
+    data.vehicles[0].status = 'in-attesa-ricambi'
+    expect(data.vehicles[0].partsStatus).toBe('Disponibili')
+    expect(buildPlannerQueue(data, day)[0]).toMatchObject({schedulable:false, reason:'Attesa ricambi'})
+    expect(nextTaskForOperator(data, program.operatorId, program.tasks[0].startAt)).toBeNull()
+    expect(generateOperatorPrograms(data, day).programs.flatMap(item => item.tasks)).toEqual([])
+
+    data = changeVehicleStatus(data, work.vehicleId, 'in-attesa-ricambi')
+    expect(data.vehicles[0].partsStatus).toBe('Mancanti')
+    data = changeVehicleStatus(data, work.vehicleId, 'da-pianificare')
+    expect(data.vehicles[0].partsStatus).toBe('Disponibili')
+    expect(generateOperatorPrograms(data, day).programs.flatMap(item => item.tasks)).toHaveLength(1)
   })
 
   it('1) preventivo senza data -> data automatica', () => {

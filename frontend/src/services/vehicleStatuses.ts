@@ -118,6 +118,11 @@ export function isVehicleStatusSemantic(settings: PlannerSettings, status: Vehic
   return legacyFound?.semantic === semantic
 }
 
+export function isVehicleWaitingForParts(settings: PlannerSettings, vehicle: Vehicle) {
+  return vehicle.partsStatus === 'Mancanti' || vehicle.partsStatus === 'Ordinati'
+    || isVehicleStatusSemantic(settings, vehicle.status, 'waiting-parts')
+}
+
 export function isVehicleDeliveredStatus(settings: PlannerSettings, status: VehicleStatus) {
   return isVehicleStatusSemantic(settings, status, 'delivered')
 }

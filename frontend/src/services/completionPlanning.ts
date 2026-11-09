@@ -1,4 +1,4 @@
-import { closedPlanningWork } from './closedPlanningWork'
+import { closedPlanningWork, waitingPartsPlanningWork } from './closedPlanningWork'
 import {toRomePlanningClock,fromRomePlanningClock,localizePlanningTimestamps} from './romePlanningClock'
 import type {ErpData,OperatorDayProgram,OperatorProgramTask,PlannerAssignment} from '../types'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
@@ -12,6 +12,7 @@ const romeDate=(iso:string)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/R
 export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,generation:number):CompletionPlan{
  const actual=applyLivePhaseChecks(applyProductionPlanningState(data,state),state.checks??[])
  const {jobIds:closedJobs}=closedPlanningWork(actual)
+ const {jobIds:waitingJobs}=waitingPartsPlanningWork(actual)
  const availability:{operators:Record<string,string>;jobs:Record<string,string>}={operators:{},jobs:{}}
  const fixed:OperatorProgramTask[]=[],warnings:string[]=[]
  const now=new Date(state.serverNow).toISOString(),day=romeDate(now),revision=(actual.operatorProgramRevision??0)+1
@@ -37,7 +38,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
    const finish=nextShift>clockNow?new Date(Date.parse(clockNow)+minutes*60000).toISOString():addWorkingMinutes(start,minutes,actual.plannerSettings,operator)
    availability.operators[operator.id]=[availability.operators[operator.id]??'',finish].sort().at(-1)!
    end=[end,finish].sort().at(-1)!
-   fixed.push({id:`running:${job.id}:${phase.id}:${operator.id}`,operatorId:operator.id,operatorName:operator.name,vehicleId:job.vehicleId??'',plate:job.plate,jobId:job.id,jobNumber:job.number,phaseId:phase.id,phaseName:phase.name,startAt:start,endAt:finish,plannedMinutes:minutes,priority:job.priority,reason:'Lavorazione già avviata · operatore mantenuto sulla vettura',panelNames:[],panelNotes:[],originalPlannedDate:day,scheduleDeltaMinutes:0,isAdvancedFromFuture:false,overtimeMinutes:0,revision})
+   if(!waitingJobs.has(job.id))fixed.push({id:`running:${job.id}:${phase.id}:${operator.id}`,operatorId:operator.id,operatorName:operator.name,vehicleId:job.vehicleId??'',plate:job.plate,jobId:job.id,jobNumber:job.number,phaseId:phase.id,phaseName:phase.name,startAt:start,endAt:finish,plannedMinutes:minutes,priority:job.priority,reason:'Lavorazione già avviata · operatore mantenuto sulla vettura',panelNames:[],panelNotes:[],originalPlannedDate:day,scheduleDeltaMinutes:0,isAdvancedFromFuture:false,overtimeMinutes:0,revision})
   }
   availability.jobs[job.id]=[availability.jobs[job.id]??'',end].sort().at(-1)!
   // Virtual completion makes the remaining sequence forecastable, not signed.
@@ -65,7 +66,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
    const remaining=Math.max(1,(phase.sharedTimeKey?phase.sharedTimeMinutes??phase.estimatedMinutes:phase.estimatedMinutes)-members.reduce((sum,p)=>sum+worked(p),0))
    return planned.filter(t=>members.some(p=>p.id===t.phaseId)).reduce((sum,t)=>sum+t.plannedMinutes,0)+0.001>=remaining
   }
-  const known=!job.blocks?.length&&!actual.vehicles.find(v=>v.id===job.vehicleId)?.blockReason&&required.every(p=>!p.remainingTimeUnknown&&p.status!=='Bloccata'&&planned.some(t=>t.phaseId===p.id)&&covered(p))
+  const known=!waitingJobs.has(job.id)&&!job.blocks?.length&&!actual.vehicles.find(v=>v.id===job.vehicleId)?.blockReason&&required.every(p=>!p.remainingTimeUnknown&&p.status!=='Bloccata'&&planned.some(t=>t.phaseId===p.id)&&covered(p))
   const drying=job.phases.filter(p=>!p.notRequired&&p.status==='Completata'&&(p.completedAt||p.endedAt)&&Math.max(0,(p.name==='Verniciatura'?Math.max(60,p.technicalWaitMinutes??60):p.technicalWaitMinutes??0))>0).map(p=>new Date(Date.parse(p.completedAt||p.endedAt!)+Math.max(0,(p.name==='Verniciatura'?Math.max(60,p.technicalWaitMinutes??60):p.technicalWaitMinutes??0))*60000).toISOString())
   const endAt=known?[now,...planned.map(t=>t.endAt),...drying].sort().at(-1)!:null
   if(!known)warnings.push(`${job.plate}: consegna non stimabile, verifica tempi, mansioni o blocchi.`)
