@@ -1020,6 +1020,13 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     })
   }
 
+  const martin = [...operatorState.values()].find(({ operator }) => operator.name.trim().toLowerCase() === 'martin')
+  const martinCanStart = (candidate: typeof candidates[number], slot: string) => Boolean(
+    martin && slot !== '~' && !candidate.phase.preferredOperatorId && !candidate.phase.supportOperatorId
+    && !(candidate.phase.operatorAssignments ?? []).some(a => a.activityStatus === 'Attivo' && !a.endedAt)
+    && operatorCompatible(martin.operator, candidate.phase)
+    && nextWorkingInstant([martin.nextAt, candidate.readyAt, schedulingFloor].sort().at(-1)!, data.plannerSettings, martin.operator) === slot,
+  )
   const paintReservations=currentPaintReservations(data,schedulingFloor)
   const washReservations=currentWashReservations(data,schedulingFloor,(job,phase)=>addWorkingMinutes(schedulingFloor,phaseResidualMinutes(phase,now,job),data.plannerSettings))
   const remainingByPhase = new Map<string,number>()
@@ -1046,6 +1053,9 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
       const priorityOrder=precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
         || a.score.dueDate.localeCompare(b.score.dueDate)
+        || (martinCanStart(a, slot) && martinCanStart(b, earliest)
+          ? phaseResidualMinutes(b.phase, now, b.job) - phaseResidualMinutes(a.phase, now, a.job)
+          : 0)
         || b.score.totalMargin-a.score.totalMargin
         || Number(ageB>4)-Number(ageA>4)
         || ((ageA>4&&ageB>4)?ageB-ageA:0)
@@ -1072,7 +1082,9 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       eligible=starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
     }
     const ranking = rankPhaseOperators(data,item.job,item.phase,eligible,residual,schedulingFloor,item.readyAt)
-    const compatible = ranking.operators
+    const compatible = martin && martinCanStart(item, earliest) && ranking.operators.includes(martin) && !ranking.reason.startsWith('Margine insufficiente')
+      ? [martin, ...ranking.operators.filter(state => state !== martin)]
+      : ranking.operators
     if (!compatible.length) continue
 
     const selected = compatible.slice(0, Math.min(desiredOperators, compatible.length))
