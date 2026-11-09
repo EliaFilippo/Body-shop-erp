@@ -271,12 +271,6 @@ function estimatedPhaseSequence(lines: EstimateLine[]) {
   return [{ phaseName: 'Produzione', plannedMinutes: fallbackMinutes, requiredSkill: '', technicalWaitMinutes: 0, technicalWaitBlocksPhaseNames: [] }]
 }
 
-function desiredOperatorCount(priority: RepairJob['priority'], requestedDeliveryDate?: string, referenceDate?: string) {
-  if (priority === 'Urgente') return 2
-  if (requestedDeliveryDate && referenceDate && requestedDeliveryDate <= addDays(referenceDate, 1)) return 2
-  return 1
-}
-
 function reliabilityFromSimulation(input: {
   phasePlans: SimulatedPhaseForecast[]
   workshopLoadPercent: number
@@ -1068,14 +1062,11 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       remainingByPhase.set(phaseKey,Math.max(1,Math.ceil(phaseResidualMinutes(item.phase,now,item.job)/Math.max(1,groupMembers))))
     }
     const residual = remainingByPhase.get(phaseKey)!
-    const desiredOperators = activeAssignments.length || (isWashingPhase(item.phase.name) ? 1 : item.phase.supportOperatorId ? 2 : item.phase.preferredOperatorId ? 1 : Math.max(1, item.job.priority === 'Urgente' || item.dueToday ? 2 : 1))
+    const desiredOperators = activeAssignments.length || (item.phase.supportOperatorId && !isWashingPhase(item.phase.name) ? 2 : 1)
 
     let eligible=Array.from(operatorState.values()).filter(state=>operatorCompatible(state.operator,item.phase))
-    const wrapping = item.phase.name==='Incartatura' || item.phase.name==='Scartatura'
-    const pair = eligible.filter(({operator})=>['federica','stefania'].includes(operator.name.trim().toLowerCase()))
-    const usePair = wrapping && pair.length===2 && !activeAssignments.length && !item.phase.preferredOperatorId && !item.phase.supportOperatorId
     // Automatic choices do not queue behind a busy colleague while another qualified employee can start.
-    if (!usePair&&!item.phase.preferredOperatorId&&!item.phase.supportOperatorId&&!activeAssignments.length&&eligible.length) {
+    if (!item.phase.preferredOperatorId&&!item.phase.supportOperatorId&&!activeAssignments.length&&eligible.length) {
       const starts=eligible.map(state=>({state,start:nextWorkingInstant([state.nextAt,schedulingFloor,item.readyAt].sort().at(-1)!,data.plannerSettings,state.operator)}))
       const earliest=starts.map(entry=>entry.start).sort()[0]
       eligible=starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
@@ -1084,7 +1075,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const compatible = ranking.operators
     if (!compatible.length) continue
 
-    const selected = usePair ? pair : compatible.slice(0, Math.min(desiredOperators, compatible.length))
+    const selected = compatible.slice(0, Math.min(desiredOperators, compatible.length))
     const rawReadyAt = nextWorkingInstant(item.readyAt, data.plannerSettings, selected[0]?.operator)
     const readyAt = rawReadyAt < schedulingFloor ? nextWorkingInstant(schedulingFloor, data.plannerSettings, selected[0]?.operator) : rawReadyAt
     let sharedStartAt = selected.reduce((latest,state)=>{const next=nextWorkingInstant(state.nextAt,data.plannerSettings,state.operator);return next>latest?next:latest},readyAt)
@@ -1366,7 +1357,6 @@ export function simulateEstimateProductionForecast(
       blockingReasons.push(`Nessun operatore disponibile per ${phase.phaseName}.`)
       continue
     }
-    const neededOperators = isWashingPhase(phase.phaseName) || input.selectedPhases !== undefined ? 1 : Math.min(desiredOperatorCount(priority, requestedDeliveryDate, referenceDate), compatible.length)
     const candidates = compatible
       .map((operator) => {
         const busyUntil = occupiedUntil.get(operator.id)
@@ -1376,7 +1366,7 @@ export function simulateEstimateProductionForecast(
       })
       .sort((a, b) => a.nextAt.localeCompare(b.nextAt) || a.operator.name.localeCompare(b.operator.name, 'it-IT'))
 
-    const selected = candidates.slice(0, Math.min(neededOperators, candidates.length))
+    const selected = candidates.slice(0, 1)
     const earliestStart = selected.reduce((latest, entry) => entry.nextAt > latest ? entry.nextAt : latest, dependencyCursor)
     const startAt=!isWashingPhase(phase.phaseName)
      ? findPaintStationStart(earliestStart,syntheticVehicleId,forecastPaint,start=>new Date(new Date(addWorkingMinutes(start,phase.plannedMinutes,data.plannerSettings,selected[0]?.operator)).getTime()+phase.technicalWaitMinutes*60_000).toISOString(),at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator))
