@@ -1131,6 +1131,8 @@ export function createEstimate(data: ErpData, input: {
 }
 
 export function updateEstimate(data: ErpData, estimateId: string, input: {
+	planningPrecedence?: boolean
+	source?: EstimateDocument['source']
 	customerId: string
 	vehicleId?: string
 	plate: string
@@ -1159,6 +1161,8 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 	const timestamp = now()
 	const updated: EstimateDocument = {
 		...current,
+		source: input.source ?? current.source,
+		planningPrecedence: input.planningPrecedence ?? current.planningPrecedence,
 		customerId: input.customerId,
 		vehicleId: input.vehicleId,
 		plate: input.plate.trim().toUpperCase(),
