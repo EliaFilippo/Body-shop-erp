@@ -918,11 +918,6 @@ function summarizeOperatorDay(data: ErpData, operatorId: string, date: string, t
   }
 }
 
-const boxPhases = new Set([
-  'Stuccatura', 'Carteggiatura', 'Preparazione', 'Verniciatura',
-  'Raddrizzatura', 'Incartatura', 'Scartatura',
-])
-
 function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] {
  const reservations:PaintReservation[]=[]
  const {jobIds} = closedPlanningWork(data)
@@ -930,7 +925,7 @@ function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] 
   if(jobIds.has(job.id))continue
   const phase=job.phases.find(item=>item.name==='Verniciatura'&&!item.notRequired)
   for(const active of job.phases){
-   if(active.notRequired || active.status!=='In lavorazione' || active===phase || !boxPhases.has(active.name))continue
+   if(active.notRequired || active.status!=='In lavorazione' || active===phase || isWashingPhase(active.name))continue
    const operator=data.plannerSettings.operators.find(op=>(active.operatorAssignments??[]).some(assignment=>assignment.operatorName===op.name))
    const endAt=addWorkingMinutes(floor,Math.max(1,phaseResidualMinutes(active,floor,job)),data.plannerSettings,operator)
    reservations.push({jobId:job.id,startAt:floor,endAt})
@@ -1108,7 +1103,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     const workerMinutes=(index:number)=>item.phase.sharedTimeKey||item.job.workflowCycle==='elias-v1'?Math.max(0,Math.min(duration,residual-duration*index)):duration
     const crewEnd=(start:string)=>selected.map((state,index)=>addWorkingMinutes(start,workerMinutes(index),data.plannerSettings,state.operator)).sort().at(-1)!
     const painting=item.phase.name==='Verniciatura'
-    const usesBox=boxPhases.has(item.phase.name)
+    const usesBox=!isWashingPhase(item.phase.name)
     const drying=painting?Math.max(0,Number(item.phase.technicalWaitMinutes??60))*60_000:0
     const stationEnd=(start:string)=>new Date(new Date(crewEnd(start)).getTime()+drying).toISOString()
     const startAt = usesBox&&item.phase.status!=='In lavorazione'
@@ -1122,10 +1117,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         return aligned
       })
       : isWashingPhase(item.phase.name)?findWashStationStart(sharedStartAt,item.job.id,washReservations,crewEnd,at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator)):sharedStartAt
-    if(usesBox || isWashingPhase(item.phase.name)){
-      duration=Math.min(duration,...selected.map(({operator})=>remainingWorkingMinutesToday(startAt,data.plannerSettings,operator)))
-      if(duration<=0)continue
-    }
+    duration=Math.min(duration,...selected.map(({operator})=>remainingWorkingMinutesToday(startAt,data.plannerSettings,operator)))
+    if(duration<=0)continue
     if(startAt.slice(0,10)>horizonEndDate)continue
     const endAt = crewEnd(startAt)
     if(isWashingPhase(item.phase.name))washReservations.push({jobId:item.job.id,startAt,endAt})
@@ -1343,7 +1336,7 @@ export function simulateEstimateProductionForecast(
 
   const forecastPaint=currentPaintReservations(data,`${firstAvailabilityDate}T00:00:00.000Z`)
   for(const program of basePrograms)for(const task of program.tasks??[]){
-   if(!boxPhases.has(task.phaseName)||task.vehicleId===syntheticVehicleId)continue
+   if(isWashingPhase(task.phaseName)||task.vehicleId===syntheticVehicleId)continue
    const phase=data.jobs?.find(job=>job.id===task.jobId)?.phases.find(item=>item.id===task.phaseId)
    forecastPaint.push({jobId:task.jobId,startAt:task.startAt,endAt:new Date(new Date(task.endAt).getTime()+(task.phaseName==='Verniciatura'?Math.max(0,Number(phase?.technicalWaitMinutes??60)):0)*60_000).toISOString()})
   }
@@ -1385,9 +1378,9 @@ export function simulateEstimateProductionForecast(
 
     const selected = candidates.slice(0, Math.min(neededOperators, candidates.length))
     const earliestStart = selected.reduce((latest, entry) => entry.nextAt > latest ? entry.nextAt : latest, dependencyCursor)
-    const startAt=boxPhases.has(phase.phaseName)
+    const startAt=!isWashingPhase(phase.phaseName)
      ? findPaintStationStart(earliestStart,syntheticVehicleId,forecastPaint,start=>new Date(new Date(addWorkingMinutes(start,phase.plannedMinutes,data.plannerSettings,selected[0]?.operator)).getTime()+phase.technicalWaitMinutes*60_000).toISOString(),at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator))
-     : isWashingPhase(phase.phaseName)?findWashStationStart(earliestStart,syntheticVehicleId,forecastWash,start=>addWorkingMinutes(start,phase.plannedMinutes,data.plannerSettings,selected[0]?.operator),at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator)):earliestStart
+     : findWashStationStart(earliestStart,syntheticVehicleId,forecastWash,start=>addWorkingMinutes(start,phase.plannedMinutes,data.plannerSettings,selected[0]?.operator),at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator))
     const endAt = addWorkingMinutes(startAt, phase.plannedMinutes, data.plannerSettings, selected[0]?.operator)
     if(isWashingPhase(phase.phaseName))forecastWash.push({jobId:syntheticVehicleId,startAt,endAt})
     const availableAfter = phase.technicalWaitMinutes > 0 ? new Date(new Date(endAt).getTime() + phase.technicalWaitMinutes * 60_000).toISOString() : endAt
