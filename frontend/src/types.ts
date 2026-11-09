@@ -1084,6 +1084,7 @@ export interface EstimatePaymentTerms {
 }
 
 export interface EstimateDocument {
+  source?: 'fast'
   planningPrecedence?: boolean
   selectedPhases?: string[]
   id: string
