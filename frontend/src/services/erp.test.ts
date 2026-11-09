@@ -159,6 +159,18 @@ describe('gestione coni', () => {
     expect(result.vehicles.find((item) => item.id === 'a')?.coneNumber).toBe(5)
   })
 
+  it('mantiene occupato lo stesso cono mentre la vettura aspetta i ricambi', () => {
+    const initial = state([vehicle('a', 'AA111AA', 1), vehicle('b', 'BB222BB')])
+    const waiting = changeVehicleStatus(initial, 'a', 'In attesa ricambi')
+    expect(waiting.vehicles[0]).toMatchObject({ coneNumber: 1, partsStatus: 'Mancanti' })
+    expect(waiting.coneHistory).toEqual(initial.coneHistory)
+
+    const withSecond = changeVehicleStatus(waiting, 'b', 'Confermata')
+    expect(withSecond.vehicles.find(item => item.id === 'b')?.coneNumber).toBe(2)
+    const resumed = changeVehicleStatus(withSecond, 'a', 'In lavorazione')
+    expect(resumed.vehicles[0]).toMatchObject({ coneNumber: 1, partsStatus: 'Disponibili' })
+  })
+
   it('libera automaticamente il cono alla consegna e registra lo storico', () => {
     const result = changeVehicleStatus(state([vehicle('a', 'AA111AA', 4)]), 'a', 'Consegnata')
     expect(result.vehicles[0].coneNumber).toBeNull()
