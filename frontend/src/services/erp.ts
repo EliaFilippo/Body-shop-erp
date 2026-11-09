@@ -185,7 +185,8 @@ export function reconcileVehicleCones(data: ErpData, skipAutoAssignVehicleIds?: 
   let history = [...data.coneHistory]
   let vehicles = data.vehicles.map((vehicle) => {
     if (vehicle.coneNumber === null) return vehicle
-    if (isVehicleConeRequiredStatus(data.plannerSettings, vehicle.status)) return vehicle
+    if (isVehicleConeRequiredStatus(data.plannerSettings, vehicle.status)
+      || isVehicleStatusSemantic(data.plannerSettings, vehicle.status, 'waiting-parts')) return vehicle
     changed = true
     history.unshift(event(vehicle, vehicle.coneNumber, 'Liberato', 'Rilascio automatico: vettura fuori lavorazione'))
     return { ...vehicle, coneNumber: null }
