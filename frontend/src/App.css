@@ -553,3 +553,13 @@ button.work-sheet-print-pending {
 .cone-card.busy.waiting-parts{border-color:#e06565;background:#391c21;box-shadow:none}
 .cone-card.waiting-parts>strong,.cone-card.waiting-parts .cone-parts-label{color:#ffacac}
 .cone-card.waiting-parts .cone-parts-label{font-size:11px;font-weight:700}
+
+.cone-customer-summary{margin-top:16px}
+.cone-customer-scroll{overflow-x:auto}
+.cone-customer-summary table{width:100%;min-width:760px;border-collapse:collapse}
+.cone-customer-summary th,.cone-customer-summary td{padding:10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.cone-customer-vehicles{display:grid;gap:6px;list-style:none;margin:0;padding:0}
+.cone-customer-vehicles li{display:grid;grid-template-columns:1fr 1.4fr 1fr 1fr 1.6fr;gap:10px;padding:8px;border-radius:6px;background:#222125}
+.cone-customer-vehicles li.waiting-parts{background:#391c21;color:#ffacac}
+.cone-customer-vehicles small{display:block;color:inherit;opacity:.8}
+.cone-timer-active{color:#8ee0ae}
