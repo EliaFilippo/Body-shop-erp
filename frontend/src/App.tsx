@@ -55,7 +55,7 @@ import { syncOperationalStateFromJobs } from './services/workflow'
 import { DOCUMENT_IDENTITY_OCR_GENERIC_ERROR, readIdentityDocument } from './services/documentIdentityOcr'
 import { VEHICLE_BOOKLET_OCR_GENERIC_ERROR, readVehicleBooklet } from './services/vehicleBookletOcr'
 import { saveVehicleWithPersistenceCheck } from './services/vehiclePersistence.ts'
-import { listSelectableVehicleStatuses, resolveVehicleStatusId, resolveVehicleStatusLabel } from './services/vehicleStatuses'
+import { isVehicleWaitingForParts, listSelectableVehicleStatuses, resolveVehicleStatusId, resolveVehicleStatusLabel } from './services/vehicleStatuses'
 import { DEFAULT_WEEKLY_WORK_SCHEDULE, intervalsToText, normalizeWeeklyWorkSchedule } from './services/workCalendar'
 import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from './services/originGuard'
 import { backupFilename, parseBackup, serializeBackup } from './services/backup'
@@ -1968,7 +1968,18 @@ function Cones({ data, customerById, onMove }: { data: ErpData; customerById: (i
   return <>
     <section className="cone-summary"><div><span>Coni occupati</span><strong>{occupied.length}</strong></div><div><span>Coni liberi</span><strong>{TOTAL_CONES - occupied.length}</strong></div><div className="occupancy"><span>Occupazione piazzale</span><strong>{Math.round(occupied.length / TOTAL_CONES * 100)}%</strong><i><b style={{ width: `${occupied.length / TOTAL_CONES * 100}%` }} /></i></div></section>
     <section className="panel"><div className="panel-head"><div><span className="eyebrow">MAPPA PIAZZALE</span><h3>Coni da 1 a 30</h3></div><div className="segmented">{(['Tutti', 'Liberi', 'Occupati'] as const).map((item) => <button className={filter === item ? 'active' : ''} onClick={() => setFilter(item)} key={item}>{item}</button>)}</div></div>
-      <div className="cone-grid">{cones.map((number) => { const assigned = occupied.find((item) => item.coneNumber === number); return <button onClick={() => setSelected(number)} className={`cone-card ${assigned ? 'busy' : ''}`} key={number}><span>CONO</span><strong>{number}</strong>{assigned ? <><b className="plate">{assigned.plate}</b><small>{assigned.make} {assigned.model}</small></> : <b className="available">LIBERO</b>}</button> })}</div>
+      <div className="cone-grid">{cones.map((number) => {
+        const assigned = occupied.find((item) => item.coneNumber === number)
+        const waitingParts = assigned && isVehicleWaitingForParts(data.plannerSettings, assigned)
+        return <button onClick={() => setSelected(number)} className={`cone-card${assigned ? ' busy' : ''}${waitingParts ? ' waiting-parts' : ''}`} key={number}>
+          <span>CONO</span><strong>{number}</strong>
+          {assigned ? <>
+            <b className="plate">{assigned.plate}</b>
+            <small>{assigned.make} {assigned.model}</small>
+            {waitingParts && <small className="cone-parts-label">In attesa ricambi</small>}
+          </> : <b className="available">LIBERO</b>}
+        </button>
+      })}</div>
     </section>
     <section className="panel history"><div className="panel-head"><div><span className="eyebrow">REGISTRO NON MODIFICABILE</span><h3>Storico assegnazioni</h3></div></div><div className="table-wrap"><table><thead><tr><th>Data e ora</th><th>Evento</th><th>Cono</th><th>Vettura</th><th>Nota</th></tr></thead><tbody>{data.coneHistory.map((item) => { const itemVehicle = data.vehicles.find((entry) => entry.id === item.vehicleId); return <tr key={item.id}><td>{formatDate(item.timestamp)}</td><td><span className="tag">{item.action}</span></td><td><b className="cone-badge">{item.coneNumber}</b></td><td><strong className="plate">{item.vehiclePlate}</strong><small>{itemVehicle ? customerById(itemVehicle.customerId)?.name : 'Vettura rimossa'}</small></td><td>{item.note}</td></tr> })}</tbody></table></div>{!data.coneHistory.length && <Empty text="Nessuna assegnazione registrata." />}</section>
     {selected !== null && <Modal title={`Cono ${selected}`} onClose={() => setSelected(null)}>{vehicle ? <div className="cone-detail"><div className="detail-plate">{vehicle.plate}</div><dl><div><dt>Vettura</dt><dd>{vehicle.make} {vehicle.model}</dd></div><div><dt>Cliente</dt><dd>{customerById(vehicle.customerId)?.name}</dd></div><div><dt>Stato</dt><dd>{vehicle.status}</dd></div></dl><label>Sposta manualmente su un cono libero<select defaultValue="" onChange={(event) => { onMove(vehicle.id, Number(event.target.value)); setSelected(null) }}><option value="" disabled>Seleziona nuovo cono</option>{Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).filter((cone) => !occupied.some((entry) => entry.coneNumber === cone)).map((cone) => <option value={cone} key={cone}>Cono {cone}</option>)}</select></label><button type="button" className="secondary" onClick={() => { onMove(vehicle.id, null); setSelected(null) }}>Libera cono manualmente</button></div> : <div className="cone-detail"><div className="detail-plate">Cono libero</div><p>Assegna manualmente questo cono a una vettura in attesa.</p>{waitingVehicles.length ? <label>Vettura in attesa cono<select defaultValue="" onChange={(event) => { const selectedVehicle = event.target.value; if (!selectedVehicle) return; onMove(selectedVehicle, selected); setSelected(null) }}><option value="" disabled>Seleziona vettura</option>{waitingVehicles.map((item) => <option value={item.id} key={item.id}>{item.plate} · {customerById(item.customerId)?.name || 'Cliente'}</option>)}</select></label> : <div className="empty modal-empty"><b>Nessun cono disponibile</b><p>Non ci sono vetture in coda In attesa cono.</p></div>}</div>}</Modal>}
