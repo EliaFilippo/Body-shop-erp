@@ -4,7 +4,7 @@ import { QuoteEconomicsPreview } from './QuoteEconomicsPreview'
 import { FastPaymentTerms } from './FastPaymentTerms'
 import { OptionalPanelPhases } from './OptionalPanelPhases'
 import { useMemo, useRef, useState } from 'react'
-import type { ErpData, EstimateLine, EstimatePaymentTerms } from '../../types'
+import type { ErpData, EstimateDocument, EstimateLine, EstimatePaymentTerms } from '../../types'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
 import { createDefaultQuote } from '../../services/acceptance'
@@ -17,22 +17,26 @@ import { WORK_CYCLE, phaseDisplayName } from '../../services/workCycle'
 import { QUOTE_PANELS } from './vehiclePanels'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 
-export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:ErpData;livePrograms?:ErpData['operatorPrograms'];onDone:(next:ErpData,confirmed:boolean,pdfPrepared?:boolean)=>void;onCancel:()=>void}) {
+export function FastEstimateEditor({data,livePrograms,initial,onDone,onCancel}:{data:ErpData;initial?:EstimateDocument;livePrograms?:ErpData['operatorPrograms'];onDone:(next:ErpData,confirmed:boolean,pdfPrepared?:boolean)=>void;onCancel:()=>void}) {
  const forecastData = useMemo(() => livePrograms ? {...data,operatorPrograms:livePrograms} : data, [data,livePrograms])
- const [discountInput, setDiscountInput] = useState('')
- const [plate,setPlate]=useState('')
- const [customerId,setCustomerId]=useState('')
+ const [discountInput, setDiscountInput] = useState(() => {
+  const gross = initial?.lines.reduce((sum,line)=>sum+line.quantity*line.unitPrice,0) ?? 0
+  const savedDiscount = initial?.lines.reduce((sum,line)=>sum+line.discount,0) ?? 0
+  return gross>0 && savedDiscount>0 ? String(savedDiscount/gross*100) : ''
+ })
+ const [plate,setPlate]=useState(initial?.plate??'')
+ const [customerId,setCustomerId]=useState(initial?.customerId??'')
  const [name,setName]=useState('')
  const [phone,setPhone]=useState('')
  const [whatsappPhone,setWhatsappPhone]=useState<string | null>(null)
  const [panelId,setPanelId]=useState('')
- const [lines,setLines]=useState<EstimateLine[]>([])
- const [wash,setWash]=useState(false)
+ const [lines,setLines]=useState<EstimateLine[]>(initial?.lines??[])
+ const [wash,setWash]=useState(initial?.selectedPhases?.includes('Lavaggio esterno')??false)
  const [confirmed,setConfirmed]=useState(false)
- const [delivery,setDelivery]=useState('')
- const [planningPrecedence,setPlanningPrecedence]=useState(false)
- const [termsOverride,setTermsOverride]=useState<EstimatePaymentTerms|null>(null)
- const [notes,setNotes]=useState('')
+ const [delivery,setDelivery]=useState(initial?.requestedDeliveryDate??'')
+ const [planningPrecedence,setPlanningPrecedence]=useState(initial?.planningPrecedence??false)
+ const [termsOverride,setTermsOverride]=useState<EstimatePaymentTerms|null>(initial?.paymentTerms??null)
+ const [notes,setNotes]=useState(initial?.notes??'')
  const [error,setError]=useState('')
  const busy=useRef(false)
  const lineElements=useRef(new Map<string,HTMLElement>())
@@ -53,6 +57,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
   }).format(new Date()))
   return {
    ...base,
+   appliedVatRate: initial?.lines[0]?.vatRate ?? base.appliedVatRate,
    manualOnlyPricing: true,
    damageLines: lines.map(damageLineForSave),
    selectedPhases: wash ? ['Lavaggio esterno'] : [],
@@ -61,7 +66,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
     quantity: 1, unitPrice: discount, unitCost: 0, source: 'manual' as const,
    }] : base.lines,
   }
- }, [data.plannerSettings, lines, wash, discount])
+ }, [data.plannerSettings, lines, wash, discount, initial])
  const lineIssue=damageQuoteIssue(lines)
  const lineError=lineIssue?.message??''
  const goToIssue=()=>{
@@ -90,10 +95,11 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
  return <Modal title="Preventivo fast" onClose={onCancel}>
   <form onSubmit={e=>{e.preventDefault();if(busy.current||invalidDiscount)return;busy.current=true;try{
-   const next=createFastEstimate(data,{plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
+   const next=createFastEstimate(data,{estimateId:initial?.id,plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
+   const saved = initial ? next.estimates!.find(item=>item.id===initial.id)! : next.estimates![0]
    const send=(e.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='whatsapp'
-   const link=send?fastEstimateWhatsAppLink(next.estimates![0],targetPhone):null
-   const file=send?estimatePdfFile(next,next.estimates![0]):null
+   const link=send?fastEstimateWhatsAppLink(saved,targetPhone):null
+   const file=send?estimatePdfFile(next,saved):null
    const chat=link?window.open('about:blank','_blank'):null
    if(link&&!chat)throw new Error('Consenti le finestre popup per aprire WhatsApp, oppure salva il preventivo senza inviare.')
    try{if(file)downloadEstimatePdf(file);onDone(next,confirmed,send)}catch(problem){chat?.close();throw problem}
@@ -101,7 +107,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
   }catch(problem){setError(problem instanceof Error?problem.message:'Creazione non riuscita.');busy.current=false}}}>
    <p>Per danni lievi: scegli la vettura, aggiungi i pannelli e salva. Prezzi e tempi arrivano dal listino; i danni gravi si gestiscono nel preventivo completo.</p>
    <div className="form-grid">
-    <label>Targa<input required minLength={5} value={plate} list="fast-plates" autoComplete="off" onChange={e=>{setPlate(e.target.value.toUpperCase());setWhatsappPhone(null);setTermsOverride(null);setError('')}}/></label>
+    <label>Targa<input required minLength={5} readOnly={Boolean(initial)} value={plate} list="fast-plates" autoComplete="off" onChange={e=>{setPlate(e.target.value.toUpperCase());setWhatsappPhone(null);setTermsOverride(null);setError('')}}/></label>
     <datalist id="fast-plates">{data.vehicles.map(v=><option value={v.plate} key={v.id}>{data.customers.find(c=>c.id===v.customerId)?.name}</option>)}</datalist>
     {owner?<p>Cliente riconosciuto: <strong>{owner.name}</strong></p>:<label>Cliente<select required value={customerId} onChange={e=>{setCustomerId(e.target.value);setWhatsappPhone(null);setTermsOverride(null)}}><option value="">Scegli cliente</option><option value="new">+ Nuovo cliente</option>{data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
     {!owner&&customerId==='new'&&<><label>Nome nuovo cliente<input required value={name} onChange={e=>setName(e.target.value)}/></label><label>Telefono nuovo cliente<input required type="tel" value={phone} onChange={e=>setPhone(e.target.value)}/></label></>}
@@ -131,7 +137,7 @@ export function FastEstimateEditor({data,livePrograms,onDone,onCancel}:{data:Erp
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
    </section>)}
    <label><input type="checkbox" checked={wash} onChange={e=>setWash(e.target.checked)}/>Includi lavaggio esterno · {data.plannerSettings.eliasExteriorWashMinutes??25} min</label>
-   <DeliveryForecastPanel data={forecastData} vehicleId={existing?.id} plate={plate} quote={quote} requestedDeliveryDate={delivery} onRequestedDeliveryDateChange={date=>{setDelivery(date);if(!date)setPlanningPrecedence(false)}} planningPrecedence={planningPrecedence} onPlanningPrecedenceChange={setPlanningPrecedence}/>
+   <DeliveryForecastPanel data={forecastData} vehicleId={existing?.id} plate={plate} quote={quote} estimate={initial} requestedDeliveryDate={delivery} onRequestedDeliveryDateChange={date=>{setDelivery(date);if(!date)setPlanningPrecedence(false)}} planningPrecedence={planningPrecedence} onPlanningPrecedenceChange={setPlanningPrecedence}/>
    <details><summary>Note</summary><label>Note<input value={notes} onChange={e=>setNotes(e.target.value)}/></label></details>
    <FastPaymentTerms value={terms} delivery={delivery} onChange={setTermsOverride}/>
    <section className="panel" aria-label="Riepilogo preventivo fast"><label>Sconto (%)<input inputMode="decimal" value={discountInput} onChange={e => setDiscountInput(e.target.value)} placeholder="0" aria-invalid={invalidDiscount}/></label>
