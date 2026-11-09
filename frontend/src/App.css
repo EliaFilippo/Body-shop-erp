@@ -549,3 +549,7 @@ button.work-sheet-print-pending {
 @media (prefers-reduced-motion: reduce) {
   button.work-sheet-print-pending { animation: none }
 }
+
+.cone-card.busy.waiting-parts{border-color:#e06565;background:#391c21;box-shadow:none}
+.cone-card.waiting-parts>strong,.cone-card.waiting-parts .cone-parts-label{color:#ffacac}
+.cone-card.waiting-parts .cone-parts-label{font-size:11px;font-weight:700}
