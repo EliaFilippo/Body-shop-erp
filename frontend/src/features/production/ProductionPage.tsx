@@ -1,3 +1,4 @@
+import { closedPlanningWork } from '../../services/closedPlanningWork'
 import { useEffect, useState, type FormEvent } from 'react'
 import '../../App.css'
 import { loadDatabase, saveDatabase } from '../../services/database'
@@ -131,6 +132,8 @@ export function ProductionPage() {
     .map((line) => String(line.panelName ?? '').trim())
     .filter(Boolean)))
   const assignedProgram = (data.operatorPrograms ?? []).find((program) => program.date === todayKey() && program.operatorId === identity.operatorId)
+  const closed = closedPlanningWork(data)
+  const assignedTasks = (assignedProgram?.tasks ?? []).filter(task => !closed.hasTask(task))
   const nextTask = nextTaskForOperator(data, identity.operatorId)
   const selectedPace = selected ? paceStateByVehicle(data, selected.job.vehicleId) : null
   const latePace = rows
@@ -231,8 +234,8 @@ export function ProductionPage() {
 
     <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">PROGRAMMA OPERATORE</span><h3>{identity.operatorName}</h3></div><button className="secondary" onClick={() => persist(recalculateOperatorPrograms(data, todayKey(), 'Ricalcolo piano manuale da tablet'))}>Ricalcola piano</button></div>
-      <div className="table-wrap"><table><thead><tr><th>Orario</th><th>Commessa</th><th>Fase</th><th>Vettura</th><th>Durata</th><th>Pannelli / note</th><th>Motivo</th></tr></thead><tbody>{(assignedProgram?.tasks ?? []).map((task) => <tr key={task.id}><td>{hhmm(task.startAt)}-{hhmm(task.endAt)}</td><td>{task.jobNumber}</td><td>{task.phaseName}</td><td>{task.plate}</td><td>{task.plannedMinutes} min</td><td><small>{task.panelNames?.join(', ') || '—'}</small><small>{task.panelNotes?.join(' | ') || 'Nessuna nota pannello'}</small></td><td>{task.reason}</td></tr>)}</tbody></table></div>
-      {!(assignedProgram?.tasks ?? []).length && <div className="empty">Nessuna attivita assegnata per oggi.</div>}
+      <div className="table-wrap"><table><thead><tr><th>Orario</th><th>Commessa</th><th>Fase</th><th>Vettura</th><th>Durata</th><th>Pannelli / note</th><th>Motivo</th></tr></thead><tbody>{assignedTasks.map((task) => <tr key={task.id}><td>{hhmm(task.startAt)}-{hhmm(task.endAt)}</td><td>{task.jobNumber}</td><td>{task.phaseName}</td><td>{task.plate}</td><td>{task.plannedMinutes} min</td><td><small>{task.panelNames?.join(', ') || '—'}</small><small>{task.panelNotes?.join(' | ') || 'Nessuna nota pannello'}</small></td><td>{task.reason}</td></tr>)}</tbody></table></div>
+      {!assignedTasks.length && <div className="empty">Nessuna attivita assegnata per oggi.</div>}
       {nextTask && <div className="toast success">Prossima attivita: {nextTask.jobNumber} - {nextTask.phaseName} - {nextTask.plate}</div>}
     </section>
 

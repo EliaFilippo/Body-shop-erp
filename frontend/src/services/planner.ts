@@ -1,3 +1,4 @@
+import { closedPlanningWork } from './closedPlanningWork'
 import { paintFlowPriority } from './paintFlowPriority'
 import { isWashingPhase, findWashStationStart, currentWashReservations } from './washStation'
 import { findPaintStationStart, type PaintReservation } from './paintStations'
@@ -452,7 +453,6 @@ export function moveVehiclePlanningDate(assignments: PlannerAssignment[], vehicl
 export const moveVehicleWork = moveVehiclePlanningDate
 
 const isJobBlocked = (job: RepairJob) => job.status === 'In attesa' || (job.blocks??[]).some(block=>block.trim()) || job.phases.some((phase) => phase.status === 'Bloccata')
-const isJobActive = (job: RepairJob) => job.status !== 'Annullata' && job.status !== 'Consegnata'
 
 function jobStarted(job: RepairJob) {
   if (job.status === 'In lavorazione') return true
@@ -583,7 +583,8 @@ function firstOperatorCapacityDate(
 
 export function buildPlannerQueue(data: ErpData, referenceDate = todayKey(), horizonDays = 30, nowIso?: string): PlannerQueueItem[] {
   const effectiveReferenceDate = planningDateFloor(referenceDate, nowIso)
-  const jobs = (data.jobs ?? []).filter((job) => isJobActive(job))
+  const {jobIds} = closedPlanningWork(data)
+  const jobs = (data.jobs ?? []).filter(job => !jobIds.has(job.id))
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
   const activeOperators = data.plannerSettings.operators.filter((operator) => operator.active)
   const horizonEndDate = addDays(effectiveReferenceDate, Math.max(1, horizonDays))
@@ -919,8 +920,9 @@ function summarizeOperatorDay(data: ErpData, operatorId: string, date: string, t
 
 function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] {
  const reservations:PaintReservation[]=[]
+ const {jobIds} = closedPlanningWork(data)
  for(const job of data.jobs??[]){
-  if(!isJobActive(job))continue
+  if(jobIds.has(job.id))continue
   const phase=job.phases.find(item=>item.name==='Verniciatura'&&!item.notRequired)
   if(!phase)continue
   const wait=Math.max(0,Number(phase.technicalWaitMinutes??60))
@@ -949,7 +951,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const originalJobs=new Map((data.jobs??[]).map(job=>[job.id,job]))
   const paintPriority=(candidate:{job:RepairJob;phase:JobPhase})=>paintFlowPriority(candidate.job,candidate.phase,originalJobs.get(candidate.job.id))
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
-  const openJobs = (data.jobs ?? []).filter((job) => isJobActive(job) && job.vehicleId)
+  const {jobIds} = closedPlanningWork(data)
+  const openJobs = (data.jobs ?? []).filter(job => job.vehicleId && !jobIds.has(job.id))
   const hasPrecedence = openJobs.some(job => job.planningPrecedence)
   const precedenceRank = ({ job, phase }: {job: RepairJob; phase: JobPhase}) => {
     if (!hasPrecedence) return 0
@@ -1228,9 +1231,11 @@ export function nextTaskForOperator(data: ErpData, operatorId: string, atIso = n
   const date = atIso.slice(0, 10)
   const program = (data.operatorPrograms ?? []).find((item) => item.date === date && item.operatorId === operatorId)
   if (!program) return null
-  const current = program.tasks.find((task) => task.startAt <= atIso && task.endAt >= atIso)
+  const closed = closedPlanningWork(data)
+  const tasks = program.tasks.filter(task => !closed.hasTask(task))
+  const current = tasks.find((task) => task.startAt <= atIso && task.endAt >= atIso)
   if (current) return current
-  return program.tasks.find((task) => task.startAt > atIso) ?? null
+  return tasks.find((task) => task.startAt > atIso) ?? null
 }
 
 export function simulateEstimateProductionForecast(
@@ -1299,12 +1304,15 @@ export function simulateEstimateProductionForecast(
   const plan = plannerResult.vehicles.find((vehicle) => vehicle.vehicleId === simulatedVehicle.id)
   const firstAvailabilityDate = plan?.assignments[0]?.date || referenceDate
   const jobById = new Map((data.jobs ?? []).map(job => [job.id, job]))
+  const closed = closedPlanningWork(data)
   const basePrograms = (data.operatorPrograms ?? []).filter(program => program.date >= firstAvailabilityDate)
-    .map(program => input.planningPrecedence ? {...program, tasks: (program.tasks ?? []).filter(task => {
+    .map(program => ({...program, tasks: (program.tasks ?? []).filter(task => {
+      if (closed.hasTask(task)) return false
+      if (!input.planningPrecedence) return true
       if (task.id.startsWith('running:')) return true
       const job = jobById.get(task.jobId)
       return job?.planningPrecedence || job?.phases.some(phase => phase.id === task.phaseId && phase.status === 'In lavorazione')
-    })} : program)
+    })}))
   const occupiedUntil = new Map<string, string>()
   for (const program of basePrograms) {
     for (const task of program.tasks ?? []) {

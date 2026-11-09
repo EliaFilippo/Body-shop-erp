@@ -383,139 +383,8 @@ function cyclePhasesForLine(line) {
   return phase === "Verniciatura" ? ["Stuccatura", "Verniciatura"] : phase ? [phase] : [];
 }
 
-// frontend/src/services/paintFlowPriority.ts
-function paintFlowPriority(job, phase, original = job) {
-  if ((phase.operatorAssignments ?? []).some((a) => a.activityStatus === "Attivo" && !a.endedAt))
-    return { rank: -1, reason: "Prosecuzione della lavorazione gi\xE0 avviata" };
-  const paint = job.phases.find((p) => p.name === "Verniciatura" && !p.notRequired);
-  const realPaint = original.phases.find((p) => p.name === "Verniciatura" && !p.notRequired);
-  if (phase.name === "Scartatura" && paint?.status === "Completata") {
-    return realPaint?.status === "Completata" ? { rank: 0, reason: "Priorit\xE0 cabine: scartare la vettura gi\xE0 verniciata e pronta dopo asciugatura" } : { rank: 1, reason: "Priorit\xE0 cabine: scartatura dopo la verniciatura prevista" };
-  }
-  if (paint && paint.status !== "Completata") {
-    if (phase.name === "Verniciatura") return { rank: 2, reason: "Priorit\xE0 cabine: verniciare la vettura pronta" };
-    if (phase.name === "Incartatura") return { rank: 3, reason: "Priorit\xE0 cabine: incartare la prossima vettura da verniciare" };
-    if (phase.name === "Stuccatura" || phase.name === "Preparazione") return { rank: 4, reason: "Priorit\xE0 cabine: preparare la prossima vettura da verniciare" };
-  }
-  return { rank: 5, reason: "" };
-}
-
-// frontend/src/services/washStation.ts
-var isWashingPhase = (name) => ["Lavaggio esterno", "Lavaggio interni", "Lavaggio"].includes(name);
-function findWashStationStart(requestedAt, jobId, reservations, endForStart, normalizeStart = (start) => start) {
-  let start = normalizeStart(requestedAt);
-  for (let attempt = 0; attempt <= reservations.length; attempt++) {
-    const end = endForStart(start);
-    const conflict = reservations.filter((r) => r.jobId !== jobId && r.startAt < end && r.endAt > start).sort((a, b) => a.endAt.localeCompare(b.endAt))[0];
-    if (!conflict) return start;
-    start = normalizeStart(conflict.endAt);
-  }
-  throw new Error("La postazione di lavaggio \xE8 occupata.");
-}
-function currentWashReservations(data, floor, endForPhase) {
-  return (data.jobs ?? []).filter((j) => !["Annullata", "Consegnata"].includes(j.status)).flatMap((job) => job.phases.filter((p) => isWashingPhase(p.name) && !p.notRequired && p.status === "In lavorazione").map((phase) => ({ jobId: job.id, startAt: floor, endAt: endForPhase(job, phase) })));
-}
-
-// frontend/src/services/paintStations.ts
-var PAINT_STATION_COUNT = 3;
-function findPaintStationStart(requestedAt, jobId, reservations, endForStart, normalizeStart = (start) => start) {
-  let start = normalizeStart(requestedAt);
-  for (let attempt = 0; attempt <= reservations.length + 1; attempt++) {
-    const end = endForStart(start);
-    const relevant = reservations.filter((item) => item.jobId !== jobId && item.startAt < end && item.endAt > start);
-    const points = [start, ...relevant.map((item) => item.startAt).filter((at) => at > start && at < end)].sort();
-    let conflict;
-    for (const point of points) {
-      const active = relevant.filter((item) => item.startAt <= point && item.endAt > point);
-      if (new Set(active.map((item) => item.jobId)).size >= PAINT_STATION_COUNT) {
-        conflict = active.map((item) => item.endAt).sort()[0];
-        break;
-      }
-    }
-    if (!conflict) return start;
-    start = normalizeStart(conflict);
-  }
-  throw new Error("Impossibile trovare una postazione di verniciatura libera.");
-}
-
-// frontend/src/services/operatorSkills.ts
-var normalize = (value) => value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-function supportsOperatorDuty(operator, duty) {
-  const skills = (operator.skills ?? []).map(normalize).filter(Boolean);
-  if (!skills.length) return !operator.skillsConfigured;
-  const required = normalize(duty);
-  if (["incartatura", "scartatura"].includes(required) && skills.includes("preparazione")) return true;
-  if (["lavaggio esterno", "lavaggio interni"].includes(required) && skills.includes("lavaggio")) return true;
-  if (required === "preparazione") return skills.includes("preparazione") || skills.includes("scartatura") && skills.includes("incartatura");
-  if (required === "lavaggio") return skills.includes("lavaggio") || skills.includes("lavaggio esterno") && skills.includes("lavaggio interni");
-  if (required === "controllo qualita") return skills.includes("controllo") || skills.includes(required);
-  if (required === "meccanica" || required === "gommista") return skills.includes("meccanica / gommista") || skills.includes(required);
-  return skills.includes(required);
-}
-function preferredOperatorDuties(operator) {
-  return operator.preferredDuties ?? (normalize(operator.name) === "stefania" ? operator.skills ?? [] : []);
-}
-function prefersOperatorDuty(operator, duty) {
-  return supportsOperatorDuty({ ...operator, skillsConfigured: true, skills: preferredOperatorDuties(operator) }, duty);
-}
-
-// frontend/src/services/phaseAssignment.ts
-function rankPhaseOperators(data, job, phase, candidates, minutes, floor, ready) {
-  const tabletNames = (phase.operatorAssignments ?? []).filter((a) => a.id.startsWith("tablet:") && a.activityStatus === "Attivo" && !a.endedAt).map((a) => a.operatorName);
-  if (tabletNames.length) return { operators: candidates.filter((c) => tabletNames.includes(c.operator.name)), reason: "Prosegue il lavoro reale gi\xE0 avviato sul tablet" };
-  const support = candidates.find((c) => c.operator.id === phase.supportOperatorId && c.operator.id !== phase.preferredOperatorId);
-  if (phase.supportOperatorId && !support) {
-    const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: void 0 }, candidates, minutes, floor, ready);
-    return { operators: primary.operators.slice(0, 1), reason: `${primary.reason} \xB7 affiancamento non disponibile` };
-  }
-  if (support) {
-    const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: void 0 }, candidates.filter((c) => c.operator.id !== support.operator.id), minutes, floor, ready);
-    return { operators: primary.operators.length ? [...primary.operators.slice(0, 1), support] : [], reason: `${primary.reason} \xB7 secondo operatore scelto dall\u2019ufficio` };
-  }
-  if (phase.preferredOperatorId) return {
-    operators: candidates.filter((c) => c.operator.id === phase.preferredOperatorId),
-    reason: "Operatore scelto dall\u2019ufficio"
-  };
-  const workingNames = (phase.operatorAssignments ?? []).filter((a) => a.activityStatus === "Attivo" && !a.endedAt).map((a) => a.operatorName);
-  if (workingNames.length) return { operators: candidates.filter((c) => workingNames.includes(c.operator.name)), reason: "Prosegue il lavoro degli operatori gi\xE0 attivi" };
-  const day = [floor, ready].sort().at(-1).slice(0, 10);
-  const present = candidates.filter((c) => getOperatorWorkingIntervals(day, data.plannerSettings, c.operator).length > 0 && nextWorkingInstant([floor, ready].sort().at(-1), data.plannerSettings, c.operator).slice(0, 10) === day);
-  const preferred = present.filter((c) => prefersOperatorDuty(c.operator, phase.requiredSkill || phase.name));
-  if (preferred.length) return {
-    operators: [...preferred].sort((a, b) => a.nextAt.localeCompare(b.nextAt)),
-    reason: "Precedenza per mansione: operatore presente; sostituzione automatica in assenza"
-  };
-  if (present.length) candidates = present;
-  const structure = quoteStructureRate(data.plannerSettings, floor.slice(0, 7));
-  const marginPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.minimumMarginPercent ?? 0));
-  const materialsPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.budgetMaterialsPercent ?? 20));
-  const materials = job.lines.filter((l) => ["carrozzeria", "verniciatura", "meccanica"].includes(l.category)).reduce((sum, l) => sum + Math.max(0, l.taxableAmount) * materialsPercent / 100, 0);
-  const directLines = job.lines.filter((l) => ["ricambi", "servizi esterni", "altre"].includes(l.category) || l.category === "materiali" && l.budgetDirectUnitCost !== void 0);
-  const missingDirectCost = directLines.some((l) => l.quantity > 0 && l.unitPrice > 0 && l.budgetDirectUnitCost === void 0);
-  const direct = directLines.reduce((sum, l) => sum + Math.max(0, l.quantity) * Math.max(0, l.budgetDirectUnitCost ?? 0), 0);
-  const hours = job.phases.filter((p) => !p.notRequired && p.name !== "Consegna").reduce((sum, p) => sum + Math.max(0, p.estimatedMinutes), 0) / 60;
-  const available = job.taxableAmount * (1 - marginPercent / 100) - materials - direct;
-  const byStart = [...candidates].sort((a, b) => a.nextAt.localeCompare(b.nextAt) || a.operator.id.localeCompare(b.operator.id));
-  const finish = (c) => {
-    const start = [c.nextAt, floor, ready].sort().at(-1);
-    return addWorkingMinutes(nextWorkingInstant(start, data.plannerSettings, c.operator), minutes, data.plannerSettings, c.operator);
-  };
-  const deadline = job.agreedDeliveryDate || job.expectedDeliveryDate;
-  const onTime = deadline ? byStart.filter((c) => finish(c).slice(0, 10) <= deadline) : byStart;
-  const earliestFinishDay = byStart.length ? byStart.map((c) => finish(c).slice(0, 10)).sort()[0] : "";
-  const pool = onTime.length ? onTime : byStart.filter((c) => finish(c).slice(0, 10) === earliestFinishDay);
-  if (structure.error || missingDirectCost || hours <= 0) return { operators: pool, reason: "Automatico: dati economici incompleti, primo operatore disponibile" };
-  const configured = pool.filter((c) => !quoteOperatorRate(data.plannerSettings, c.operator.id).error);
-  if (!configured.length) return { operators: pool, reason: "Automatico: costi operatori da configurare" };
-  const rate = (c) => quoteOperatorRate(data.plannerSettings, c.operator.id).rate;
-  const affordable = configured.filter((c) => hours * (structure.rate + rate(c)) <= available + 1e-3);
-  const selected = affordable.length ? affordable : configured;
-  selected.sort((a, b) => (affordable.length ? rate(b) - rate(a) : rate(a) - rate(b)) || a.nextAt.localeCompare(b.nextAt) || a.operator.id.localeCompare(b.operator.id));
-  return { operators: selected, reason: affordable.length ? "Automatico per margine: operatore pi\xF9 costoso sostenibile sul tempo previsto" : "Margine insufficiente sul tempo previsto: operatore meno costoso disponibile" };
-}
-
 // frontend/src/services/vehicleStatuses.ts
-var normalize2 = (value) => value.trim().toLowerCase();
+var normalize = (value) => value.trim().toLowerCase();
 var slugify = (value) => value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 var DEFAULT_VEHICLE_STATUSES = [
   { id: "accettata", label: "Accettata", color: "#4a5d7a", icon: "clipboard", active: true, sortOrder: 10, semantic: "accepted" },
@@ -583,13 +452,159 @@ function statusById(settings, id2) {
 function isVehicleStatusSemantic(settings, status, semantic) {
   const found = statusById(settings, status);
   if (found) return found.semantic === semantic;
-  const legacy = LEGACY_TO_ID[normalize2(status)];
+  const legacy = LEGACY_TO_ID[normalize(status)];
   if (!legacy) return false;
   const legacyFound = statusById(settings, legacy);
   return legacyFound?.semantic === semantic;
 }
 function isVehicleDeliveredStatus(settings, status) {
   return isVehicleStatusSemantic(settings, status, "delivered");
+}
+
+// frontend/src/services/closedPlanningWork.ts
+function closedPlanningWork(data) {
+  const vehicleIds = new Set(data.vehicles.filter(
+    (vehicle) => isVehicleStatusSemantic(data.plannerSettings, vehicle.status, "delivered") || isVehicleStatusSemantic(data.plannerSettings, vehicle.status, "cancelled")
+  ).map((vehicle) => vehicle.id));
+  const jobIds = new Set((data.jobs ?? []).filter(
+    (job) => job.status === "Consegnata" || job.status === "Annullata" || vehicleIds.has(job.vehicleId ?? "")
+  ).map((job) => job.id));
+  return {
+    jobIds,
+    hasTask: (task) => jobIds.has(task.jobId) || vehicleIds.has(task.vehicleId)
+  };
+}
+
+// frontend/src/services/paintFlowPriority.ts
+function paintFlowPriority(job, phase, original = job) {
+  if ((phase.operatorAssignments ?? []).some((a) => a.activityStatus === "Attivo" && !a.endedAt))
+    return { rank: -1, reason: "Prosecuzione della lavorazione gi\xE0 avviata" };
+  const paint = job.phases.find((p) => p.name === "Verniciatura" && !p.notRequired);
+  const realPaint = original.phases.find((p) => p.name === "Verniciatura" && !p.notRequired);
+  if (phase.name === "Scartatura" && paint?.status === "Completata") {
+    return realPaint?.status === "Completata" ? { rank: 0, reason: "Priorit\xE0 cabine: scartare la vettura gi\xE0 verniciata e pronta dopo asciugatura" } : { rank: 1, reason: "Priorit\xE0 cabine: scartatura dopo la verniciatura prevista" };
+  }
+  if (paint && paint.status !== "Completata") {
+    if (phase.name === "Verniciatura") return { rank: 2, reason: "Priorit\xE0 cabine: verniciare la vettura pronta" };
+    if (phase.name === "Incartatura") return { rank: 3, reason: "Priorit\xE0 cabine: incartare la prossima vettura da verniciare" };
+    if (phase.name === "Stuccatura" || phase.name === "Preparazione") return { rank: 4, reason: "Priorit\xE0 cabine: preparare la prossima vettura da verniciare" };
+  }
+  return { rank: 5, reason: "" };
+}
+
+// frontend/src/services/washStation.ts
+var isWashingPhase = (name) => ["Lavaggio esterno", "Lavaggio interni", "Lavaggio"].includes(name);
+function findWashStationStart(requestedAt, jobId, reservations, endForStart, normalizeStart = (start) => start) {
+  let start = normalizeStart(requestedAt);
+  for (let attempt = 0; attempt <= reservations.length; attempt++) {
+    const end = endForStart(start);
+    const conflict = reservations.filter((r) => r.jobId !== jobId && r.startAt < end && r.endAt > start).sort((a, b) => a.endAt.localeCompare(b.endAt))[0];
+    if (!conflict) return start;
+    start = normalizeStart(conflict.endAt);
+  }
+  throw new Error("La postazione di lavaggio \xE8 occupata.");
+}
+function currentWashReservations(data, floor, endForPhase) {
+  const { jobIds } = closedPlanningWork(data);
+  return (data.jobs ?? []).filter((job) => !jobIds.has(job.id)).flatMap((job) => job.phases.filter((p) => isWashingPhase(p.name) && !p.notRequired && p.status === "In lavorazione").map((phase) => ({ jobId: job.id, startAt: floor, endAt: endForPhase(job, phase) })));
+}
+
+// frontend/src/services/paintStations.ts
+var PAINT_STATION_COUNT = 3;
+function findPaintStationStart(requestedAt, jobId, reservations, endForStart, normalizeStart = (start) => start) {
+  let start = normalizeStart(requestedAt);
+  for (let attempt = 0; attempt <= reservations.length + 1; attempt++) {
+    const end = endForStart(start);
+    const relevant = reservations.filter((item) => item.jobId !== jobId && item.startAt < end && item.endAt > start);
+    const points = [start, ...relevant.map((item) => item.startAt).filter((at) => at > start && at < end)].sort();
+    let conflict;
+    for (const point of points) {
+      const active = relevant.filter((item) => item.startAt <= point && item.endAt > point);
+      if (new Set(active.map((item) => item.jobId)).size >= PAINT_STATION_COUNT) {
+        conflict = active.map((item) => item.endAt).sort()[0];
+        break;
+      }
+    }
+    if (!conflict) return start;
+    start = normalizeStart(conflict);
+  }
+  throw new Error("Impossibile trovare una postazione di verniciatura libera.");
+}
+
+// frontend/src/services/operatorSkills.ts
+var normalize2 = (value) => value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function supportsOperatorDuty(operator, duty) {
+  const skills = (operator.skills ?? []).map(normalize2).filter(Boolean);
+  if (!skills.length) return !operator.skillsConfigured;
+  const required = normalize2(duty);
+  if (["incartatura", "scartatura"].includes(required) && skills.includes("preparazione")) return true;
+  if (["lavaggio esterno", "lavaggio interni"].includes(required) && skills.includes("lavaggio")) return true;
+  if (required === "preparazione") return skills.includes("preparazione") || skills.includes("scartatura") && skills.includes("incartatura");
+  if (required === "lavaggio") return skills.includes("lavaggio") || skills.includes("lavaggio esterno") && skills.includes("lavaggio interni");
+  if (required === "controllo qualita") return skills.includes("controllo") || skills.includes(required);
+  if (required === "meccanica" || required === "gommista") return skills.includes("meccanica / gommista") || skills.includes(required);
+  return skills.includes(required);
+}
+function preferredOperatorDuties(operator) {
+  return operator.preferredDuties ?? (normalize2(operator.name) === "stefania" ? operator.skills ?? [] : []);
+}
+function prefersOperatorDuty(operator, duty) {
+  return supportsOperatorDuty({ ...operator, skillsConfigured: true, skills: preferredOperatorDuties(operator) }, duty);
+}
+
+// frontend/src/services/phaseAssignment.ts
+function rankPhaseOperators(data, job, phase, candidates, minutes, floor, ready) {
+  const tabletNames = (phase.operatorAssignments ?? []).filter((a) => a.id.startsWith("tablet:") && a.activityStatus === "Attivo" && !a.endedAt).map((a) => a.operatorName);
+  if (tabletNames.length) return { operators: candidates.filter((c) => tabletNames.includes(c.operator.name)), reason: "Prosegue il lavoro reale gi\xE0 avviato sul tablet" };
+  const support = candidates.find((c) => c.operator.id === phase.supportOperatorId && c.operator.id !== phase.preferredOperatorId);
+  if (phase.supportOperatorId && !support) {
+    const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: void 0 }, candidates, minutes, floor, ready);
+    return { operators: primary.operators.slice(0, 1), reason: `${primary.reason} \xB7 affiancamento non disponibile` };
+  }
+  if (support) {
+    const primary = rankPhaseOperators(data, job, { ...phase, supportOperatorId: void 0 }, candidates.filter((c) => c.operator.id !== support.operator.id), minutes, floor, ready);
+    return { operators: primary.operators.length ? [...primary.operators.slice(0, 1), support] : [], reason: `${primary.reason} \xB7 secondo operatore scelto dall\u2019ufficio` };
+  }
+  if (phase.preferredOperatorId) return {
+    operators: candidates.filter((c) => c.operator.id === phase.preferredOperatorId),
+    reason: "Operatore scelto dall\u2019ufficio"
+  };
+  const workingNames = (phase.operatorAssignments ?? []).filter((a) => a.activityStatus === "Attivo" && !a.endedAt).map((a) => a.operatorName);
+  if (workingNames.length) return { operators: candidates.filter((c) => workingNames.includes(c.operator.name)), reason: "Prosegue il lavoro degli operatori gi\xE0 attivi" };
+  const day = [floor, ready].sort().at(-1).slice(0, 10);
+  const present = candidates.filter((c) => getOperatorWorkingIntervals(day, data.plannerSettings, c.operator).length > 0 && nextWorkingInstant([floor, ready].sort().at(-1), data.plannerSettings, c.operator).slice(0, 10) === day);
+  const preferred = present.filter((c) => prefersOperatorDuty(c.operator, phase.requiredSkill || phase.name));
+  if (preferred.length) return {
+    operators: [...preferred].sort((a, b) => a.nextAt.localeCompare(b.nextAt)),
+    reason: "Precedenza per mansione: operatore presente; sostituzione automatica in assenza"
+  };
+  if (present.length) candidates = present;
+  const structure = quoteStructureRate(data.plannerSettings, floor.slice(0, 7));
+  const marginPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.minimumMarginPercent ?? 0));
+  const materialsPercent = Math.min(100, Math.max(0, data.plannerSettings.internalCostSettings?.budgetMaterialsPercent ?? 20));
+  const materials = job.lines.filter((l) => ["carrozzeria", "verniciatura", "meccanica"].includes(l.category)).reduce((sum, l) => sum + Math.max(0, l.taxableAmount) * materialsPercent / 100, 0);
+  const directLines = job.lines.filter((l) => ["ricambi", "servizi esterni", "altre"].includes(l.category) || l.category === "materiali" && l.budgetDirectUnitCost !== void 0);
+  const missingDirectCost = directLines.some((l) => l.quantity > 0 && l.unitPrice > 0 && l.budgetDirectUnitCost === void 0);
+  const direct = directLines.reduce((sum, l) => sum + Math.max(0, l.quantity) * Math.max(0, l.budgetDirectUnitCost ?? 0), 0);
+  const hours = job.phases.filter((p) => !p.notRequired && p.name !== "Consegna").reduce((sum, p) => sum + Math.max(0, p.estimatedMinutes), 0) / 60;
+  const available = job.taxableAmount * (1 - marginPercent / 100) - materials - direct;
+  const byStart = [...candidates].sort((a, b) => a.nextAt.localeCompare(b.nextAt) || a.operator.id.localeCompare(b.operator.id));
+  const finish = (c) => {
+    const start = [c.nextAt, floor, ready].sort().at(-1);
+    return addWorkingMinutes(nextWorkingInstant(start, data.plannerSettings, c.operator), minutes, data.plannerSettings, c.operator);
+  };
+  const deadline = job.agreedDeliveryDate || job.expectedDeliveryDate;
+  const onTime = deadline ? byStart.filter((c) => finish(c).slice(0, 10) <= deadline) : byStart;
+  const earliestFinishDay = byStart.length ? byStart.map((c) => finish(c).slice(0, 10)).sort()[0] : "";
+  const pool = onTime.length ? onTime : byStart.filter((c) => finish(c).slice(0, 10) === earliestFinishDay);
+  if (structure.error || missingDirectCost || hours <= 0) return { operators: pool, reason: "Automatico: dati economici incompleti, primo operatore disponibile" };
+  const configured = pool.filter((c) => !quoteOperatorRate(data.plannerSettings, c.operator.id).error);
+  if (!configured.length) return { operators: pool, reason: "Automatico: costi operatori da configurare" };
+  const rate = (c) => quoteOperatorRate(data.plannerSettings, c.operator.id).rate;
+  const affordable = configured.filter((c) => hours * (structure.rate + rate(c)) <= available + 1e-3);
+  const selected = affordable.length ? affordable : configured;
+  selected.sort((a, b) => (affordable.length ? rate(b) - rate(a) : rate(a) - rate(b)) || a.nextAt.localeCompare(b.nextAt) || a.operator.id.localeCompare(b.operator.id));
+  return { operators: selected, reason: affordable.length ? "Automatico per margine: operatore pi\xF9 costoso sostenibile sul tempo previsto" : "Margine insufficiente sul tempo previsto: operatore meno costoso disponibile" };
 }
 
 // frontend/src/services/planner.ts
@@ -795,7 +810,6 @@ function calculatePlanner(vehicles, settings, referenceDate = todayKey(), nowIso
   return { vehicles: results, assignments: results.flatMap((result) => result.assignments) };
 }
 var isJobBlocked = (job) => job.status === "In attesa" || (job.blocks ?? []).some((block) => block.trim()) || job.phases.some((phase) => phase.status === "Bloccata");
-var isJobActive = (job) => job.status !== "Annullata" && job.status !== "Consegnata";
 function jobStarted(job) {
   if (job.status === "In lavorazione") return true;
   return job.phases.some((phase) => phase.status === "In lavorazione" || (phase.operatorAssignments ?? []).some((assignment) => assignment.activityStatus === "Attivo" && !assignment.endedAt));
@@ -956,8 +970,9 @@ function summarizeOperatorDay(data, operatorId, date, tasks) {
 }
 function currentPaintReservations(data, floor) {
   const reservations = [];
+  const { jobIds } = closedPlanningWork(data);
   for (const job of data.jobs ?? []) {
-    if (!isJobActive(job)) continue;
+    if (jobIds.has(job.id)) continue;
     const phase = job.phases.find((item) => item.name === "Verniciatura" && !item.notRequired);
     if (!phase) continue;
     const wait = Math.max(0, Number(phase.technicalWaitMinutes ?? 60));
@@ -985,7 +1000,8 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
   const originalJobs = new Map((data.jobs ?? []).map((job) => [job.id, job]));
   const paintPriority = (candidate) => paintFlowPriority(candidate.job, candidate.phase, originalJobs.get(candidate.job.id));
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]));
-  const openJobs = (data.jobs ?? []).filter((job) => isJobActive(job) && job.vehicleId);
+  const { jobIds } = closedPlanningWork(data);
+  const openJobs = (data.jobs ?? []).filter((job) => job.vehicleId && !jobIds.has(job.id));
   const hasPrecedence = openJobs.some((job) => job.planningPrecedence);
   const precedenceRank = ({ job, phase }) => {
     if (!hasPrecedence) return 0;

@@ -1,3 +1,4 @@
+import { closedPlanningWork } from './closedPlanningWork'
 import type { ErpData } from '../types'
 import type { PaintReservation } from './paintStations'
 export const isWashingPhase=(name:string)=>['Lavaggio esterno','Lavaggio interni','Lavaggio'].includes(name)
@@ -12,5 +13,6 @@ export function findWashStationStart(requestedAt:string,jobId:string,reservation
  throw new Error('La postazione di lavaggio è occupata.')
 }
 export function currentWashReservations(data:ErpData,floor:string,endForPhase:(job:NonNullable<ErpData['jobs']>[number],phase:NonNullable<ErpData['jobs']>[number]['phases'][number])=>string):PaintReservation[] {
- return (data.jobs??[]).filter(j=>!['Annullata','Consegnata'].includes(j.status)).flatMap(job=>job.phases.filter(p=>isWashingPhase(p.name)&&!p.notRequired&&p.status==='In lavorazione').map(phase=>({jobId:job.id,startAt:floor,endAt:endForPhase(job,phase)})))
+ const {jobIds} = closedPlanningWork(data)
+ return (data.jobs??[]).filter(job=>!jobIds.has(job.id)).flatMap(job=>job.phases.filter(p=>isWashingPhase(p.name)&&!p.notRequired&&p.status==='In lavorazione').map(phase=>({jobId:job.id,startAt:floor,endAt:endForPhase(job,phase)})))
 }
