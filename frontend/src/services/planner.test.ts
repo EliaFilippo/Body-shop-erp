@@ -7,6 +7,7 @@ import {
   calculatePlanner,
   capacityWithAssignments,
   generateOperatorPrograms,
+  nextTaskForOperator,
   isWorkingDay,
   moveVehiclePlanningDate,
   moveVehicleWork,
@@ -827,6 +828,23 @@ describe('12 scenari priorita planner', () => {
     data.jobs = existing.map(item => ({...priorityJob(item), planningPrecedence: item.id === 'j2'}))
     const result = generateOperatorPrograms(data, '2026-08-14')
     expect(result.programs.flatMap(program => program.tasks).map(task => task.plate)).toEqual(['RUN003', 'NEW002', 'OLD001'])
+  })
+
+  it('scarta una vettura consegnata anche se commessa e programma precedente sono ancora aperti', () => {
+    const data = makePriorityData()
+    const work = {id:'j1', number:'COMM-1', vehicleId:'v1', plate:'OLD001', priority:'Normale' as const, minutes:60, taxableAmount:100}
+    data.vehicles = [priorityVehicle(work.vehicleId, work.plate, work.priority)]
+    data.jobs = [priorityJob(work)]
+    const day = '2026-08-14'
+    data.operatorPrograms = generateOperatorPrograms(data, day).programs
+    const program = data.operatorPrograms.find(item => item.tasks.length)!
+    expect(nextTaskForOperator(data, program.operatorId, program.tasks[0].startAt)?.plate).toBe(work.plate)
+
+    data.vehicles[0].status = 'consegnata'
+    expect(data.jobs[0].status).toBe('In lavorazione')
+    expect(buildPlannerQueue(data, day)).toEqual([])
+    expect(nextTaskForOperator(data, program.operatorId, program.tasks[0].startAt)).toBeNull()
+    expect(generateOperatorPrograms(data, day).programs.flatMap(item => item.tasks)).toEqual([])
   })
 
   it('1) preventivo senza data -> data automatica', () => {

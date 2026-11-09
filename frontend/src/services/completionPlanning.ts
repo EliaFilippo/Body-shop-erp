@@ -1,3 +1,4 @@
+import { closedPlanningWork } from './closedPlanningWork'
 import {toRomePlanningClock,fromRomePlanningClock,localizePlanningTimestamps} from './romePlanningClock'
 import type {ErpData,OperatorDayProgram,OperatorProgramTask,PlannerAssignment} from '../types'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
@@ -10,6 +11,7 @@ const romeDate=(iso:string)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/R
 /** Simulation only. Real signatures/timers and quoted hours are never modified. */
 export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,generation:number):CompletionPlan{
  const actual=applyLivePhaseChecks(applyProductionPlanningState(data,state),state.checks??[])
+ const {jobIds:closedJobs}=closedPlanningWork(actual)
  const availability:{operators:Record<string,string>;jobs:Record<string,string>}={operators:{},jobs:{}}
  const fixed:OperatorProgramTask[]=[],warnings:string[]=[]
  const now=new Date(state.serverNow).toISOString(),day=romeDate(now),revision=(actual.operatorProgramRevision??0)+1
@@ -22,6 +24,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
   return localized
  }
  const simulation={...actual,vehicles:localizePlanningTimestamps(actual.vehicles),jobs:(actual.jobs??[]).map(job=>({...job,phases:job.phases.map(phase=>{
+  if(closedJobs.has(job.id))return calendarPhase(phase)
   const running=state.entries.filter(e=>e.jobId===job.id&&e.phaseId===phase.id&&e.runningSince)
   if(!running.length||phase.status==='Completata')return calendarPhase(phase)
   const minutes=phaseResidualMinutes(phase,now,job)
@@ -53,7 +56,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
   program.tasks=program.tasks.map(t=>{const startAt=t.id.startsWith('running:')?now:fromRomePlanningClock(t.startAt,Date.parse(now));return {...t,startAt,endAt:fromRomePlanningClock(t.endAt,Date.parse(startAt))}})
  }
  const tasks=programs.flatMap(p=>p.tasks)
- const forecasts=(actual.jobs??[]).filter(j=>j.vehicleId&&!['Consegnata','Annullata'].includes(j.status)).map(job=>{
+ const forecasts=(actual.jobs??[]).filter(j=>j.vehicleId&&!closedJobs.has(j.id)).map(job=>{
   const required=job.phases.filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.status!=='Completata')
   const planned=tasks.filter(t=>t.jobId===job.id)
   const worked=(phase:typeof job.phases[number])=>Math.max(phase.actualMinutes||0,(phase.tabletWorkedSeconds??0)/60,(phase.operatorAssignments??[]).reduce((sum,a)=>sum+Math.max(0,a.workedMinutes)+(a.activityStatus==='Attivo'&&!a.endedAt?Math.max(0,(Date.parse(now)-Date.parse(a.startedAt))/60000):0),0))
