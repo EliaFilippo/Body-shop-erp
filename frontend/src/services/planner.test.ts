@@ -193,14 +193,13 @@ describe('programma operatori autonomo', () => {
     expect(result.programs.some((program) => program.tasks.length > 0)).toBe(true)
   })
 
-  it('consente piu operatori contemporanei sulla stessa fase', () => {
+  it('assegna vetture separate quando il programma è automatico', () => {
     const result = generateOperatorPrograms(makeProgramData(), '2026-07-27', 'Test')
     const filippoTask = result.programs.find((program) => program.operatorId === 'op-1')?.tasks[0]
     const giorgioTask = result.programs.find((program) => program.operatorId === 'op-2')?.tasks[0]
     expect(filippoTask?.jobNumber).toBe('COMM-00001')
-    expect(giorgioTask?.jobNumber).toBe('COMM-00001')
+    expect(giorgioTask?.jobNumber).toBe('COMM-00004')
     expect(filippoTask?.startAt).toBe(giorgioTask?.startAt)
-    expect(filippoTask?.endAt).toBe(giorgioTask?.endAt)
   })
 
   it('ricalcola dopo completamento anticipato passando alla fase successiva', () => {
@@ -625,7 +624,7 @@ describe('simulazione previsione produzione preventivo', () => {
     expect(simulation.estimatedStartAt.slice(0, 10)).toBe('2026-07-27')
   })
 
-  it('rispetta lavorazione su un solo operatore e piu operatori su priorita urgente', () => {
+  it('prevede un solo operatore anche per le fasi urgenti', () => {
     const data = makeForecastData()
     const single = simulateEstimateProductionForecast(data, {
       plate: 'AB123CD',
@@ -641,7 +640,7 @@ describe('simulazione previsione produzione preventivo', () => {
     })
 
     expect(single.phasePlans[0].operatorNames).toHaveLength(1)
-    expect(multiple.phasePlans[0].operatorNames).toHaveLength(2)
+    expect(multiple.phasePlans[0].operatorNames).toHaveLength(1)
   })
 
   it('rispetta le dipendenze tra fasi e puo attraversare piu giorni lavorativi', () => {
