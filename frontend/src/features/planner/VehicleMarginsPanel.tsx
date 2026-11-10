@@ -56,7 +56,7 @@ export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKe
 }
 
 function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string }) {
-  const { jobs, plannerSettings, nightlyPlanning } = data
+  const { jobs, plannerSettings, nightlyPlanning, coneHistory } = data
   const hourlyCost = resolveInternalHourlyRate(plannerSettings).effectiveHourlyRate
   const rows = useMemo(() => (jobs ?? [])
     .filter(job => job.status === 'Consegnata')
@@ -66,6 +66,19 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
   const calculated = rows.filter(row => row.marginCents !== null)
   const totalCents = calculated.reduce((sum, row) => sum + (row.marginCents ?? 0), 0)
   const targets = new Map<string, number | null>()
+  const coneAssignments = useMemo(() => {
+    const byVehicle = new Map<string, ErpData['coneHistory']>()
+    for (const event of coneHistory) {
+      if (event.action === 'Liberato') continue
+      const history = byVehicle.get(event.vehicleId) ?? []
+      history.push(event)
+      byVehicle.set(event.vehicleId, history)
+    }
+    for (const history of byVehicle.values()) {
+      history.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    }
+    return byVehicle
+  }, [coneHistory])
 
   return <details className="panel">
     <summary><strong>Margini a consuntivo per vettura</strong> · {rows.length} commesse consegnate</summary>
@@ -73,15 +86,20 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
     {calculated.length > 0 && <p>Margine complessivo su {calculated.length} commesse con dati completi · <strong>{money(totalCents / 100)}</strong></p>}
     {rows.length === 0 ? <p>Nessuna commessa consegnata.</p> : <div style={{ overflowX: 'auto' }}>
       <table aria-label="Margini a consuntivo delle commesse consegnate">
-        <thead><tr><th scope="col">Targa</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore lavorate</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine a consuntivo</th></tr></thead>
+        <thead><tr><th scope="col">Targa</th><th scope="col">Cono</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore lavorate</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine a consuntivo</th></tr></thead>
         <tbody>{rows.map(row => {
           const deliveryMonth = row.job.deliveredAt?.slice(0, 7) ?? monthKey
           if (!targets.has(deliveryMonth)) {
             targets.set(deliveryMonth, monthlyTargetRate(plannerSettings, deliveryMonth, nightlyPlanning?.economics).hourlyRate)
           }
           const target = targets.get(deliveryMonth) ?? null
-          return <tr key={row.job.id}>
-            <th scope="row">{row.job.plate}</th><td>{row.job.number}</td>
+          const { job } = row
+          const deliveredAt = job.deliveredAt
+          const cone = deliveredAt && job.vehicleId
+            ? coneAssignments.get(job.vehicleId)?.find(event => event.timestamp <= deliveredAt && event.timestamp >= job.entryDate)?.coneNumber
+            : undefined
+          return <tr key={job.id}>
+            <th scope="row">{job.plate}</th><td>{cone ?? '—'}</td><td>{job.number}</td>
             <td>{row.revenueCents === null ? '—' : money(row.revenueCents / 100)}</td>
             <td>{row.complete ? reportDuration(row.workedSeconds) : row.workedSeconds > 0 ? `${reportDuration(row.workedSeconds)} (parziale)` : 'Da registrare'}</td>
             <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
