@@ -376,10 +376,21 @@ export function markPayableInstallmentPaid(data: ErpData, input: { payableId: st
   }
 }
 
-export function vehicleInvoiceTaxableAmount(data: Pick<ErpData, 'jobs'>, vehicle: Vehicle): number | null {
+function vehicleInvoiceJobs(data: Pick<ErpData, 'jobs'>, vehicle: Vehicle) {
   const plate = normalizePlate(vehicle.plate)
-  const jobs = (data.jobs ?? []).filter(job => job.status !== 'Annullata' && job.customerId === vehicle.customerId
+  return (data.jobs ?? []).filter(job => job.status !== 'Annullata' && job.customerId === vehicle.customerId
     && (job.vehicleId ? job.vehicleId === vehicle.id : Boolean(plate) && normalizePlate(job.plate) === plate))
+}
+
+export function vehicleWorkFinished(data: Pick<ErpData, 'jobs'>, vehicle: Vehicle) {
+  const jobs = vehicleInvoiceJobs(data, vehicle)
+  if (jobs.length !== 1) return false
+  const phases = jobs[0].phases.filter(phase => !phase.notRequired && phase.name !== 'Consegna')
+  return phases.length > 0 && phases.every(phase => phase.status === 'Completata')
+}
+
+export function vehicleInvoiceTaxableAmount(data: Pick<ErpData, 'jobs'>, vehicle: Vehicle): number | null {
+  const jobs = vehicleInvoiceJobs(data, vehicle)
   if (jobs.length > 1) return null
 
   const amount = roundMoney(jobs.length === 1 ? jobs[0].taxableAmount : vehicle.expectedRevenue)
@@ -398,7 +409,7 @@ export function createInvoice(
   if (!vehicles.length) throw new Error('Seleziona almeno una vettura da fatturare.')
   if (vehicles.some((item) => item.customerId !== input.customerId)) throw new Error('Tutte le vetture devono appartenere allo stesso cliente.')
   if (vehicles.some((item) => item.invoiceId || item.billingStatus === 'Fatturata')) throw new Error('Una o più vetture risultano già fatturate.')
-  if (vehicles.some((item) => !isVehicleDeliveredStatus(data.plannerSettings, item.status) && item.billingStatus !== 'Da fatturare')) throw new Error('Puoi fatturare solo vetture consegnate.')
+  if (vehicles.some((item) => !isVehicleDeliveredStatus(data.plannerSettings, item.status) && item.billingStatus !== 'Da fatturare' && !vehicleWorkFinished(data, item))) throw new Error('Puoi fatturare le vetture consegnate o con tutte le lavorazioni completate.')
 
   const vatRate = Number.isFinite(input.vatRate) ? Number(input.vatRate) : data.financeSettings.defaultVatRate
   const lines = vehicles.map((vehicle) => {
