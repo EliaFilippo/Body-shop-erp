@@ -2,6 +2,13 @@ import type { ErpData } from '../types'
 import { expectedPaymentDate } from './paymentTerms'
 const round=(amount:number)=>Math.round(amount*100)/100
 export function confirmedQuoteForecasts(data: ErpData) {
+  const coveredByVehicle = new Map<string, number>()
+  for (const batch of data.ribaBatches) {
+    if (batch.status === 'Insoluta' || batch.status === 'Stornata') continue
+    for (const link of batch.pendingVehicleLinks ?? []) {
+      coveredByVehicle.set(link.vehicleId, round((coveredByVehicle.get(link.vehicleId) ?? 0) + link.amount))
+    }
+  }
   const invoices = data.invoices.filter(invoice => invoice.status !== 'Stornata')
   const estimates = (data.estimates ?? []).filter(estimate => estimate.status === 'Approvato' && estimate.paymentTerms && Boolean(expectedPaymentDate(estimate.paymentTerms,estimate.requestedDeliveryDate)))
     .filter(estimate => {
@@ -14,7 +21,17 @@ export function confirmedQuoteForecasts(data: ErpData) {
     })
   const quotes = (data.quotes ?? []).filter(quote => quote.status === 'accettato' && !quote.invoiceId && quote.paymentTerms && Boolean(expectedPaymentDate(quote.paymentTerms,data.vehicles.find(vehicle=>vehicle.id===quote.vehicleId)?.requestedDeliveryDate)))
     .filter(quote => !estimates.some(estimate => estimate.id === quote.estimateId) && !invoices.some(invoice => invoice.quoteId === quote.id || invoice.vehicleId === quote.vehicleId || invoice.lines.some(line => line.vehicleId === quote.vehicleId)))
-  return [...estimates, ...quotes].map(document => ({ amount: document.total, dueDate: expectedPaymentDate(document.paymentTerms,('requestedDeliveryDate' in document?document.requestedDeliveryDate:undefined)||data.vehicles.find(vehicle=>vehicle.id===document.vehicleId)?.requestedDeliveryDate) }))
+  return [...estimates, ...quotes].flatMap(document => {
+    const estimateId = 'estimateId' in document ? document.estimateId : document.id
+    const job = estimateId ? (data.jobs ?? []).find(item => item.estimateId === estimateId) : undefined
+    const vehicleId = job?.vehicleId ?? document.vehicleId ?? ''
+    const covered = Math.min(document.total, coveredByVehicle.get(vehicleId) ?? 0)
+    if (covered > 0) coveredByVehicle.set(vehicleId, round((coveredByVehicle.get(vehicleId) ?? 0) - covered))
+    const amount = round(document.total - covered)
+    const dueDate = expectedPaymentDate(document.paymentTerms, ('requestedDeliveryDate' in document ? document.requestedDeliveryDate : undefined)
+      || data.vehicles.find(vehicle => vehicle.id === vehicleId)?.requestedDeliveryDate)
+    return amount > 0 ? [{ amount, dueDate }] : []
+  })
 }
 
 
