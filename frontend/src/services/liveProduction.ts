@@ -139,10 +139,10 @@ export function applyLivePhaseChecks(data: ErpData, checks: PhaseCheckUpdate[]):
 }
 
 export async function productionRpc<T>(name: string, body: Record<string, unknown>, session: CloudAuthSession,
-  config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<T> {
+  config: CloudAuthConfig, fetcher: typeof fetch = fetch, signal?: AbortSignal): Promise<T> {
   const response = await authenticatedCloudFetch(`${config.url}/rest/v1/rpc/${name}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', apikey: config.anonKey, Authorization: `Bearer ${session.accessToken}` },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+    body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
   }, session, config, fetcher)
   const payload = await response.json()
   if (!response.ok) {
