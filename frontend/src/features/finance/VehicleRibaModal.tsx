@@ -1,11 +1,11 @@
 import { useMemo,useState } from 'react'
-import type { ErpData } from '../../types'
+import type { BankAccount, ErpData } from '../../types'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
 import { createVehicleRiba,ribaVehicleOptions } from '../../services/vehicleRiba'
 const money=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date())
-export function VehicleRibaModal({data,vehicleId,onClose,onSave}:{data:ErpData;vehicleId?:string;onClose:()=>void;onSave:(next:ErpData)=>void}){
+export function VehicleRibaModal({data,vehicleId,onClose,onSave,onAddBank}:{data:ErpData;vehicleId?:string;onClose:()=>void;onSave:(next:ErpData)=>void;onAddBank:(bank:BankAccount)=>void}){
  const options = useMemo(() => ribaVehicleOptions(data).filter(option => !vehicleId || option.vehicleId === vehicleId), [data, vehicleId])
  const vehicle = data.vehicles.find(item => item.id === vehicleId)
  const firstOption = vehicleId && options.length === 1 ? options[0] : undefined
@@ -16,6 +16,32 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave}:{data:ErpData;v
  const [mode,setMode]=useState<'maturity'|'advance'>('maturity')
  const [advanceDate,setAdvanceDate]=useState(today()),[advanceAmount,setAdvanceAmount]=useState<number|null>(null)
  const [fees,setFees]=useState(0),[interest,setInterest]=useState(0),[error,setError]=useState('')
+ const [addingBank, setAddingBank] = useState(data.bankAccounts.length === 0)
+ const [bankName, setBankName] = useState('')
+ const [iban, setIban] = useState('')
+ const [balance, setBalance] = useState(0)
+ const addBank = () => {
+  const name = bankName.trim()
+  if (!name) return
+  const normalizedIban = iban.replace(/\s/g, '').toUpperCase()
+  if (data.bankAccounts.some(account => normalizedIban
+    ? account.iban.replace(/\s/g, '').toUpperCase() === normalizedIban
+    : account.name.trim().toLowerCase() === name.toLowerCase() && !account.iban)) {
+   setError('Questo conto è già registrato. Selezionalo dal menu Banca RIBA.')
+   return
+  }
+  const account: BankAccount = {
+   id: crypto.randomUUID(), name, iban: normalizedIban, currentBalance: balance,
+   creditLimit: 0, blockOverLimit: true, minimumBalanceAlert: 0, createdAt: new Date().toISOString(),
+  }
+  onAddBank(account)
+  setBank(account.id)
+  setAddingBank(false)
+  setBankName('')
+  setIban('')
+  setBalance(0)
+  setError('')
+ }
  const total=Object.values(selected).reduce((sum,n)=>sum+n,0)
  return <Modal title={vehicle ? `Carica Ri.Ba. · ${vehicle.plate}` : "Carica RIBA per vetture"} onClose={onClose}><form onSubmit={e=>{e.preventDefault();try{onSave(createVehicleRiba(data,{number,bankAccountId:bank,presentationDate:presentation,dueDate:due,collectionDate:collection||due,selections:Object.entries(selected).map(([key,amount])=>({key,amount})),mode,advanceDate,advanceAmount:advanceAmount??total,fees,interest}))}catch(problem){setError(problem instanceof Error?problem.message:'Registrazione non riuscita.')}}}>
   <p>{vehicle ? 'Controlla l’importo e le date della distinta. Per una vettura senza fattura, inserisci o verifica l’importo IVA inclusa.' : 'Seleziona le vetture da includere. Per le vetture senza fattura puoi indicare l’importo IVA inclusa.'}</p>
@@ -23,6 +49,20 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave}:{data:ErpData;v
   <div className="form-grid">
    <label>Numero distinta<input required value={number} onChange={e=>setNumber(e.target.value)}/></label>
    <label>Banca RIBA<select required value={bank} onChange={e=>setBank(e.target.value)}><option value="">Scegli banca</option>{data.bankAccounts.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+   {addingBank ? <fieldset style={{ gridColumn: '1 / -1' }}>
+    <legend>Aggiungi banca</legend>
+    <div className="form-grid">
+     <label>Nome banca<input value={bankName} onChange={event => setBankName(event.target.value)} /></label>
+     <label>IBAN (facoltativo)<input value={iban} onChange={event => setIban(event.target.value)} /></label>
+     <label>Saldo attuale<MoneyInput value={balance} onValueChange={value => setBalance(value ?? 0)} /></label>
+     <div className="form-actions">
+      <button type="button" onClick={() => setAddingBank(false)}>Chiudi</button>
+      <button type="button" className="primary" disabled={!bankName.trim()} onClick={addBank}>Salva banca</button>
+     </div>
+    </div>
+   </fieldset> : <div className="form-actions">
+    <button type="button" onClick={() => setAddingBank(true)}>Aggiungi banca</button>
+   </div>}
    <label>Data caricamento RIBA<input required type="date" value={presentation} onChange={e=>setPresentation(e.target.value)}/></label>
    <label>Scadenza bancaria RIBA<input required type="date" value={due} onChange={e=>setDue(e.target.value)}/></label>
    <label>Data incasso RIBA<input required type="date" value={collection||due} onChange={e=>setCollection(e.target.value)}/></label>
