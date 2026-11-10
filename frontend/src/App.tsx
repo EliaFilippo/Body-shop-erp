@@ -1190,7 +1190,7 @@ function App() {
             setModal({ type: 'customer' })
           }
         }} onNewCustomer={() => setModal({ type: 'customer' })} />}
-        {view === 'today-shop' && <TodayShopPage data={displayData} customerById={customerById} onOpenPlanner={() => setView('planner')} onOpenVehicles={() => setView('vehicles')} onOpenPractice={(plate) => {
+        {view === 'today-shop' && <TodayShopPage connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={displayData} customerById={customerById} onOpenPlanner={() => setView('planner')} onOpenVehicles={() => setView('vehicles')} onOpenPractice={(plate) => {
           setView('vehicles')
           setQuery(plate)
         }} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} setNotice={setNotice} setError={setError} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   activeWorkLogForVehicle,
   buildTodayInShopSnapshot,
@@ -13,6 +13,8 @@ import {
   timerMinutesByVehicleAndPhase,
 } from './production'
 import { isVehicleWaitingForCone } from '../../services/erp'
+import { productionRpc } from '../../services/liveProduction'
+import type { NoticesConnection } from './PhaseNotices'
 import { workflowOperationalSnapshot } from '../../services/workflow'
 import type { Customer, ErpData, ProductionReportType, VehicleStatus } from '../../types'
 
@@ -33,7 +35,8 @@ const coneLabel = (coneNumber: number | null | undefined, status?: string) => {
 
 const REPORT_OPTIONS: ProductionReportType[] = ['ricambio mancante', 'problema tecnico', 'lavorazione aggiuntiva', 'danno non previsto', 'richiesta all\'ufficio', 'altro']
 
-export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicles, onOpenPractice, onChange, setNotice, setError, onUpdateVehicleStatus, statusOptions, statusLabel }: {
+export function TodayShopPage({ connection, data, customerById, onOpenPlanner, onOpenVehicles, onOpenPractice, onChange, setNotice, setError, onUpdateVehicleStatus, statusOptions, statusLabel }: {
+  connection?: NoticesConnection
   data: ErpData
   customerById: (id: string) => Customer | undefined
   onOpenPlanner: () => void
@@ -47,6 +50,29 @@ export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicle
   statusLabel: (status: string) => string
 }) {
   const snapshot = buildTodayInShopSnapshot(data)
+  const [tabletTimerCount, setTabletTimerCount] = useState<number | null>(null)
+  const { companyId, session, config } = connection ?? {}
+  useEffect(() => {
+    setTabletTimerCount(null)
+    if (!companyId || !session || !config) return
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      if (!document.hidden) {
+        try {
+          const report = await productionRpc<{ timers: Array<{ kind: string }> }>('production_open_timers', { p_company_id: companyId }, session, config)
+          if (!disposed) setTabletTimerCount(report.timers.filter(item => item.kind === 'vehicle').length)
+        } catch {
+          if (!disposed) setTabletTimerCount(null)
+        }
+      }
+      if (!disposed) timer = setTimeout(poll, 5000)
+    }
+    void poll()
+    return () => { disposed = true; clearTimeout(timer) }
+  }, [companyId, session, config])
+  const activeTimers = connection ? tabletTimerCount : snapshot.activeTimers
+
   const reports = openProductionReports(data)
   const identity = defaultProductionIdentity(data)
   const [selectedVehicleId, setSelectedVehicleId] = useState('')
@@ -129,7 +155,7 @@ export function TodayShopPage({ data, customerById, onOpenPlanner, onOpenVehicle
 
     <section className="owner-kpi-grid">
       <article className="owner-kpi-card"><span>Segnalazioni aperte</span><strong>{snapshot.alertsOpen}</strong><small>Blocchi e richieste dal reparto.</small></article>
-      <article className="owner-kpi-card"><span>Timer attivi</span><strong>{snapshot.activeTimers}</strong><small>Lavorazioni in corso adesso.</small></article>
+      <article className="owner-kpi-card"><span>Timer attivi</span><strong>{activeTimers ?? '—'}</strong><small>{activeTimers === null ? 'In attesa dello stato dei tablet.' : 'Lavorazioni in corso adesso.'}</small></article>
       <article className="owner-kpi-card"><span>Consegne oggi</span><strong>{snapshot.dueToday}</strong><small>Pratiche con data promessa odierna.</small></article>
       <article className="owner-kpi-card"><span>In ritardo</span><strong>{snapshot.overdue}</strong><small>Pratiche oltre la data promessa.</small></article>
     </section>
