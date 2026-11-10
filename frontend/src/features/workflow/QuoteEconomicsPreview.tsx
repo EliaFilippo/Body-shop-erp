@@ -1,4 +1,4 @@
-import type { AcceptanceQuote, PlannerSettings } from '../../types'
+import type { AcceptanceQuote, NightlyEconomicSnapshot, PlannerSettings } from '../../types'
 import { quoteEconomics } from '../../services/quoteEconomics'
 const money=(value:number)=>value.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 const time=(minutes:number|null)=>minutes===null?'Da configurare':`${Math.floor(minutes/60)} h ${minutes%60} min`
@@ -7,8 +7,8 @@ const labels = {
  'break-even':'A PAREGGIO · nessun margine stimato','below-target':'IN GUADAGNO · sotto l’obiettivo orario',
  'on-target':'IN GUADAGNO · obiettivo orario raggiunto','no-target':'IN GUADAGNO · obiettivo da configurare',
 }
-export function QuoteEconomicsPreview({quote,settings}:{quote:AcceptanceQuote;settings:PlannerSettings}) {
- const result=quoteEconomics(quote,settings)
+export function QuoteEconomicsPreview({quote,settings,nightly}:{quote:AcceptanceQuote;settings:PlannerSettings;nightly?:NightlyEconomicSnapshot}) {
+ const result=quoteEconomics(quote,settings,nightly)
  const color=result.status==='loss'?'#ff8b8b':result.status==='on-target'?'#79dfb4':'#f6c76f'
  return <section className="panel quote-hour-budget" aria-label="Convenienza del preventivo">
   <h3>Sto guadagnando su questo lavoro?</h3>
@@ -22,7 +22,7 @@ export function QuoteEconomicsPreview({quote,settings}:{quote:AcceptanceQuote;se
   {result.timingError&&result.hourlyRevenue!==null&&<p>Ricavo orario provvisorio sui tempi inseriti: completa la riga indicata prima di confermare.</p>}
   <p>Le ore a disposizione sono il limite economico dopo materiali e costi diretti, non ore aggiunte alle fasi né disponibilità del calendario.</p>
   <p><strong style={{color}}>{labels[result.status]}</strong></p>
-  <p>Prezzo senza IVA diviso per le ore tecniche del lavoro, compreso l’eventuale lavaggio. Obiettivo del mese {quote.monthKey}: {money(result.target.goal)} su {result.target.hours.toLocaleString('it-IT')} ore produttive.</p>
+  <p>Prezzo senza IVA diviso per le ore tecniche del lavoro, compreso l’eventuale lavaggio. {result.target.isResidual ? 'Fatturato da raggiungere a fine mese' : 'Obiettivo del mese'} {quote.monthKey}: {money(result.target.goal)} su {result.target.hours.toLocaleString('it-IT')} ore produttive{result.target.isResidual ? ' rimanenti (ultimo ricalcolo notturno)' : ''}.</p>
   <div className="quote-budget-grid">
    <div><span>Margine stimato sui costi configurati</span><strong style={{color}}>{result.margin===null?'Da calcolare':money(result.margin)}</strong></div>
    <div><span>Prezzo minimo a pareggio, IVA esclusa</span><strong>{result.breakEvenRevenue===null?'Da calcolare':money(result.breakEvenRevenue)}</strong></div>
