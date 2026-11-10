@@ -228,6 +228,17 @@ describe('imponibile delle vetture da fatturare', () => {
     expect(next.invoices[0].lines[0]).toMatchObject({ taxableAmount: 325.55, vatAmount: 71.62, total: 397.17 })
   })
 
+  it('permette di fatturare dopo l’ultima lavorazione anche prima della consegna', () => {
+    const data = addJob(makeData())
+    const job = data.jobs![0]
+    data.vehicles[0] = { ...data.vehicles[0], status: 'In lavorazione', billingStatus: undefined }
+    const phase = { ...job.phases[0], name: 'Riparazione', notRequired: false, status: 'Da fare' as const }
+    job.phases = [phase, { ...phase, id: 'delivery', name: 'Consegna' }]
+    expect(() => createInvoice(data, input)).toThrow('lavorazioni completate')
+    job.phases[0].status = 'Completata'
+    expect(createInvoice(data, input).invoices[0].taxableAmount).toBe(325.55)
+  })
+
   it('blocca importi mancanti e commesse ambigue', () => {
     const data = makeData()
     data.vehicles[0].expectedRevenue = 0
