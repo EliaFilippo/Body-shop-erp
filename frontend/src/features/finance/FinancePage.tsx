@@ -1478,7 +1478,7 @@ function CustomerTermsModal({ customer, defaultPaymentDays, onClose, onSave }: {
   </Modal>
 }
 
-function InvoiceCreateModal({ customer, vehicles, amounts, defaultVatRate, onClose, onSave }: {
+export function InvoiceCreateModal({ customer, vehicles, amounts, defaultVatRate, onClose, onSave }: {
   customer: Customer
   vehicles: Vehicle[]
   amounts: ReadonlyMap<string, number | null>
