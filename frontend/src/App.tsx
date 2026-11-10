@@ -12,6 +12,7 @@ import { enableFilippoTransport } from './services/transportDutySetup'
 import { applyProductionPlanningState, type ProductionPlanningState } from './services/productionPlanningState'
 import { applyDayExtensions } from './services/operatorDayExtensions'
 import type { OperatorDayExtension } from './types'
+import { GoalProgressPanel } from './features/dashboard/GoalProgressPanel'
 import { ConfirmedWorkOverview } from './features/dashboard/ConfirmedWorkOverview'
 import { ProductionControlPanel } from './features/production/ProductionControlPanel'
 const EliasCatalogSettings = lazy(() => import('./features/catalog/EliasCatalogSettings').then(module => ({default:module.EliasCatalogSettings})))
@@ -1887,6 +1888,7 @@ function Dashboard({ data, setView, onNewVehicle, onNewCustomer }: { data: ErpDa
     <TreasuryPanel data={data} compact />
     <section className="welcome premium-welcome compact-welcome"><div><span className="eyebrow">DASHBOARD TITOLARE</span><h2>Visione sintetica e operativa</h2><p>Vista pulita basata solo su dati reali ERP: economico, produzione, incassi e criticità.</p></div><div className="quick-links"><button className="secondary" onClick={onNewCustomer}><Icon name="plus" /> Nuovo cliente</button><button className="secondary" onClick={onNewVehicle}><Icon name="plus" /> Nuova vettura</button><button className="secondary" onClick={() => setView('finance')}><Icon name="plus" /> Nuova fattura</button><button className="secondary" onClick={() => setView('planner')}><Icon name="planner" /> Planner</button></div></section>
 
+    <GoalProgressPanel data={data} />
     <ConfirmedWorkOverview data={data}/>
     <section className="owner-kpi-grid">{topKpis.map((kpi) => <article className="owner-kpi-card" key={kpi.id}><span>{kpi.label}</span><strong>{kpi.value}</strong><small>{kpi.note}</small></article>)}</section>
 
