@@ -23,7 +23,7 @@ export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKe
       const metrics = marginMetrics(job, vehicle, plannerSettings)
       const hours = metrics.productiveMinutes / 60
       return [{
-        id: job.id, jobNumber: job.number, plate: vehicle.plate, hours, revenue: metrics.plannedRevenue,
+        id: job.id, jobNumber: job.number, plate: vehicle.plate, cone: vehicle.coneNumber, hours, revenue: metrics.plannedRevenue,
         hourlyRevenue: hours > 0 ? metrics.plannedRevenue / hours : null,
         margin: hours > 0 && metrics.rate > 0 && metrics.plannedRevenue > 0 ? metrics.totalMargin : null,
       }]
@@ -40,9 +40,9 @@ export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKe
     {estimated.length > 0 && <p>Margine stimato complessivo su {estimated.length} commesse con dati disponibili · <strong>{money(total)}</strong></p>}
     {rows.length === 0 ? <p>Nessuna commessa aperta.</p> : <div style={{ overflowX: 'auto' }}>
       <table aria-label="Margini stimati delle commesse aperte">
-        <thead><tr><th scope="col">Targa</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore previste</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine stimato</th></tr></thead>
+        <thead><tr><th scope="col">Targa</th><th scope="col">Cono</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore previste</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine stimato</th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.id}>
-          <th scope="row">{row.plate}</th><td>{row.jobNumber}</td><td>{money(row.revenue)}</td>
+          <th scope="row">{row.plate}</th><td>{row.cone ?? '—'}</td><td>{row.jobNumber}</td><td>{money(row.revenue)}</td>
           <td>{row.hours > 0 ? number(row.hours) : '—'}</td>
           <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
           <td>{row.hourlyRevenue === null || target.hourlyRate === null ? '—' : row.hourlyRevenue < target.hourlyRate ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
