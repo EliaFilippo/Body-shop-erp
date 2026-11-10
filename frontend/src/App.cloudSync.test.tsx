@@ -169,7 +169,8 @@ describe('avvio e salvataggio cloud', () => {
     expect((await loadDatabase()).dbRevision).toBe(12)
     expect(updateCloudSnapshot).not.toHaveBeenCalled()
     await act(async () => resolveRemote(null))
-    expect(await screen.findByText('Archivio collegato e salvato nel cloud.')).toBeInTheDocument()
+    await screen.findByRole('button', { name: 'Nuovo cliente' })
+    expect(createCloudSnapshot).toHaveBeenCalledOnce()
   })
 
   it('consente di riprovare dopo un errore iniziale senza modificare l’archivio locale', async () => {
