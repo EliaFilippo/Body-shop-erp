@@ -21,6 +21,20 @@ describe('convenienza prima di confermare il preventivo Fast',()=>{
   expect(quoteEconomics(quote,settings)).toMatchObject({revenue:200,minutes:120,hourlyRevenue:100,target:{hourlyRate:125},materialsCost:40,hourlyCost:50,personnelAndStructureCost:100,totalCost:140,margin:60,breakEvenRevenue:125,status:'below-target'})
   expect(JSON.stringify(quote)).toBe(before)
  })
+ it('usa l’obiettivo notturno del mese del preventivo mantenendo il costo di pareggio',()=>{
+  const {settings,quote}=fixture()
+  const nightly={
+   monthKey:quote.monthKey,plannedFor:'2026-10-15',asOf:'2026-10-15T02:00:00Z',
+   monthlyGoal:25000,realizedNetRevenue:19000,residualRevenue:6000,remainingProductiveHours:75,
+   targetHourlyRate:80,productiveHours:40,paidHours:48,accruedOperatingCosts:8000,realHourlyCost:200,
+   utilizationPercent:62.5,capacitySource:'configured' as const,payrollInMonthlyCosts:true,
+   dailyGoal:400,dailyGoals:[],warnings:[],
+  }
+  expect(quoteEconomics(quote,settings,nightly)).toMatchObject({
+   target:{hourlyRate:80,goal:6000,hours:75,isResidual:true},hourlyCost:50,margin:60,status:'on-target',
+  })
+  expect(quoteEconomics(quote,settings,{...nightly,monthKey:'2026-09'}).target).toMatchObject({hourlyRate:125,isResidual:false})
+ })
  it.each([[50,'loss',-60],[125,'break-even',0],[400,'on-target',220]] as const)('classifica prezzo %s al netto IVA', (price,status,margin)=>{
   const {settings,quote}=fixture(price)
   expect(quoteEconomics(quote,settings)).toMatchObject({status,margin})
