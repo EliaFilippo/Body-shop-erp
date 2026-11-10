@@ -41,22 +41,25 @@ export function LiveProductionPage() {
   const [tick, setTick] = useState(0)
   useCloudSessionRenewal(session,config,next=>setSession(current=>current?.userId===next.userId?next:current),()=>{setSession(null);setFeed(null);setCompanyId('');setSnapshot(null)})
   const lastSample = useRef(-Infinity)
-  const generation = useRef(0)
-  const invalidate = useCallback(() => { generation.current++ }, [])
   const actionLock = useRef(false)
-  const refreshing = useRef(false)
+  const readRequest = useRef<AbortController | null>(null)
+  const cancelRead = useCallback(() => {
+    readRequest.current?.abort()
+    readRequest.current = null
+  }, [])
   const refresh = useCallback(async () => {
-    if (!session || !config || !companyId || refreshing.current) return
-    refreshing.current = true
-    const request = ++generation.current
+    if (!session || !config || !companyId || readRequest.current) return
+    const request = new AbortController()
+    readRequest.current = request
     try {
-      const result = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config)
-      if (request !== generation.current) return
+      const result = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config, undefined, request.signal)
+      if (request.signal.aborted) return
       setFeed(result); lastSample.current = performance.now(); setError('')
     } catch (e) {
-      if (request === generation.current) setError(e instanceof Error && e.name !== 'TimeoutError' ? e.message : 'Il tablet non è riuscito ad aggiornare lo stato. Riprova a caricarlo.')
+      if (!request.signal.aborted) setError(e instanceof Error && e.name !== 'TimeoutError' ? e.message : 'Il tablet non è riuscito ad aggiornare lo stato. Riprova a caricarlo.')
+    } finally {
+      if (readRequest.current === request) readRequest.current = null
     }
-    finally { refreshing.current = false }
   }, [session, companyId])
 
   useEffect(() => {
@@ -85,29 +88,27 @@ export function LiveProductionPage() {
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
-      if (!actionLock.current) await refresh()
-      if (!stopped) timer = setTimeout(poll, 2000)
+      if (!document.hidden && !actionLock.current) await refresh()
+      if (!stopped) timer = setTimeout(poll, 5000)
     }
     void poll()
     const visibility = () => { if (!document.hidden && !actionLock.current) void refresh() }
     document.addEventListener('visibilitychange', visibility)
     window.addEventListener('online', visibility)
-    return () => { stopped = true; clearTimeout(timer); invalidate(); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('online', visibility) }
-  }, [refresh, invalidate])
+    return () => { stopped = true; clearTimeout(timer); cancelRead(); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('online', visibility) }
+  }, [refresh, cancelRead])
   useEffect(() => { const timer = setInterval(() => setTick(t => t + 1), 1000); return () => clearInterval(timer) }, [])
   void tick
 
   async function act(name: string, body: Record<string, unknown>) {
     if (!session || !config || actionLock.current) return
-    actionLock.current = true; setBusy(true); generation.current++
+    actionLock.current = true; setBusy(true); cancelRead()
     try {
       await productionRpc(name, { p_company_id: companyId, ...body }, session, config)
       // Ignore a feed sampled before the action; then read authoritative state again.
-      while (refreshing.current) await new Promise(resolve => setTimeout(resolve, 50))
       await refresh()
     } catch (e) {
-      if (name === 'production_complete_phase' && e instanceof Error && e.name === 'TimeoutError') {
-        while (refreshing.current) await new Promise(resolve => setTimeout(resolve, 50))
+      if (e instanceof Error && e.name === 'TimeoutError') {
         await refresh()
       } else {
         setError(e instanceof Error ? e.message : 'Comando non riuscito. Verifica lo stato prima di riprovare.')
@@ -151,15 +152,15 @@ export function LiveProductionPage() {
       if(!params.has('tablet'))return // In-page vehicle anchors must not change the login.
       const pairing=readTabletPairing()
       if(!pairing)return
-      generation.current++
+      cancelRead()
       setTabletPairing(pairing)
       setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('');setSelectionMode('manual');setPhaseChoices({})
     }
     window.addEventListener('hashchange',activate)
     return()=>window.removeEventListener('hashchange',activate)
-  },[])
+  },[cancelRead])
 
-  const stale = performance.now() - lastSample.current > 8000
+  const stale = performance.now() - lastSample.current > 20000
   const ownRunning = feed?.jobs.find(j => j.ownStatus === 'running')
 
   const timeAlert = liveTimeAlert(feed, (performance.now() - lastSample.current) / 1000, stale)
@@ -186,7 +187,7 @@ export function LiveProductionPage() {
       <button disabled={busy}>Accedi</button><p>Usa il tuo account aziendale personale.</p></form></details>}
     {session && feed && <>
       {!feed.operatorName && <p className="live-alert">Il titolare deve collegare questo account al tuo operatore prima di avviare il lavoro.</p>}
-      <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 2 secondi'}</p>
+      <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 5 secondi'}</p>
       {feed.operatorName && <OperatorActivities activity={feed.activity} busy={busy} stale={stale} elapsed={(performance.now()-lastSample.current)/1000} onAction={kind=>void act('production_activity_action',{p_kind:kind})}/>}
       {feed.operatorName && <ContinueDay feed={feed} busy={busy} stale={stale} onContinue={until=>void act('production_continue_day',{p_until:until})}/>}
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />
