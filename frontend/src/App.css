@@ -563,3 +563,5 @@ button.work-sheet-print-pending {
 .cone-customer-vehicles li.waiting-parts{background:#391c21;color:#ffacac}
 .cone-customer-vehicles small{display:block;color:inherit;opacity:.8}
 .cone-timer-active{color:#8ee0ae}
+
+.row-actions .billing-pending{background:#942c32;border-color:#ea777d;color:#fff;font-weight:700}
