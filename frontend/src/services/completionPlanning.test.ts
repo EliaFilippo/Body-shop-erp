@@ -101,3 +101,25 @@ it('folds a second completion into an immediate retry instead of waiting for the
  expect(await response.json()).toEqual({status:'completed'})
  expect(rpc.mock.calls.map(c=>c[0])).toEqual(['production_completion_claim','production_completion_commit','production_completion_claim','production_completion_commit'])
 })
+
+it('puts Federica on ready stripping and Davide on the next polishing phase',()=>{
+ const data=setup(),job=data.jobs![0]
+ const [body,polish]=['Lattoneria','Lucidatura'].map(name=>job.phases.find(p=>p.name===name)!)
+ const paint={...body,name:'Verniciatura',requiredSkill:'Verniciatura',technicalWaitMinutes:60}
+ const strip={...body,id:'strip',name:'Scartatura',requiredSkill:'Scartatura',estimatedMinutes:20}
+ job.phases=[paint,strip,polish]
+ data.plannerSettings.operators=['Altro','Federica','Davide'].map((name,index)=>({
+  id:String(index),name,active:true,dailyHours:8,hourlyCost:index===0?10:20,
+  skillsConfigured:true,skills:['Scartatura','Lucidatura'],
+ }))
+ const now='2026-10-27T09:00:00Z'
+ const plan=buildCompletionPlan(data,{serverNow:now,entries:[],checks:[
+  {jobId:job.id,phaseId:paint.id,checkedAt:'2026-10-27T07:00:00Z',checkedBy:'Operatore',workedSeconds:3600},
+ ]},1)
+ const tasks=plan.operatorPrograms.flatMap(p=>p.tasks)
+ const stripping=tasks.find(task=>task.phaseName==='Scartatura')
+ const polishing=tasks.find(task=>task.phaseName==='Lucidatura')
+ expect(stripping?.operatorId).toBe('1')
+ expect(polishing?.operatorId).toBe('2')
+ expect(polishing!.startAt >= stripping!.endAt).toBe(true)
+})

@@ -5,10 +5,14 @@ export function paintFlowPriority(job:RepairJob,phase:JobPhase,original:RepairJo
   return {rank:-1,reason:'Prosecuzione della lavorazione già avviata'}
  const paint=job.phases.find(p=>p.name==='Verniciatura'&&!p.notRequired)
  const realPaint=original.phases.find(p=>p.name==='Verniciatura'&&!p.notRequired)
- if(phase.name==='Scartatura'&&paint?.status==='Completata'){
-  return realPaint?.status==='Completata'
+ if(phase.name==='Scartatura'&&(!paint||paint.status==='Completata')){
+  return !realPaint||realPaint.status==='Completata'
    ?{rank:0,reason:'Priorità cabine: scartare la vettura già verniciata e pronta dopo asciugatura'}
    :{rank:1,reason:'Priorità cabine: scartatura dopo la verniciatura prevista'}
+ }
+ const stripping=job.phases.find(p=>p.name==='Scartatura'&&!p.notRequired)
+ if(phase.name==='Lucidatura'&&(paint||stripping)&&(!paint||paint.status==='Completata')&&(!stripping||stripping.status==='Completata')){
+  return {rank:1.5,reason:'Priorità cabine: completare la lucidatura dopo la scartatura'}
  }
  if(paint&&paint.status!=='Completata'){
   if(phase.name==='Verniciatura')return {rank:2,reason:'Priorità cabine: verniciare la vettura pronta'}

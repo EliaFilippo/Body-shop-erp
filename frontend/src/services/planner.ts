@@ -1091,10 +1091,11 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const starts=eligible.map(state=>({state,start:nextWorkingInstant([state.nextAt,schedulingFloor,item.readyAt].sort().at(-1)!,data.plannerSettings,state.operator)}))
       const earliest=starts.map(entry=>entry.start).sort()[0]
       const duty = (item.phase.requiredSkill || item.phase.name).trim().toLowerCase()
-      const primaryName = ['smontaggio','rimontaggio'].includes(duty) ? 'davide'
+      const primaryName = ['smontaggio','rimontaggio','lucidatura'].includes(duty) ? 'davide'
+        : duty==='scartatura' || duty==='scartare' ? 'federica'
         : ['stuccatura','verniciatura'].includes(duty) ? 'filippo' : undefined
       const primary = starts.find(({state,start})=>state.operator.name.trim().toLowerCase()===primaryName
-        && (primaryName==='davide' ? start.slice(0,10)===earliest.slice(0,10) : start===earliest))
+        && (['smontaggio','rimontaggio'].includes(duty) ? start.slice(0,10)===earliest.slice(0,10) : start===earliest))
       eligible=primary ? [primary.state] : starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
     }
     const ranking = rankPhaseOperators(data,item.job,item.phase,eligible,residual,schedulingFloor,item.readyAt)
