@@ -35,6 +35,7 @@ import {
   splitAmountAcrossInstallments,
   updateOwnerWithdrawal,
   updatePayableEntry,
+  vehicleInvoiceTaxableAmount,
   type PayableInput,
 } from '../../services/finance'
 import { CustomerFinanceDetail } from './CustomerFinanceDetail'
@@ -409,6 +410,10 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
     setVatInstallmentsCount(1)
   }, [vatQuarterKey, vatQuarterSnapshot.confirmedAmount, vatQuarterSnapshot.estimatedPayable, data.vatQuarterlyRecords])
 
+  const invoiceAmounts = useMemo(() => new Map(toInvoice.map(vehicle => [
+    vehicle.id, vehicleInvoiceTaxableAmount({ jobs: data.jobs }, vehicle),
+  ])), [toInvoice, data.jobs])
+
   const groups = useMemo(() => {
     const map = new Map<string, typeof toInvoice>()
     for (const vehicle of toInvoice) map.set(vehicle.customerId, [...(map.get(vehicle.customerId) ?? []), vehicle])
@@ -563,7 +568,9 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
 
     {selected && <CustomerFinanceDetail row={selected} data={data} onEditTerms={() => setModal({ type: 'customer-terms', customerId: selected.customer.id })} />}
 
-    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">LAVORAZIONI CONSEGNATE</span><h3>Vetture da fatturare</h3></div></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Vetture</th><th>Imponibile previsto</th><th>Azione</th></tr></thead><tbody>{groups.map(([customerId, vehicles]) => <tr key={customerId}><td><strong>{customerById(customerId)?.name ?? 'Cliente'}</strong></td><td>{vehicles.map((vehicle) => vehicle.plate).join(', ')}</td><td>{money(vehicles.reduce((sum, vehicle) => sum + vehicle.expectedRevenue, 0))}</td><td><button className="primary" onClick={() => setModal({ type: 'invoice-create', customerId, vehicleIds: vehicles.map((vehicle) => vehicle.id) })}>Crea fattura</button></td></tr>)}</tbody></table></div>{!groups.length && <div className="empty"><div>◇</div><p>Nessuna vettura consegnata da fatturare.</p></div>}</section>
+    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">LAVORAZIONI CONSEGNATE</span><h3>Vetture da fatturare</h3></div></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Vetture</th><th>Imponibile previsto</th><th>Azione</th></tr></thead><tbody>{groups.map(([customerId, vehicles]) => <tr key={customerId}><td><strong>{customerById(customerId)?.name ?? 'Cliente'}</strong></td><td>{vehicles.map((vehicle) => vehicle.plate).join(', ')}</td><td>{vehicles.some(vehicle => invoiceAmounts.get(vehicle.id) == null)
+        ? 'Importi da verificare'
+        : money(vehicles.reduce((sum, vehicle) => sum + (invoiceAmounts.get(vehicle.id) ?? 0), 0))}</td><td><button className="primary" onClick={() => setModal({ type: 'invoice-create', customerId, vehicleIds: vehicles.map((vehicle) => vehicle.id) })}>Crea fattura</button></td></tr>)}</tbody></table></div>{!groups.length && <div className="empty"><div>◇</div><p>Nessuna vettura consegnata da fatturare.</p></div>}</section>
 
     <section className="panel cashflow-visual-panel">
       <div className="panel-head"><div><span className="eyebrow">LIQUIDITÀ PREVISTA</span><h3>Scadenzario visivo e immediato</h3></div><div className="row-actions">{([7, 30, 60, 90] as const).map((days) => <button key={days} className={liquidityRange === days ? 'active-filter' : ''} onClick={() => setLiquidityRange(days)}>{days} giorni</button>)}</div></div>
@@ -925,6 +932,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       return <InvoiceCreateModal
         customer={customer}
         vehicles={vehicles}
+        amounts={invoiceAmounts}
         defaultVatRate={data.financeSettings.defaultVatRate}
         onClose={() => setModal(null)}
         onSave={(input) => {
@@ -1470,9 +1478,10 @@ function CustomerTermsModal({ customer, defaultPaymentDays, onClose, onSave }: {
   </Modal>
 }
 
-function InvoiceCreateModal({ customer, vehicles, defaultVatRate, onClose, onSave }: {
+function InvoiceCreateModal({ customer, vehicles, amounts, defaultVatRate, onClose, onSave }: {
   customer: Customer
   vehicles: Vehicle[]
+  amounts: ReadonlyMap<string, number | null>
   defaultVatRate: number
   onClose: () => void
   onSave: (value: { customerId: string; vehicleIds: string[]; number: string; issueDate: string; paymentMethod?: PaymentMethod; vatRate?: number }) => void
@@ -1487,9 +1496,11 @@ function InvoiceCreateModal({ customer, vehicles, defaultVatRate, onClose, onSav
     setSelectedVehicleIds((prev) => prev.includes(vehicleId) ? prev.filter((id) => id !== vehicleId) : [...prev, vehicleId])
   }
 
+  const hasUnverifiedAmounts = selectedVehicleIds.some(id => amounts.get(id) == null)
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!number.trim() || !selectedVehicleIds.length) return
+    if (!number.trim() || !selectedVehicleIds.length || hasUnverifiedAmounts) return
     onSave({ customerId: customer.id, vehicleIds: selectedVehicleIds, number: number.trim(), issueDate, paymentMethod, vatRate })
   }
 
@@ -1502,10 +1513,13 @@ function InvoiceCreateModal({ customer, vehicles, defaultVatRate, onClose, onSav
 
       <div className="form-section-title">Vetture da fatturare</div>
       <div className="finance-selection-list">
-        {vehicles.map((vehicle) => <label key={vehicle.id} className="finance-checkbox"><input type="checkbox" checked={selectedVehicleIds.includes(vehicle.id)} onChange={() => toggleVehicle(vehicle.id)} />{vehicle.plate} · {vehicle.make} {vehicle.model} · {money(vehicle.expectedRevenue)}</label>)}
+        {vehicles.map((vehicle) => {
+          const amount = amounts.get(vehicle.id)
+          return <label key={vehicle.id} className="finance-checkbox"><input type="checkbox" checked={selectedVehicleIds.includes(vehicle.id)} onChange={() => toggleVehicle(vehicle.id)} />{vehicle.plate} · {vehicle.make} {vehicle.model} · {amount == null ? 'Imponibile o commessa da verificare' : money(amount)}</label>
+        })}
       </div>
 
-      <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit" disabled={!selectedVehicleIds.length}>Crea fattura</button></div>
+      <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button className="primary" type="submit" disabled={!selectedVehicleIds.length || hasUnverifiedAmounts}>Crea fattura</button></div>
     </form>
   </Modal>
 }
