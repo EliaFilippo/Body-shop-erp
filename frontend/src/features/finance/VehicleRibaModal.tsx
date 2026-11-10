@@ -17,8 +17,8 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave}:{data:ErpData;v
  const [advanceDate,setAdvanceDate]=useState(today()),[advanceAmount,setAdvanceAmount]=useState<number|null>(null)
  const [fees,setFees]=useState(0),[interest,setInterest]=useState(0),[error,setError]=useState('')
  const total=Object.values(selected).reduce((sum,n)=>sum+n,0)
- return <Modal title={vehicle ? `Ri.Ba. caricata · ${vehicle.plate}` : "Carica RIBA per vetture"} onClose={onClose}><form onSubmit={e=>{e.preventDefault();try{onSave(createVehicleRiba(data,{number,bankAccountId:bank,presentationDate:presentation,dueDate:due,collectionDate:collection||due,selections:Object.entries(selected).map(([key,amount])=>({key,amount})),mode,advanceDate,advanceAmount:advanceAmount??total,fees,interest}))}catch(problem){setError(problem instanceof Error?problem.message:'Registrazione non riuscita.')}}}>
-  <p>{vehicle ? 'Controlla la fattura, l’importo e le date effettive della distinta prima di confermare.' : 'Seleziona le vetture con fattura e residuo disponibile. Questa operazione registra una distinta effettiva, separata dalle date dei preventivi.'}</p>
+ return <Modal title={vehicle ? `Carica Ri.Ba. · ${vehicle.plate}` : "Carica RIBA per vetture"} onClose={onClose}><form onSubmit={e=>{e.preventDefault();try{onSave(createVehicleRiba(data,{number,bankAccountId:bank,presentationDate:presentation,dueDate:due,collectionDate:collection||due,selections:Object.entries(selected).map(([key,amount])=>({key,amount})),mode,advanceDate,advanceAmount:advanceAmount??total,fees,interest}))}catch(problem){setError(problem instanceof Error?problem.message:'Registrazione non riuscita.')}}}>
+  <p>{vehicle ? 'Controlla l’importo e le date della distinta. Per una vettura senza fattura, inserisci o verifica l’importo IVA inclusa.' : 'Seleziona le vetture da includere. Per le vetture senza fattura puoi indicare l’importo IVA inclusa.'}</p>
   {suggestedDue && <p>La scadenza proposta viene dalla fattura. Verifica la data della distinta bancaria.</p>}
   <div className="form-grid">
    <label>Numero distinta<input required value={number} onChange={e=>setNumber(e.target.value)}/></label>
@@ -28,8 +28,8 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave}:{data:ErpData;v
    <label>Data incasso RIBA<input required type="date" value={collection||due} onChange={e=>setCollection(e.target.value)}/></label>
    <label>Gestione RIBA<select value={mode} onChange={e=>setMode(e.target.value as 'maturity'|'advance')}><option value="maturity">A maturazione</option><option value="advance">Con anticipo bancario</option></select></label>
   </div>
-  <div className="table-wrap"><table><thead><tr><th>Seleziona vettura</th><th>Fattura / cliente</th><th>Importo RIBA IVA inclusa</th></tr></thead><tbody>{options.map(option=><tr key={option.key}><td><label><input type="checkbox" checked={selected[option.key]!==undefined} onChange={e=>setSelected(current=>{const next={...current};if(e.target.checked)next[option.key]=option.amount;else delete next[option.key];return next})}/>{option.plate}</label></td><td>{option.invoiceNumber}<small>{option.customerName}</small></td><td>{selected[option.key]!==undefined?<MoneyInput aria-label={`Importo RIBA ${option.plate} ${option.invoiceNumber}`} minValue={.01} maxValue={option.amount} value={selected[option.key]} onValueChange={amount=>setSelected({...selected,[option.key]:amount??0})}/>:money(option.amount)}</td></tr>)}</tbody></table></div>
-  {!options.length&&<p>Nessuna fattura con residuo disponibile. Verifica che la fattura sia stata emessa e che l’importo non sia già registrato.</p>}
+  <div className="table-wrap"><table><thead><tr><th>Seleziona vettura</th><th>Fattura / cliente</th><th>Importo RIBA IVA inclusa</th></tr></thead><tbody>{options.map(option=><tr key={option.key}><td><label><input type="checkbox" checked={selected[option.key]!==undefined} onChange={e=>setSelected(current=>{const next={...current};if(e.target.checked)next[option.key]=option.amount;else delete next[option.key];return next})}/>{option.plate}</label></td><td>{option.invoiceNumber}<small>{option.customerName}</small></td><td>{selected[option.key]!==undefined?<MoneyInput aria-label={`Importo RIBA ${option.plate} ${option.invoiceNumber}`} minValue={.01} maxValue={option.invoiceId ? option.amount : undefined} value={selected[option.key]} onValueChange={amount=>setSelected({...selected,[option.key]:amount??0})}/>:option.amount > 0 ? money(option.amount) : 'Da inserire'}</td></tr>)}</tbody></table></div>
+  {!options.length&&<p>Nessuna vettura con una Ri.Ba. disponibile da caricare.</p>}
   <section className="panel" aria-label="Riepilogo RIBA"><strong>{Object.keys(selected).length} vetture selezionate · Totale {money(total)}</strong><p>Avviso in Finanza e scadenziario a partire da 15 giorni prima della scadenza bancaria.</p></section>
   {mode==='advance'&&<div className="form-grid">
    <label>Data anticipo effettivo<input required type="date" max={today()} value={advanceDate} onChange={e=>setAdvanceDate(e.target.value)}/></label>
@@ -39,6 +39,6 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave}:{data:ErpData;v
    <p>Liquidità dall’anticipo: {money(Math.max(0,(advanceAmount??total)-fees-interest))}. Residuo a maturazione: {money(Math.max(0,total-(advanceAmount??total)))}.</p>
   </div>}
   {error&&<p role="alert">{error}</p>}
-  <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button type="submit" className="primary" disabled={!Object.keys(selected).length||!bank}>Registra RIBA</button></div>
+  <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button type="submit" className="primary" disabled={!Object.keys(selected).length||Object.values(selected).some(amount => amount <= 0)||!bank}>Registra RIBA</button></div>
  </form></Modal>
 }
