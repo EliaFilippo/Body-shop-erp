@@ -53,7 +53,9 @@ export function LiveProductionPage() {
       const result = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config)
       if (request !== generation.current) return
       setFeed(result); lastSample.current = performance.now(); setError('')
-    } catch (e) { if (request === generation.current) setError(e instanceof Error ? e.message : 'Connessione non disponibile.') }
+    } catch (e) {
+      if (request === generation.current) setError(e instanceof Error && e.name !== 'TimeoutError' ? e.message : 'Il tablet non è riuscito ad aggiornare lo stato. Riprova a caricarlo.')
+    }
     finally { refreshing.current = false }
   }, [session, companyId])
 
@@ -103,7 +105,14 @@ export function LiveProductionPage() {
       // Ignore a feed sampled before the action; then read authoritative state again.
       while (refreshing.current) await new Promise(resolve => setTimeout(resolve, 50))
       await refresh()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Comando non riuscito. Verifica lo stato prima di riprovare.') }
+    } catch (e) {
+      if (name === 'production_complete_phase' && e instanceof Error && e.name === 'TimeoutError') {
+        while (refreshing.current) await new Promise(resolve => setTimeout(resolve, 50))
+        await refresh()
+      } else {
+        setError(e instanceof Error ? e.message : 'Comando non riuscito. Verifica lo stato prima di riprovare.')
+      }
+    }
     finally { actionLock.current = false; setBusy(false) }
   }
   async function logout() {
@@ -162,7 +171,10 @@ export function LiveProductionPage() {
       <div>{feed?.operatorName && <strong>{feed.operatorName}</strong>} {session && <button disabled={busy} onClick={() => void logout()}>Esci dal profilo</button>}
         {feed && ['owner','office'].includes(feed.role) && <a href={import.meta.env.BASE_URL}>Gestionale</a>}</div></header>
     {!config && <p role="alert">Collegamento Supabase non configurato.</p>}
-    {error && <p className="live-alert" role="alert">{error}</p>}
+    {error && <div className="live-alert" role="alert">
+      <p>{error}</p>
+      <button type="button" disabled={busy} onClick={() => { if (session && companyId) void refresh(); else window.location.reload() }}>Aggiorna stato</button>
+    </div>}
     {config && !session && tabletPairing && <OperatorPinLogin pairing={tabletPairing} config={config} onLogin={result=>{setError('');persistCloudSession(result,'production',config);setSession(result)}} />}
     {config && !session && <details open={!tabletPairing}><summary>Accesso titolare o account con email</summary><form className="live-login" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError('')
