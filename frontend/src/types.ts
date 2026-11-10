@@ -721,6 +721,7 @@ export interface RibaAllocation {
 export interface RibaBatch {
   collectionDate?: string
   vehicleLinks?: Array<{vehicleId:string;invoiceId:string;plate:string;amount:number}>
+  pendingVehicleLinks?: Array<{ vehicleId: string; plate: string; amount: number }>
   bankAdvanceApplied?: boolean
   id: string
   number: string

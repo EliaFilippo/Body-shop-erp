@@ -433,24 +433,83 @@ export function createInvoice(
     taxableAmount, vatAmount, total, collectedAmount: 0, ribaAllocatedAmount: 0,
     status: 'Da incassare', notes: input.notes?.trim() ?? '', createdAt: timestamp, updatedAt: timestamp,
   }
-  return {
+  return linkPendingRibaToInvoice({
     ...data,
     invoices: [invoice, ...data.invoices],
     vehicles: data.vehicles.map((vehicle) => input.vehicleIds.includes(vehicle.id) ? { ...vehicle, invoiceId: invoice.id, billingStatus: 'Fatturata' } : vehicle),
     financialEvents: [event({ type: 'Fattura emessa', date: issueDate, amount: total, customerId: customer.id, invoiceId: invoice.id, note: `Fattura ${invoice.number}` }), ...data.financialEvents],
+  }, invoice.id)
+}
+
+export function linkPendingRibaToInvoice(data: ErpData, invoiceId: string): ErpData {
+  const invoice = data.invoices.find(item => item.id === invoiceId)
+  if (!invoice) return data
+  const remainingByVehicle = new Map<string, number>()
+  for (const line of invoice.lines) {
+    remainingByVehicle.set(line.vehicleId, roundMoney((remainingByVehicle.get(line.vehicleId) ?? 0) + line.total))
+  }
+  let collected = 0
+  let allocated = 0
+  let advanced = false
+  const ribaBatches = data.ribaBatches.map(batch => {
+    if (batch.status === 'Stornata' || batch.status === 'Insoluta') return batch
+    const matching = (batch.pendingVehicleLinks ?? []).filter(link => remainingByVehicle.has(link.vehicleId))
+    if (!matching.length) return batch
+    for (const link of matching) {
+      const remaining = remainingByVehicle.get(link.vehicleId) ?? 0
+      if (link.amount > remaining) throw new Error(`La Ri.Ba. di ${link.plate} supera il totale IVA inclusa della vettura in fattura. Verifica gli importi.`)
+      remainingByVehicle.set(link.vehicleId, roundMoney(remaining - link.amount))
+    }
+    const amount = roundMoney(matching.reduce((sum, link) => sum + link.amount, 0))
+    if (batch.status === 'Chiusa') collected = roundMoney(collected + amount)
+    else allocated = roundMoney(allocated + amount)
+    if (batch.status === 'Anticipata') advanced = true
+    return {
+      ...batch,
+      allocations: [...batch.allocations, { id: id(), invoiceId, amount }],
+      vehicleLinks: [...(batch.vehicleLinks ?? []), ...matching.map(link => ({ ...link, invoiceId }))],
+      pendingVehicleLinks: batch.pendingVehicleLinks?.filter(link => !remainingByVehicle.has(link.vehicleId)),
+      updatedAt: now(),
+    }
+  })
+  if (!collected && !allocated) return data
+  const status: Invoice['status'] = collected >= invoice.total ? 'Incassata'
+    : advanced ? 'Anticipata'
+    : allocated >= roundMoney(invoice.total - collected) ? 'Inserita in R.I.B.A.'
+    : allocated > 0 ? 'Parzialmente inserita in R.I.B.A.' : 'Da incassare'
+  return {
+    ...data, ribaBatches,
+    invoices: data.invoices.map(item => item.id === invoiceId
+      ? { ...item, collectedAmount: collected, ribaAllocatedAmount: allocated, status } : item),
   }
 }
 
 export function createRibaBatch(
   data: ErpData,
-  input: { number: string; bankAccountId: string; presentationDate: string; dueDate: string; collectionDate?:string; vehicleLinks?:RibaBatch['vehicleLinks']; allocations: { invoiceId: string; amount: number }[] },
+  input: { number: string; bankAccountId: string; presentationDate: string; dueDate: string; collectionDate?:string; vehicleLinks?:RibaBatch['vehicleLinks']; pendingVehicleLinks?: RibaBatch['pendingVehicleLinks']; allocations: { invoiceId: string; amount: number }[] },
 ): ErpData {
   if (!input.number.trim()) throw new Error('Il numero distinta è obbligatorio.')
   for(const value of [input.presentationDate,input.dueDate,input.collectionDate||input.dueDate])if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value)))throw new Error('Controlla le date della distinta RIBA.')
   if (data.ribaBatches.some((item) => item.number.trim().toLowerCase() === input.number.trim().toLowerCase())) throw new Error('Numero distinta già presente.')
   const bank = data.bankAccounts.find((item) => item.id === input.bankAccountId)
   if (!bank) throw new Error('Banca non trovata.')
-  if (!input.allocations.length) throw new Error('Inserisci almeno una fattura nella distinta.')
+  const pendingVehicleLinks = input.pendingVehicleLinks ?? []
+  if (!input.allocations.length && !pendingVehicleLinks.length) throw new Error('Inserisci almeno una vettura o fattura nella distinta.')
+  const pendingIds = new Set<string>()
+  for (const link of pendingVehicleLinks) {
+    const vehicle = data.vehicles.find(item => item.id === link.vehicleId)
+    if (!vehicle || vehicle.invoiceId || vehicle.billingStatus === 'Fatturata'
+      || data.invoices.some(invoice => invoice.vehicleId === link.vehicleId || invoice.lines.some(line => line.vehicleId === link.vehicleId))
+      || pendingIds.has(link.vehicleId)
+      || data.ribaBatches.some(batch => !['Insoluta', 'Stornata'].includes(batch.status)
+        && batch.pendingVehicleLinks?.some(item => item.vehicleId === link.vehicleId))) {
+      throw new Error('La vettura ha già una fattura o una Ri.Ba. registrata.')
+    }
+    if (!Number.isFinite(link.amount) || link.amount <= 0 || roundMoney(link.amount) !== link.amount) {
+      throw new Error('Inserisci un importo Ri.Ba. valido in euro e centesimi.')
+    }
+    pendingIds.add(link.vehicleId)
+  }
   const seen = new Set<string>()
   const allocations = input.allocations.map((allocation) => {
     if (seen.has(allocation.invoiceId)) throw new Error('La stessa fattura non può comparire due volte nella distinta.')
@@ -463,10 +522,11 @@ export function createRibaBatch(
     if (amount > residual) throw new Error(`La fattura ${invoice.number} ha un residuo disponibile di € ${residual.toLocaleString('it-IT', { minimumFractionDigits: 2 })}.`)
     return { id: id(), invoiceId: invoice.id, amount }
   })
-  const total = roundMoney(allocations.reduce((sum, item) => sum + item.amount, 0))
+  const allocatedTotal = roundMoney(allocations.reduce((sum, item) => sum + item.amount, 0))
+  const total = roundMoney(allocatedTotal + pendingVehicleLinks.reduce((sum, link) => sum + link.amount, 0))
 
   if(input.vehicleLinks){
-   if(roundMoney(input.vehicleLinks.reduce((sum,link)=>sum+link.amount,0))!==total||input.vehicleLinks.some(link=>!allocations.some(allocation=>allocation.invoiceId===link.invoiceId)))throw new Error('Totale riepilogo vetture non valido.')
+   if(roundMoney(input.vehicleLinks.reduce((sum,link)=>sum+link.amount,0))!==allocatedTotal||input.vehicleLinks.some(link=>!allocations.some(allocation=>allocation.invoiceId===link.invoiceId)))throw new Error('Totale riepilogo vetture non valido.')
    for(const link of input.vehicleLinks){
     const invoice=data.invoices.find(item=>item.id===link.invoiceId)
     if(!invoice||!data.vehicles.some(vehicle=>vehicle.id===link.vehicleId)||!(invoice.vehicleId===link.vehicleId||invoice.lines.some(line=>line.vehicleId===link.vehicleId))||!Number.isFinite(link.amount)||link.amount<=0)throw new Error('Collegamento vettura e fattura RIBA non valido.')
@@ -474,7 +534,7 @@ export function createRibaBatch(
    for(const allocation of allocations)if(roundMoney(input.vehicleLinks.filter(link=>link.invoiceId===allocation.invoiceId).reduce((sum,link)=>sum+link.amount,0))!==allocation.amount)throw new Error('Il riepilogo vetture non corrisponde al totale della distinta.')
   }
   const timestamp = now()
-  const batch: RibaBatch = { collectionDate:input.collectionDate||input.dueDate,vehicleLinks:input.vehicleLinks, id: id(), number: input.number.trim(), bankAccountId: bank.id, presentationDate: input.presentationDate, dueDate: input.dueDate, allocations, total, advancedAmount: 0, advanceDate: '', fees: 0, interest: 0, status: 'Presentata', createdAt: timestamp, updatedAt: timestamp }
+  const batch: RibaBatch = { collectionDate:input.collectionDate||input.dueDate,vehicleLinks:input.vehicleLinks,pendingVehicleLinks:pendingVehicleLinks.length ? pendingVehicleLinks : undefined, id: id(), number: input.number.trim(), bankAccountId: bank.id, presentationDate: input.presentationDate, dueDate: input.dueDate, allocations, total, advancedAmount: 0, advanceDate: '', fees: 0, interest: 0, status: 'Presentata', createdAt: timestamp, updatedAt: timestamp }
   const allocatedByInvoice = new Map(allocations.map((item) => [item.invoiceId, item.amount]))
   return {
     ...data,

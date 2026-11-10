@@ -1,5 +1,5 @@
 import { expectedPaymentDate } from './paymentTerms'
-import { calculateDueDate } from './finance'
+import { calculateDueDate, linkPendingRibaToInvoice } from './finance'
 import { approveEstimateAndCreateJob } from './workflow'
 import type {
   CommunicationChannel,
@@ -262,7 +262,7 @@ export function convertAcceptedQuoteToInvoice(data: ErpData, input: InvoiceFromQ
     updatedAt: timestamp,
   }
 
-  return {
+  return linkPendingRibaToInvoice({
     ...data,
     invoices: [invoice, ...data.invoices],
     quotes: (data.quotes ?? []).map((item) => item.id === quote.id ? { ...item, invoiceId: invoice.id, updatedAt: timestamp } : item),
@@ -281,7 +281,7 @@ export function convertAcceptedQuoteToInvoice(data: ErpData, input: InvoiceFromQ
       ...counters,
       invoice: counters.invoice + 1,
     },
-  }
+  }, invoice.id)
 }
 
 export function syncInvoiceDocumentStatuses(data: ErpData, referenceDate = todayKey()): ErpData {
