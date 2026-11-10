@@ -13,6 +13,7 @@ import {
   settleRibaBatch,
 } from './finance'
 import { emptyData } from './erp'
+import { createDirectJob } from './workflow'
 
 const vehicle = (id: string, customerId: string): Vehicle => ({
   id,
@@ -210,4 +211,29 @@ it('lists unpaid deadlines through the fifteenth day, including overdue installm
   }] as NonNullable<ErpData['payables']>
   expect(payableDueAlerts(data, '2026-11-08').map(({installment, overdue}) => [installment.id, overdue]))
     .toEqual([['late', true], ['today', false], ['boundary', false]])
+})
+
+describe('imponibile delle vetture da fatturare', () => {
+  const input = { customerId: 'c1', vehicleIds: ['1'], number: 'FAT-IMPORTI', issueDate: '2026-03-10', vatRate: 22 }
+  const addJob = (data: ErpData) => createDirectJob(data, {
+    customerId: 'c1', vehicleId: '1', plate: 'AA1BB', companyName: '', contactName: '',
+    entryDate: '2026-03-01', expectedDeliveryDate: '2026-03-10', priority: 'Normale', responsible: '', notes: '',
+    lines: [{ description: 'Riparazione', category: 'carrozzeria', quantity: 1, unitPrice: 325.55, discount: 0, vatRate: 22 }],
+  })
+
+  it('fattura l’imponibile della commessa anche quando la scheda vettura è a zero', () => {
+    const data = addJob(makeData())
+    data.vehicles[0] = { ...data.vehicles[0], status: 'Consegnata', expectedRevenue: 0 }
+    const next = createInvoice(data, input)
+    expect(next.invoices[0].lines[0]).toMatchObject({ taxableAmount: 325.55, vatAmount: 71.62, total: 397.17 })
+  })
+
+  it('blocca importi mancanti e commesse ambigue', () => {
+    const data = makeData()
+    data.vehicles[0].expectedRevenue = 0
+    expect(() => createInvoice(data, input)).toThrow('Controlla l’imponibile')
+    const ambiguous = addJob(addJob(makeData()))
+    ambiguous.vehicles[0] = { ...ambiguous.vehicles[0], status: 'Consegnata' }
+    expect(() => createInvoice(ambiguous, input)).toThrow('Controlla l’imponibile')
+  })
 })
