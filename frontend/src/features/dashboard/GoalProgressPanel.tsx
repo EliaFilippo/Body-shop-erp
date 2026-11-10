@@ -21,7 +21,7 @@ export function GoalProgressPanel({ data }: { data: ErpData }) {
         <span>{period.label}</span>
         <strong>{money.format(period.done)} prodotti</strong>
         <small>Obiettivo · {period.goal > 0 ? money.format(period.goal) : 'Nessun importo previsto'}</small>
-        {period.percent !== null && <><CapacityBar percent={period.percent} /><small>Mancano {money.format(period.gap)}</small></>}
+        {period.percent !== null && <><CapacityBar kind="goal" percent={period.percent} /><small>Mancano {money.format(period.gap)}</small></>}
         <small>Fatturato registrato · {money.format(period.billed)}</small>
       </article>)}
     </div>
