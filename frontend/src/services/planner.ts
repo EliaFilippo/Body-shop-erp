@@ -75,7 +75,7 @@ function normalizeScore(value: number, max: number) {
   return Math.max(0, Math.min(1, value / max))
 }
 
-function marginMetrics(job: RepairJob, vehicle: Vehicle, settings: PlannerSettings) {
+export function marginMetrics(job: RepairJob, vehicle: Vehicle, settings: PlannerSettings) {
   const phaseMinutes = Math.max(0, job.phases.reduce((sum, phase) => sum + Math.max(0, Number(phase.estimatedMinutes ?? 0)), 0))
   const lineMinutes = Math.max(0, estimateVehicleTotalMinutes(job.lines ?? []))
   const productiveMinutes = Math.max(phaseMinutes, lineMinutes, Math.max(0, vehicle.estimatedHours || 0) * 60)
@@ -90,6 +90,9 @@ function marginMetrics(job: RepairJob, vehicle: Vehicle, settings: PlannerSettin
   const marginPerHour = totalMargin / productiveHours
   return {
     productiveHours,
+    productiveMinutes,
+    plannedRevenue,
+    rate,
     totalMargin,
     marginPerHour,
   }

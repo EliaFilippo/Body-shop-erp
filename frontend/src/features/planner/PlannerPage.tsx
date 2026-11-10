@@ -1,3 +1,4 @@
+import { VehicleMarginsPanel } from './VehicleMarginsPanel'
 import type {CompletionForecast} from '../../services/completionPlanning'
 import {NightlyEconomicsPanel} from '../dashboard/NightlyEconomicsPanel'
 import { phaseDisplayName } from '../../services/workCycle'
@@ -441,6 +442,8 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       {targetRate.hourlyRate===null&&<p role="status">{targetRate.goal<=0?'Imposta l’obiettivo fatturato mensile nelle impostazioni.':'Configura ore produttive maggiori di zero nelle impostazioni.'}</p>}
       <button type="button" className="secondary" onClick={onOpenSettings}>Modifica obiettivo e ore</button>
     </section>}
+
+    <VehicleMarginsPanel data={data} monthKey={targetMonth} />
 
     {!data.plannerSettings.operators.length && <div className="toast warning">Configura almeno un operatore: senza ore lavorabili non e possibile calcolare una consegna.</div>}
 
