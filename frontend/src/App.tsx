@@ -1,5 +1,6 @@
 import { ConeCustomerSummary } from './features/cones/ConeCustomerSummary'
-import { payableDueAlerts } from './services/finance'
+import { createInvoice, payableDueAlerts, vehicleInvoiceTaxableAmount, vehicleWorkFinished } from './services/finance'
+import { ribaVehicleOptions } from './services/vehicleRiba'
 import { practiceQueueEntries, type PracticeQueueEntry } from './services/practiceQueues'
 import { useCompletionPlan } from './hooks/useCompletionPlan'
 import { overlayCompletionPlan, stripCompletionOverlay } from './services/completionPlanning'
@@ -46,6 +47,7 @@ import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot }
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr } from './services/acceptance'
 const FinancePage = lazy(() => import('./features/finance/FinancePage').then(module => ({default:module.FinancePage})))
+const InvoiceCreateModal = lazy(() => import('./features/finance/FinancePage').then(module => ({ default: module.InvoiceCreateModal })))
 import { createQuoteDocument } from './services/documents'
 const TodayShopPage = lazy(() => import('./features/production/TodayShopPage').then(module => ({default:module.TodayShopPage})))
 import { buildTodayInShopSnapshot, openProductionReports, runProductionDelayControl, syncProductionJobsFromVehicles, syncVehicleWorkedHoursFromProduction } from './features/production/production'
@@ -57,7 +59,7 @@ import { syncOperationalStateFromJobs } from './services/workflow'
 import { DOCUMENT_IDENTITY_OCR_GENERIC_ERROR, readIdentityDocument } from './services/documentIdentityOcr'
 import { VEHICLE_BOOKLET_OCR_GENERIC_ERROR, readVehicleBooklet } from './services/vehicleBookletOcr'
 import { saveVehicleWithPersistenceCheck } from './services/vehiclePersistence.ts'
-import { isVehicleWaitingForParts, listSelectableVehicleStatuses, resolveVehicleStatusId, resolveVehicleStatusLabel } from './services/vehicleStatuses'
+import { isVehicleDeliveredStatus, isVehicleWaitingForParts, listSelectableVehicleStatuses, resolveVehicleStatusId, resolveVehicleStatusLabel } from './services/vehicleStatuses'
 import { DEFAULT_WEEKLY_WORK_SCHEDULE, intervalsToText, normalizeWeeklyWorkSchedule } from './services/workCalendar'
 import { ORIGIN_BLOCK_MESSAGE, isFileOrigin, tryRedirectFromFileOrigin } from './services/originGuard'
 import { backupFilename, parseBackup, serializeBackup } from './services/backup'
@@ -674,6 +676,7 @@ function App() {
   const livePrograms=useMemo(()=>displayData!==data?localizePlanningTimestamps(displayData.operatorPrograms):undefined,[displayData,data])
   const activeUser = getDefaultActiveUser(data.users)
   const [view, setView] = useState<View>('dashboard')
+  const [invoiceVehicleId, setInvoiceVehicleId] = useState<string>()
   const [ribaVehicleId, setRibaVehicleId] = useState<string>()
   const [query, setQuery] = useState('')
   const [modal, setModal] = useState<
@@ -1095,6 +1098,8 @@ function App() {
   }
 
   const title = titleOverrides[view] ?? nav.find((item) => item.id === view)?.label
+  const selectedInvoiceVehicle = view === 'vehicles' ? data.vehicles.find(vehicle => vehicle.id === invoiceVehicleId) : undefined
+  const invoiceCustomer = selectedInvoiceVehicle && customerById(selectedInvoiceVehicle.customerId)
   const selectedCostVehicle = costModal ? data.vehicles.find((vehicle) => vehicle.id === costModal.vehicleId) : undefined
   const duplicateVehicle = duplicateVehicleId ? data.vehicles.find((vehicle) => vehicle.id === duplicateVehicleId) : undefined
   const openSettings = () => {
@@ -1195,7 +1200,25 @@ function App() {
           setQuery(plate)
         }} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} setNotice={setNotice} setError={setError} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { allowCountReductionRef.current = true; setData(deleteCustomer(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
-        {view === 'vehicles' && <Vehicles onOpenRiba={id=>{setRibaVehicleId(id);setView('finance')}} vehicles={filteredVehicles} customers={data.customers} onAdd={() => { setQuery(''); setModal({ type: 'vehicle' }) }} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { allowCountReductionRef.current = true; setData(deleteVehicle(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
+        {view === 'vehicles' && <Vehicles billingData={data} onOpenInvoice={setInvoiceVehicleId} onOpenRiba={id=>{setRibaVehicleId(id);setView('finance')}} vehicles={filteredVehicles} customers={data.customers} onAdd={() => { setQuery(''); setModal({ type: 'vehicle' }) }} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { allowCountReductionRef.current = true; setData(deleteVehicle(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
+        {selectedInvoiceVehicle && invoiceCustomer && <InvoiceCreateModal
+          key={selectedInvoiceVehicle.id}
+          customer={invoiceCustomer}
+          vehicles={[selectedInvoiceVehicle]}
+          amounts={new Map([[selectedInvoiceVehicle.id, vehicleInvoiceTaxableAmount(data, selectedInvoiceVehicle)]])}
+          defaultVatRate={data.financeSettings.defaultVatRate}
+          onClose={() => setInvoiceVehicleId(undefined)}
+          onSave={input => {
+            try {
+              setData(createInvoice(data, input))
+              setInvoiceVehicleId(undefined)
+              setError('')
+              setNotice(`Fattura ${input.number} creata correttamente.`)
+            } catch (problem) {
+              setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.')
+            }
+          }}
+        />}
         {view === 'cones' && <Cones data={displayData} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
         {view === 'planner' && <PlannerPage data={displayData} liveForecasts={displayData!==data?completion.plan?.forecasts:undefined} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
           setView('estimates-jobs')
@@ -1914,9 +1937,33 @@ function Customers({ customers, data, onAdd, onEdit, onDelete }: { customers: Cu
     <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Tipo</th><th>Contatti</th><th>Codice fiscale / P.IVA</th><th>Veicoli</th><th>Azioni</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}><td><strong>{customer.name}</strong><small>{customer.address || 'Indirizzo non indicato'}</small></td><td><span className="tag">{customer.type}</span></td><td>{customer.phone}<small>{customer.email || 'Email non indicata'}</small></td><td>{customer.taxId || '—'}</td><td><b className="count">{data.vehicles.filter((vehicle) => vehicle.customerId === customer.id).length}</b></td><td><div className="row-actions"><button onClick={() => onEdit(customer)}>Modifica</button><button className="danger" onClick={() => { if (window.confirm(`Eliminare il cliente ${customer.name}?`)) onDelete(customer.id) }}>Elimina</button></div></td></tr>)}</tbody></table></div>{!customers.length && <Empty text="Nessun cliente trovato. Crea la prima anagrafica." />}</div>
 }
 
-function Vehicles({ vehicles, customers, onAdd, onEdit, onDelete, onOpenCosts, onOpenRiba, updateStatus, customerById, statusOptions, statusLabel }: { vehicles: Vehicle[]; customers: Customer[]; onAdd: () => void; onEdit: (vehicle: Vehicle) => void; onDelete: (id: string) => void; onOpenCosts: (id: string) => void; onOpenRiba: (id: string) => void; updateStatus: (id: string, status: VehicleStatus) => void; customerById: (id: string) => Customer | undefined; statusOptions: Array<{ id: string; label: string }>; statusLabel: (status: VehicleStatus) => string }) {
+function Vehicles({ billingData, onOpenInvoice, vehicles, customers, onAdd, onEdit, onDelete, onOpenCosts, onOpenRiba, updateStatus, customerById, statusOptions, statusLabel }: { billingData: ErpData; onOpenInvoice: (id: string) => void; vehicles: Vehicle[]; customers: Customer[]; onAdd: () => void; onEdit: (vehicle: Vehicle) => void; onDelete: (id: string) => void; onOpenCosts: (id: string) => void; onOpenRiba: (id: string) => void; updateStatus: (id: string, status: VehicleStatus) => void; customerById: (id: string) => Customer | undefined; statusOptions: Array<{ id: string; label: string }>; statusLabel: (status: VehicleStatus) => string }) {
+  const pendingRibaIds = new Set(ribaVehicleOptions(billingData).map(option => option.vehicleId))
+  const invoices = new Map(billingData.invoices.map(invoice => [invoice.id, invoice]))
+  const loadedRibaIds = new Set<string>()
+  for (const batch of billingData.ribaBatches) {
+    if (batch.status === 'Insoluta' || batch.status === 'Stornata') continue
+    if (batch.vehicleLinks?.length) {
+      for (const link of batch.vehicleLinks) loadedRibaIds.add(link.vehicleId)
+    } else {
+      for (const allocation of batch.allocations) {
+        const invoice = invoices.get(allocation.invoiceId)
+        if (invoice?.vehicleId) loadedRibaIds.add(invoice.vehicleId)
+        for (const line of invoice?.lines ?? []) loadedRibaIds.add(line.vehicleId)
+      }
+    }
+  }
+
   return <div className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">PARCO VEICOLI</span><h3>{vehicles.length} vetture</h3></div><button className="primary" onClick={onAdd} disabled={!customers.length} title={!customers.length ? 'Crea prima un cliente' : ''}><Icon name="plus" /> Nuova vettura</button></div>
-    <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Stato operativo</th><th>Cono</th><th>Dati</th><th>Azioni</th></tr></thead><tbody>{vehicles.map((vehicle) => { const options = statusOptions.some((item) => item.id === vehicle.status) ? statusOptions : [...statusOptions, { id: vehicle.status, label: statusLabel(vehicle.status) }]; return <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${String(vehicle.status).toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{options.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select><small>{vehicle.statusMode === 'manual' ? 'Override manuale' : (vehicle.suggestedStatus ? `Suggerito: ${statusLabel(vehicle.suggestedStatus)}` : 'Suggerimento automatico')}</small></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : <small>{coneLabel(vehicle)}</small>}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td><td><div className="row-actions"><button onClick={() => onEdit(vehicle)}>Modifica</button><button onClick={() => onOpenCosts(vehicle.id)}>Costi</button><button onClick={() => onOpenRiba(vehicle.id)}>Ri.Ba. caricata</button><button className="danger" onClick={() => onDelete(vehicle.id)}>Elimina</button></div></td></tr>})}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
+    <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Stato operativo</th><th>Cono</th><th>Dati</th><th>Azioni</th></tr></thead><tbody>{vehicles.map((vehicle) => {
+      const ready = vehicleWorkFinished(billingData, vehicle)
+        || isVehicleDeliveredStatus(billingData.plannerSettings, vehicle.status)
+        || vehicle.billingStatus === 'Da fatturare'
+      const invoiced = Boolean(vehicle.invoiceId) || vehicle.billingStatus === 'Fatturata'
+      const invoice = vehicle.invoiceId ? invoices.get(vehicle.invoiceId) : undefined
+      const ribaPending = ready && (!invoiced || (invoice?.paymentMethod === 'R.I.B.A.' && pendingRibaIds.has(vehicle.id)))
+      const ribaLoaded = !pendingRibaIds.has(vehicle.id) && loadedRibaIds.has(vehicle.id)
+      const options = statusOptions.some((item) => item.id === vehicle.status) ? statusOptions : [...statusOptions, { id: vehicle.status, label: statusLabel(vehicle.status) }]; return <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${String(vehicle.status).toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{options.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select><small>{vehicle.statusMode === 'manual' ? 'Override manuale' : (vehicle.suggestedStatus ? `Suggerito: ${statusLabel(vehicle.suggestedStatus)}` : 'Suggerimento automatico')}</small></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : <small>{coneLabel(vehicle)}</small>}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td><td><div className="row-actions"><button onClick={() => onEdit(vehicle)}>Modifica</button><button onClick={() => onOpenCosts(vehicle.id)}>Costi</button><button className={ready && !invoiced ? 'billing-pending' : undefined} disabled={!ready || invoiced} onClick={() => onOpenInvoice(vehicle.id)}>{invoiced ? 'Fatturata' : 'Fattura'}</button><button className={ribaPending ? 'billing-pending' : undefined} onClick={() => onOpenRiba(vehicle.id)}>{ribaPending ? 'Ri.Ba. da caricare' : ribaLoaded ? 'Ri.Ba. caricata' : 'Ri.Ba.'}</button><button className="danger" onClick={() => onDelete(vehicle.id)}>Elimina</button></div></td></tr>})}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
 }
 
 function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle; data: ErpData; onClose: () => void; onSave: (entry: Omit<NonNullable<Vehicle['costEntries']>[number], 'id' | 'createdAt' | 'updatedAt'>) => void }) {
