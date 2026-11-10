@@ -12,12 +12,14 @@ import type {
   PayableStatus,
   PaymentMethod,
   RibaBatch,
+  Vehicle,
   VatDeductibilityMode,
   VatQuarterRecord,
   VatQuarterStatus,
 } from '../types'
 import { ownerWithdrawalPlannedDateForMonth } from './economic'
 import { isVehicleDeliveredStatus } from './vehicleStatuses'
+import { normalizePlate } from './erp'
 import { calculateVatQuarterSnapshot } from './vatQuarterly'
 
 const id = () => crypto.randomUUID()
@@ -374,6 +376,16 @@ export function markPayableInstallmentPaid(data: ErpData, input: { payableId: st
   }
 }
 
+export function vehicleInvoiceTaxableAmount(data: Pick<ErpData, 'jobs'>, vehicle: Vehicle): number | null {
+  const plate = normalizePlate(vehicle.plate)
+  const jobs = (data.jobs ?? []).filter(job => job.status !== 'Annullata' && job.customerId === vehicle.customerId
+    && (job.vehicleId ? job.vehicleId === vehicle.id : Boolean(plate) && normalizePlate(job.plate) === plate))
+  if (jobs.length > 1) return null
+
+  const amount = roundMoney(jobs.length === 1 ? jobs[0].taxableAmount : vehicle.expectedRevenue)
+  return Number.isFinite(amount) && amount > 0 ? amount : null
+}
+
 export function createInvoice(
   data: ErpData,
   input: { customerId: string; vehicleIds: string[]; number: string; issueDate: string; paymentMethod?: PaymentMethod; vatRate?: number; notes?: string },
@@ -390,7 +402,8 @@ export function createInvoice(
 
   const vatRate = Number.isFinite(input.vatRate) ? Number(input.vatRate) : data.financeSettings.defaultVatRate
   const lines = vehicles.map((vehicle) => {
-    const taxableAmount = roundMoney(vehicle.expectedRevenue)
+    const taxableAmount = vehicleInvoiceTaxableAmount(data, vehicle)
+    if (taxableAmount === null) throw new Error(`Controlla l’imponibile e la commessa della vettura ${vehicle.plate} prima di fatturare.`)
     const vatAmount = roundMoney(taxableAmount * vatRate / 100)
     return { id: id(), vehicleId: vehicle.id, description: `${vehicle.plate} · ${vehicle.make} ${vehicle.model}`, taxableAmount, vatRate, vatAmount, total: roundMoney(taxableAmount + vatAmount) }
   })
