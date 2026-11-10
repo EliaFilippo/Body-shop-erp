@@ -1087,7 +1087,12 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     if (!item.phase.preferredOperatorId&&!item.phase.supportOperatorId&&!activeAssignments.length&&eligible.length) {
       const starts=eligible.map(state=>({state,start:nextWorkingInstant([state.nextAt,schedulingFloor,item.readyAt].sort().at(-1)!,data.plannerSettings,state.operator)}))
       const earliest=starts.map(entry=>entry.start).sort()[0]
-      eligible=starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
+      const duty = (item.phase.requiredSkill || item.phase.name).trim().toLowerCase()
+      const primaryName = ['smontaggio','rimontaggio'].includes(duty) ? 'davide'
+        : ['stuccatura','verniciatura'].includes(duty) ? 'filippo' : undefined
+      const primary = starts.find(({state,start})=>state.operator.name.trim().toLowerCase()===primaryName
+        && (primaryName==='davide' ? start.slice(0,10)===earliest.slice(0,10) : start===earliest))
+      eligible=primary ? [primary.state] : starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
     }
     const ranking = rankPhaseOperators(data,item.job,item.phase,eligible,residual,schedulingFloor,item.readyAt)
     const compatible = martin && martinCanStart(item, earliest) && ranking.operators.includes(martin) && !ranking.reason.startsWith('Margine insufficiente')
