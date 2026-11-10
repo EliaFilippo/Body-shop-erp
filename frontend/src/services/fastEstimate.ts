@@ -1,4 +1,5 @@
 import { toRomePlanningClock } from './romePlanningClock'
+import { StationAvailabilityError } from './paintStations'
 import { expectedPaymentDate } from './paymentTerms'
 import type { AcceptanceQuote, ErpData, EstimateDocument, EstimateLine, EstimatePaymentTerms } from '../types'
 import { addVehicle, createCustomer, normalizePlate } from './erp'
@@ -57,12 +58,24 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(at)
  const selectedPhases=input.quote.selectedPhases??[]
  const planningPrecedence=Boolean(input.requestedDeliveryDate?.trim()&&input.planningPrecedence)
- const productionForecast=simulateEstimateProductionForecast(livePrograms?{...next,operatorPrograms:livePrograms}:next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,priority:current?.priority,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate,referenceAt:toRomePlanningClock(at.toISOString())})
+ let productionForecast: ReturnType<typeof simulateEstimateProductionForecast> | undefined
+ try {
+  productionForecast=simulateEstimateProductionForecast(livePrograms?{...next,operatorPrograms:livePrograms}:next,{vehicleId:vehicle.id,plate,lines:lines as EstimateLine[],selectedPhases,priority:current?.priority,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate,referenceAt:toRomePlanningClock(at.toISOString())})
+ } catch (error) {
+  if (!(error instanceof StationAvailabilityError)) throw error
+ }
  const fields={customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date:current?.date??today,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined}
  next=current ? updateEstimate(next,current.id,{...fields,source:'fast',lines:lines as EstimateLine[]}) : createEstimate(next,fields)
  const estimate=current ? next.estimates!.find(item=>item.id===current.id)! : {...next.estimates![0],source:'fast' as const}
  if(!current)next={...next,estimates:[estimate,...next.estimates!.slice(1)]}
  if(!current)next=createQuoteDocument(next,{customerId:customer.id,vehicleId:vehicle.id,estimateId:estimate.id,paymentTerms:estimate.paymentTerms,status:'bozza',notes:input.notes||'',lines:estimate.lines.map(line=>({description:line.description,quantity:line.quantity,unitPrice:line.unitPrice,vatRate:line.vatRate,discountRate:line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0}))})
- if(input.confirmed)next=recalculateOperatorPrograms(approveEstimateAndCreateJob(next,estimate.id),today,'Preventivo fast confermato')
+ if(input.confirmed){
+  next=approveEstimateAndCreateJob(next,estimate.id)
+  try {
+   next=recalculateOperatorPrograms(next,today,'Preventivo fast confermato')
+  } catch (error) {
+   if (!(error instanceof StationAvailabilityError)) throw error
+  }
+ }
  return next
 }

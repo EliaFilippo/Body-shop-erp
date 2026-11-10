@@ -482,8 +482,8 @@ export function WorkflowPage({
 
     {modal?.type==='estimate-pdf'&&estimates.find(e=>e.id===modal.estimateId)&&<EstimatePdfPreview data={data} estimate={estimates.find(e=>e.id===modal.estimateId)!} onClose={()=>setModal(null)}/>}
     {modal?.type === 'estimate-fast' && <FastEstimateEditor key={modal.estimateId??'new'} initial={estimates.find(estimate=>estimate.id===modal.estimateId)} data={data} livePrograms={livePrograms} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => {
-      apply(next, pdfPrepared ? 'PDF scaricato e chat WhatsApp aperta: allega il file come Documento e conferma l’invio.' : confirmed ? 'Preventivo fast confermato: commessa creata e pianificata.' : 'Preventivo fast salvato.')
       const createdJob = confirmed ? next.jobs?.find(job => job.id === (modal.estimateId ? next.estimates?.find(estimate=>estimate.id===modal.estimateId) : next.estimates?.[0])?.convertedJobId) : undefined
+      apply(next, pdfPrepared ? 'PDF scaricato e chat WhatsApp aperta: allega il file come Documento e conferma l’invio.' : confirmed ? (createdJob?.status === 'Da pianificare' ? 'Preventivo fast confermato: commessa creata, in attesa di pianificazione.' : 'Preventivo fast confermato: commessa creata e pianificata.') : 'Preventivo fast salvato.')
       setModal(createdJob ? {type:'job-print', jobId:createdJob.id, auto:true} : null)
     }} />}
     {modal?.type === 'job-print' && (() => {

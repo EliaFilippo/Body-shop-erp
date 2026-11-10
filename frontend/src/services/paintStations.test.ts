@@ -7,6 +7,12 @@ describe('tre postazioni di verniciatura',()=>{
   expect(findPaintStationStart(at(0),'fourth',reservations,start=>new Date(Date.parse(start)+90*60000).toISOString())).toBe(at(90))
   expect(findPaintStationStart(at(90),'fourth',reservations,()=>at(180))).toBe(at(90))
  })
+ it('avanza al minuto successivo se la postazione si libera a metà minuto',()=>{
+  const releasedAt='2026-10-26T08:30:39.635Z'
+  const reservations=[0,1,2].map(n=>({jobId:`j${n}`,startAt:at(0),endAt:releasedAt}))
+  const roundDown=(start:string)=>start.slice(0,16)+':00.000Z'
+  expect(findPaintStationStart(at(0),'fourth',reservations,()=>at(90),roundDown)).toBe(at(31))
+ })
  it('conta le vetture distinte, verifica tutto l’intervallo e conserva gli operatori di supporto',()=>{
   const reservations=[{jobId:'one',startAt:at(0),endAt:at(90)},{jobId:'one',startAt:at(0),endAt:at(90)},
    {jobId:'two',startAt:at(0),endAt:at(90)},{jobId:'three',startAt:at(20),endAt:at(90)}]
