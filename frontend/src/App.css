@@ -565,3 +565,5 @@ button.work-sheet-print-pending {
 .cone-timer-active{color:#8ee0ae}
 
 .row-actions .billing-pending{background:#942c32;border-color:#ea777d;color:#fff;font-weight:700}
+
+.row-actions .invoice-ready{background:#176b42;border-color:#63c88e;color:#fff;font-weight:700}
