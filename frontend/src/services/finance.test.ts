@@ -248,3 +248,38 @@ describe('imponibile delle vetture da fatturare', () => {
     expect(() => createInvoice(ambiguous, input)).toThrow('Controlla l’imponibile')
   })
 })
+
+describe('Ri.Ba. prima della fattura', () => {
+  const invoice = { customerId: 'c1', vehicleIds: ['1'], number: 'FAT-RIBA', issueDate: '2026-03-10', vatRate: 22 }
+  const load = (data: ErpData, amount = 600) => createVehicleRiba(data, {
+    number: 'RIBA-PRIMA', bankAccountId: 'b1', presentationDate: '2026-03-08',
+    dueDate: '2026-04-08', collectionDate: '2026-04-08',
+    selections: [{ key: 'vehicle|1', amount }], mode: 'maturity', advanceDate: '', fees: 0, interest: 0,
+  })
+
+  it('registra la distinta senza fattura e all’emissione scala la quota una sola volta', () => {
+    const data = makeData()
+    data.vehicles[0].status = 'In lavorazione'
+    const next = load(data)
+    expect(next.invoices).toHaveLength(0)
+    expect(next.ribaBatches[0]).toMatchObject({ total: 600, allocations: [], pendingVehicleLinks: [{ vehicleId: '1', amount: 600 }] })
+    expect(ribaVehicleOptions(next)).toHaveLength(0)
+    next.vehicles[0].status = 'Consegnata'
+    const billed = createInvoice(next, invoice)
+    expect(billed.invoices[0]).toMatchObject({ ribaAllocatedAmount: 600, status: 'Parzialmente inserita in R.I.B.A.' })
+    expect(billed.ribaBatches[0]).toMatchObject({ total: 600, pendingVehicleLinks: [], allocations: [{ invoiceId: billed.invoices[0].id, amount: 600 }] })
+    expect(receivableFlows(billed).reduce((sum, flow) => sum + flow.amount, 0)).toBe(1220)
+  })
+
+  it('riconosce l’incasso già registrato senza accreditare nuovamente la banca', () => {
+    const loaded = load(makeData())
+    const closed = settleRibaBatch(loaded, loaded.ribaBatches[0].id, '2026-03-09')
+    const billed = createInvoice(closed, invoice)
+    expect(billed.invoices[0]).toMatchObject({ collectedAmount: 600, ribaAllocatedAmount: 0 })
+    expect(billed.bankAccounts).toEqual(closed.bankAccounts)
+  })
+
+  it('segnala una Ri.Ba. maggiore del totale della fattura', () => {
+    expect(() => createInvoice(load(makeData(), 1300), invoice)).toThrow('supera il totale')
+  })
+})
