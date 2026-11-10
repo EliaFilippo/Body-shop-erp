@@ -1,5 +1,6 @@
 import { describe,expect,it } from 'vitest'
 import { deliveredJobReport } from './deliveredJobReport'
+import { closedJobMargin } from './closedJobMargin'
 import { emptyData } from './erp'
 import { createEstimate,approveEstimateAndCreateJob } from './workflow'
 import type { JobPhase } from '../types'
@@ -38,5 +39,27 @@ describe('delivered report',()=>{
   expect(deliveredJobReport(job).materials).toMatchObject({estimatedMaterials:100,actualMaterials:null,materialsSaving:null})
   job.materialActualCost={amount:0,at:'',note:''}
   expect(deliveredJobReport(job).materials).toMatchObject({actualMaterials:0,materialsSaving:100})
+ })
+})
+
+describe('closed job margin', () => {
+ it('values recorded seconds at the internal hourly cost and returns integer cents', () => {
+  const job = makeReportJob()
+  job.taxableAmount = 500.09
+  job.materialActualCost = { amount: 100.02, at: '', note: '' }
+  job.phases = [phase('a', { tabletWorkedSeconds: 3661 })]
+  const result = closedJobMargin(job, 28.36)
+  expect(result).toMatchObject({ revenueCents: 50009, workedSeconds: 3661, marginCents: 37123 })
+  expect(result.hourlyRevenue).toBeCloseTo(491.76, 2)
+ })
+
+ it('keeps margins unavailable until actual material cost and work time are recorded', () => {
+  const job = makeReportJob()
+  job.phases = [phase('a', { tabletWorkedSeconds: 3600 }), phase('b')]
+  expect(closedJobMargin(job, 30)).toMatchObject({ marginCents: null, hourlyRevenue: null })
+  job.phases.pop()
+  expect(closedJobMargin(job, 30)).toMatchObject({ marginCents: null, hourlyRevenue: 500 })
+  job.materialActualCost = { amount: 0, at: '', note: '' }
+  expect(closedJobMargin(job, 30).marginCents).toBe(47000)
  })
 })
