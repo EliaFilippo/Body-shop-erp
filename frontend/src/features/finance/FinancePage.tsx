@@ -942,7 +942,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       />
     })()}
 
-    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} vehicleId={modal.vehicleId} onClose={()=>setModal(null)} onSave={next=>{
+    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} vehicleId={modal.vehicleId} onClose={()=>setModal(null)} onAddBank={bank => onChange({ ...data, bankAccounts: [...data.bankAccounts, bank] })} onSave={next=>{
       onChange(next)
       setNotice('RIBA registrata in R.I.B.A. e anticipi.')
       setModal(null)

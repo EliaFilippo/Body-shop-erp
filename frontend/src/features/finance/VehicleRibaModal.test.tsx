@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import { emptyData } from '../../services/erp'
@@ -17,7 +18,7 @@ it('preselects only the requested vehicle and creates the corresponding bank bat
     lines: [{vehicleId:'first', total:122}, {vehicleId:'second', total:122}] as typeof data.invoices[number]['lines'],
   }]
   const save = vi.fn()
-  render(<VehicleRibaModal data={data} vehicleId="first" onClose={vi.fn()} onSave={save} />)
+  render(<VehicleRibaModal data={data} vehicleId="first" onClose={vi.fn()} onSave={save} onAddBank={vi.fn()} />)
   expect(screen.getByRole('checkbox', {name:'AA123BB'})).toBeChecked()
   expect(screen.queryByRole('checkbox', {name:'CC456DD'})).not.toBeInTheDocument()
   expect(screen.getByLabelText('Scadenza bancaria RIBA')).toHaveValue('2026-12-08')
@@ -28,4 +29,19 @@ it('preselects only the requested vehicle and creates the corresponding bank bat
   expect(save.mock.calls[0][0].ribaBatches[0]).toMatchObject({
     number:'DIST-1', total:122, vehicleLinks:[{vehicleId:'first', invoiceId:'invoice', plate:'AA123BB', amount:122}],
   })
+})
+
+
+it('adds and selects a bank without clearing the draft', () => {
+  function TestModal() {
+    const [data, setData] = useState(() => structuredClone(emptyData))
+    return <VehicleRibaModal data={data} onClose={vi.fn()} onSave={vi.fn()}
+      onAddBank={bank => setData({ ...data, bankAccounts: [...data.bankAccounts, bank] })} />
+  }
+  render(<TestModal />)
+  fireEvent.change(screen.getByLabelText('Numero distinta'), { target: { value: 'DIST-2' } })
+  fireEvent.change(screen.getByLabelText('Nome banca'), { target: { value: 'Banca di prova' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Salva banca' }))
+  expect(screen.getByRole('option', { name: 'Banca di prova' })).toHaveProperty('selected', true)
+  expect(screen.getByLabelText('Numero distinta')).toHaveValue('DIST-2')
 })
