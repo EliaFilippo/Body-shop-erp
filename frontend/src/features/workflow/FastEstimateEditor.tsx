@@ -144,7 +144,7 @@ export function FastEstimateEditor({data,livePrograms,initial,onDone,onCancel}:{
     {invalidDiscount && <p role="alert">Inserisci una percentuale da 0 a 100.</p>}
     {discount > 0 && <p>Imponibile prima dello sconto {euro(subtotal)} · Sconto {euro(discount)}</p>}
     <h3>{euro(taxable)} + IVA · {euro(total)} totale</h3><p>Tempo tecnico: {minutes} min. I prezzi non allungano il tempario.</p><p>Condizioni di pagamento del cliente precompilate. Alla conferma: commessa, cono, pianificazione e pubblicazione sui tablet automatiche, con mansioni e disponibilità degli operatori.</p></section>
-   <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings}/>
+   <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings} nightly={data.nightlyPlanning?.economics}/>
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
    <label>Numero WhatsApp del cliente<input type="tel" value={targetPhone} placeholder="+39 333 1234567" onChange={e=>setWhatsappPhone(e.target.value)}/></label>
    <p>Il gestionale scarica il preventivo PDF e apre WhatsApp. Nella chat premi la graffetta → Documento e allega il PDF appena scaricato. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>
