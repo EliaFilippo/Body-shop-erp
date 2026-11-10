@@ -1039,10 +1039,18 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       if(running.length)states=states.filter(state=>running.includes(state.operator.name))
       else if(candidate.phase.preferredOperatorId)states=states.filter(state=>state.operator.id===candidate.phase.preferredOperatorId)
       if(!states.length)return '~'
-      let start=states.map(state=>[state.nextAt,candidate.readyAt,schedulingFloor].sort().at(-1)!).sort()[0]
       const support=operatorState.get(candidate.phase.supportOperatorId??'')
-      if(!isWashingPhase(candidate.phase.name)&&support&&operatorCompatible(support.operator,candidate.phase)&&support.nextAt>start)start=support.nextAt
-      return start
+      const needsSupport=!isWashingPhase(candidate.phase.name)&&support&&operatorCompatible(support.operator,candidate.phase)
+      const minutes=remainingByPhase.get(candidate.job.id+'|'+candidate.phase.id)??Math.max(1,phaseResidualMinutes(candidate.phase,now,candidate.job))
+      return states.map(state=>{
+        const normalize=(at:string)=>nextWorkingInstant(at,data.plannerSettings,state.operator)
+        const start=normalize([state.nextAt,candidate.readyAt,schedulingFloor,needsSupport?support.nextAt:''].sort().at(-1)!)
+        const end=(at:string)=>addWorkingMinutes(at,Math.min(minutes,remainingWorkingMinutesToday(at,data.plannerSettings,state.operator)),data.plannerSettings,state.operator)
+        if(isWashingPhase(candidate.phase.name))return findWashStationStart(start,candidate.job.id,washReservations,end,normalize)
+        if(candidate.phase.status==='In lavorazione')return start
+        const drying=candidate.phase.name==='Verniciatura'?Math.max(0,Number(candidate.phase.technicalWaitMinutes??60))*60_000:0
+        return findPaintStationStart(start,candidate.job.id,paintReservations,at=>new Date(Date.parse(end(at))+drying).toISOString(),normalize)
+      }).sort()[0]
     }
     let nextIndex=candidateIndex
     let earliest=earliestSlot(candidates[nextIndex])
