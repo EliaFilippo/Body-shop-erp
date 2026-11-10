@@ -20,7 +20,14 @@ afterEach(() => { cleanup();localStorage.clear();history.replaceState(null,'','/
 describe('profilo tablet', () => {
   it('shows tasks, personal hours and the identity of the phase signer before advancing to the next phase', async () => {
     let checked = false
-    mocked.rpc.mockImplementation(async (name: string) => {
+    let delayRead = false
+    let pendingRead: AbortSignal | undefined
+    mocked.rpc.mockImplementation(async (name: string, _body, _session, _config, _fetcher, signal?: AbortSignal) => {
+      if (name === 'production_live_feed' && delayRead) {
+        delayRead = false
+        pendingRead = signal
+        return new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      }
     if (name === 'production_productivity_report') return {alerts:[],operators:[],teams:[]}
     if (name === 'production_staff_hours') return []
     if (name === 'production_control_report') return {alerts:[],operators:[],teams:[]}
@@ -41,7 +48,11 @@ describe('profilo tablet', () => {
     expect(screen.getByText('Le mie ore di oggi')).toBeInTheDocument()
     expect(screen.getByText('0h 01m')).toBeInTheDocument()
     expect(screen.getByLabelText('Tempo residuo condiviso').textContent).toMatch(/^0:14:|^0:15:/)
+    delayRead = true
+    fireEvent(window, new Event('online'))
+    expect(pendingRead?.aborted).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '✓ Completa Preparazione' }))
+    expect(pendingRead?.aborted).toBe(true)
     await screen.findByText(/Visto di Mario/)
     expect(screen.getByLabelText('Fase da lavorare su AA123BB')).toHaveValue('p2')
     expect(screen.queryByText('Profili dipendenti · monte ore')).not.toBeInTheDocument()
