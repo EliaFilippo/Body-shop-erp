@@ -1179,7 +1179,7 @@ function App() {
         {(saveState==='pending'||saveState==='blocked')&&<button type="button" className="secondary" onClick={()=>cloudSyncQueueRef.current?.retry()}>Riprova invio</button>}
       </div>
       {error && <div className="toast error"><span>{error}</span>{duplicateVehicle && <button onClick={() => { setView('vehicles'); setQuery(normalizePlate(duplicateVehicle.plate)); setModal({ type: 'vehicle', item: duplicateVehicle }); setDuplicateVehicleId(null); setError('') }}>Apri vettura</button>}<button onClick={() => { setDuplicateVehicleId(null); setError('') }}>×</button></div>}
-      {view !== 'planner' && notice && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
+      {view !== 'planner' && notice && !/^(Archivio salvato\. Pubblicazione sui tablet|Pubblicazione automatica sui tablet|Inserimenti recuperati\. Pubblicazione tablet|Inserimenti recuperati nel cloud\. Pubblicazione sui tablet)/.test(notice) && <div className="toast success">{notice}<button onClick={() => setNotice('')}>×</button></div>}
       {(completion.pending||completion.error||displayData!==data)&&<p role="status" style={{margin:'8px 24px'}}>{completion.error|| (completion.pending?'Ricalcolo del piano dopo completamento fase…':`Piano aggiornato alle ${new Date(completion.plan!.generatedAt).toLocaleTimeString('it-IT',{timeZone:'Europe/Rome'})} · consegne previste aggiornate`)}</p>}
       <Suspense fallback={<p role="status">Apertura schermata…</p>}><div className="content">
             {cloudConfig && cloudSession && cloudMembership && cloudMembership.role !== 'production' && <ProductionControlPanel connection={{ config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId }} />}
