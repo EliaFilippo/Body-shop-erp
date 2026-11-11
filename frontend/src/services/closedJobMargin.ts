@@ -6,7 +6,7 @@ const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const knownAmount = (amount: number | undefined): amount is number =>
   typeof amount === 'number' && Number.isFinite(amount) && amount >= 0
 
-export function closedJobMargin(job: RepairJob, hourlyCost: number, operators: PlannerOperator[] = []) {
+export function closedJobMargin(job: RepairJob, hourlyCost: number, operators: PlannerOperator[] = [], recordedMaterials?: number) {
   const { complete, workedSeconds, materials } = deliveredJobReport(job)
   const revenueCents = knownAmount(job.taxableAmount) ? cents(job.taxableAmount) : null
   const hourlyRevenue = complete && workedSeconds > 0 && revenueCents !== null
@@ -54,11 +54,12 @@ export function closedJobMargin(job: RepairJob, hourlyCost: number, operators: P
   }))
   const externalLaborCents = externalLabor.reduce((sum, row) => sum + (row.costCents ?? 0), 0)
 
-  const actualMaterials = materials.actualMaterials ?? undefined
+  const materialsToConfirm = materials.actualMaterials === null && knownAmount(recordedMaterials)
+  const actualMaterials = materials.actualMaterials ?? recordedMaterials
   const marginCents = complete && revenueCents !== null && knownAmount(actualMaterials)
     && directCostsComplete && externalHoursComplete && Number.isFinite(hourlyCost) && hourlyCost > 0
     ? revenueCents - cents(actualMaterials) - cents(directCost) - cents(workedSeconds / 3600 * hourlyCost) - externalLaborCents
     : null
 
-  return { complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, externalHoursComplete, externalLabor }
+  return { complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, externalHoursComplete, externalLabor, materialsToConfirm }
 }

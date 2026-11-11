@@ -3,12 +3,18 @@ import { closedJobMargin } from '../../services/closedJobMargin'
 import { reportDuration } from '../../services/deliveredJobReport'
 import { resolveInternalHourlyRate } from '../../services/workflow'
 import { closedPlanningWork } from '../../services/closedPlanningWork'
+import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
 import { normalizePlate } from '../../services/erp'
 import { monthlyTargetRate } from '../../services/monthlyTargetRate'
 import { marginMetrics } from '../../services/planner'
-import type { ErpData } from '../../types'
+import type { ErpData, VehicleCostCategory } from '../../types'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
+const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
+const consumableCategories = new Set<VehicleCostCategory>([
+  'vernice', 'trasparente', 'fondo', 'stucco', 'carta abrasiva', 'nastro e materiale da mascheratura',
+  'minuteria', 'materiali di lucidatura', 'materiale verniciatura',
+])
 const number = (value: number) => value.toLocaleString('it-IT', { maximumFractionDigits: 2 })
 
 export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKey: string }) {
@@ -56,14 +62,31 @@ export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKe
 }
 
 function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string }) {
-  const { jobs, plannerSettings, nightlyPlanning, coneHistory } = data
+  const { jobs, vehicles, plannerSettings, nightlyPlanning, coneHistory } = data
   const hourlyCost = resolveInternalHourlyRate(plannerSettings).effectiveHourlyRate
-  const rows = useMemo(() => (jobs ?? [])
-    .filter(job => job.status === 'Consegnata')
-    .map(job => ({ job, ...closedJobMargin(job, hourlyCost, plannerSettings.operators) }))
-    .sort((a, b) => (b.job.deliveredAt ?? b.job.updatedAt).localeCompare(a.job.deliveredAt ?? a.job.updatedAt)),
-  [jobs, hourlyCost, plannerSettings.operators])
-  const calculated = rows.filter(row => row.marginCents !== null)
+  const rows = useMemo(() => {
+    const vehiclesById = new Map(vehicles.map(vehicle => [vehicle.id, vehicle]))
+    const jobsByVehicle = new Map<string, number>()
+    for (const job of jobs ?? []) {
+      if (job.vehicleId) jobsByVehicle.set(job.vehicleId, (jobsByVehicle.get(job.vehicleId) ?? 0) + 1)
+    }
+    return (jobs ?? []).flatMap(job => {
+      const vehicle = job.vehicleId ? vehiclesById.get(job.vehicleId) : undefined
+      const uniqueVehicleJob = vehicle && jobsByVehicle.get(vehicle.id) === 1
+      const vehicleDelivery = vehicle && uniqueVehicleJob && isVehicleDeliveredStatus(plannerSettings, vehicle.status) ? vehicle.deliveredAt : undefined
+      const matchingDelivery = vehicleDelivery && Number.isFinite(Date.parse(vehicleDelivery))
+        && romeDate.format(new Date(vehicleDelivery)) >= job.entryDate ? vehicleDelivery : undefined
+      if (job.status === 'Annullata' || (job.status !== 'Consegnata' && !matchingDelivery)) return []
+      const deliveredAt = job.deliveredAt || matchingDelivery
+      const deliveryDate = deliveredAt && Number.isFinite(Date.parse(deliveredAt)) ? romeDate.format(new Date(deliveredAt)) : undefined
+      const entries = deliveryDate && vehicle && uniqueVehicleJob
+        ? vehicle.costEntries?.filter(entry => consumableCategories.has(entry.category)
+          && entry.usedAt >= job.entryDate && entry.usedAt <= deliveryDate) : undefined
+      const recordedMaterials = entries?.length ? entries.reduce((sum, entry) => sum + entry.total, 0) : undefined
+      return [{ job, deliveredAt, deliveryDate, ...closedJobMargin(job, hourlyCost, plannerSettings.operators, recordedMaterials) }]
+    }).sort((a, b) => (b.deliveredAt ?? b.job.updatedAt).localeCompare(a.deliveredAt ?? a.job.updatedAt))
+  }, [jobs, vehicles, hourlyCost, plannerSettings])
+  const calculated = rows.filter(row => row.marginCents !== null && !row.materialsToConfirm)
   const totalCents = calculated.reduce((sum, row) => sum + (row.marginCents ?? 0), 0)
   const targets = new Map<string, number | null>()
   const coneAssignments = useMemo(() => {
@@ -86,20 +109,20 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
     {calculated.length > 0 && <p>Margine complessivo su {calculated.length} commesse con dati completi · <strong>{money(totalCents / 100)}</strong></p>}
     {rows.length === 0 ? <p>Nessuna commessa consegnata.</p> : <div style={{ overflowX: 'auto' }}>
       <table aria-label="Margini a consuntivo delle commesse consegnate">
-        <thead><tr><th scope="col">Targa</th><th scope="col">Cono</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore lavorate</th><th scope="col">Collaboratori esterni</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine a consuntivo</th></tr></thead>
+        <thead><tr><th scope="col">Targa</th><th scope="col">Cono</th><th scope="col">Commessa</th><th scope="col">Consegna</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore lavorate</th><th scope="col">Collaboratori esterni</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine a consuntivo</th></tr></thead>
         <tbody>{rows.map(row => {
-          const deliveryMonth = row.job.deliveredAt?.slice(0, 7) ?? monthKey
+          const deliveryMonth = row.deliveryDate?.slice(0, 7) ?? monthKey
           if (!targets.has(deliveryMonth)) {
             targets.set(deliveryMonth, monthlyTargetRate(plannerSettings, deliveryMonth, nightlyPlanning?.economics).hourlyRate)
           }
           const target = targets.get(deliveryMonth) ?? null
           const { job } = row
-          const deliveredAt = job.deliveredAt
+          const { deliveredAt } = row
           const cone = deliveredAt && job.vehicleId
             ? coneAssignments.get(job.vehicleId)?.find(event => event.timestamp <= deliveredAt && event.timestamp >= job.entryDate)?.coneNumber
             : undefined
           return <tr key={job.id}>
-            <th scope="row">{job.plate}</th><td>{cone ?? '—'}</td><td>{job.number}</td>
+            <th scope="row">{job.plate}</th><td>{cone ?? '—'}</td><td>{job.number}</td><td>{row.deliveryDate?.split('-').reverse().join('/') ?? '—'}</td>
             <td>{row.revenueCents === null ? '—' : money(row.revenueCents / 100)}</td>
             <td>{row.complete ? reportDuration(row.workedSeconds) : row.workedSeconds > 0 ? `${reportDuration(row.workedSeconds)} (parziale)` : 'Da registrare'}</td>
             <td>{row.externalLabor.length ? row.externalLabor.map(worker => <div key={worker.name}>
@@ -107,7 +130,7 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
             </div>) : '—'}{!row.externalHoursComplete && <small>Controlla ore e tariffe</small>}</td>
             <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
             <td>{row.hourlyRevenue === null || target === null ? '—' : row.hourlyRevenue < target ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
-            <td>{row.marginCents === null ? 'Dati da completare' : <strong>{money(row.marginCents / 100)}</strong>}</td>
+            <td>{row.marginCents === null ? 'Dati da completare' : <strong>{money(row.marginCents / 100)}</strong>}{row.marginCents !== null && row.materialsToConfirm && <small> · Materiali da confermare</small>}</td>
           </tr>
         })}</tbody>
       </table>

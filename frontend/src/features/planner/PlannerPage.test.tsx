@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { PlannerPage } from './PlannerPage'
+import { VehicleMarginsPanel } from './VehicleMarginsPanel'
 import { emptyData } from '../../services/erp'
 import type { ErpData } from '../../types'
 
@@ -223,4 +224,35 @@ it('mostra la tariffa obiettivo con fatturato mensile e capacità produttiva',()
  expect(panel.getByText('240,0 h')).toBeInTheDocument()
  fireEvent.click(panel.getByRole('button',{name:'Modifica obiettivo e ore'}))
  expect(settings).toHaveBeenCalledOnce()
+})
+
+it('includes a vehicle delivered from its vehicle record and shows the margin on recorded materials', () => {
+  const data = makeData()
+  data.plannerSettings.internalCostSettings = {
+    internalHourlyRate: 0,
+    minimumMarginPercent: 0,
+    useManualHourlyRate: true,
+    manualHourlyRate: 55,
+  }
+  const vehicle = data.vehicles[0]
+  vehicle.status = 'Consegnata'
+  vehicle.deliveredAt = '2026-11-10T14:49:02Z'
+  vehicle.costEntries = [{
+    id: 'material', usedAt: '2026-11-10', category: 'trasparente', description: 'Trasparente',
+    unit: 'pz', quantity: 1, unitCost: 12, discount: 0, total: 12, vatRate: 22,
+    createdAt: vehicle.deliveredAt, updatedAt: vehicle.deliveredAt,
+  }]
+  const job = data.jobs![0]
+  job.taxableAmount = 400
+  job.phases = [{ ...job.phases[0], status: 'Completata', tabletWorkedSeconds: 906.185057,
+    operatorAssignments: [{ id: 'tablet:op-1', operatorName: 'Operatore Uno', startedAt: '2026-11-10T08:00:00Z',
+      endedAt: '2026-11-10T08:15:06Z', workedMinutes: 906.185057 / 60, activityStatus: 'Concluso' }],
+  }]
+  render(<VehicleMarginsPanel data={data} monthKey="2026-11" />)
+  fireEvent.click(screen.getByText('Margini a consuntivo per vettura'))
+  const table = within(screen.getByRole('table', { name: 'Margini a consuntivo delle commesse consegnate' }))
+  expect(table.getByText('10/11/2026')).toBeVisible()
+  expect(table.getByText(/374,16/)).toBeVisible()
+  expect(table.getByText(/Materiali da confermare/)).toBeVisible()
+  expect(screen.queryByText(/Margine complessivo su/)).not.toBeInTheDocument()
 })
