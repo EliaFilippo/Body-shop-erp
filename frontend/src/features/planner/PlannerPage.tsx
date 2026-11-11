@@ -42,6 +42,8 @@ const formatHours = (value: number) => `${Math.max(0, Math.round(value * 100) / 
 
 const formatMinutes = (value: number) => `${Math.max(0, Math.round(value)).toLocaleString('it-IT')} min`
 
+const operatorMinuteFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 2 })
+
 const coneLabel = (vehicle: Vehicle) => {
   if (vehicle.coneNumber !== null) return `Cono ${vehicle.coneNumber}`
   return isVehicleWaitingForCone(vehicle) ? 'In attesa cono (Nessun cono disponibile)' : '—'
@@ -58,7 +60,7 @@ type PlannerVehicleDetailRow = {
   technicalWaitMinutes: number
   panelNames: string[]
   operatorNames: string[]
-  workedOperatorNames: string[]
+  workedOperators: Array<{ key: string; name: string; minutes: number }>
   workedMinutes: number | null
   panelNotes: string[]
   taskCount: number
@@ -223,7 +225,10 @@ function PlannerVehicleDetailModal({
               </div>
               <div>
                 <span>Operatori che hanno lavorato</span>
-                <strong>{phaseRow.workedOperatorNames.length ? phaseRow.workedOperatorNames.join(', ') : '—'}</strong>
+                {phaseRow.workedOperators.length ? phaseRow.workedOperators.map(operator =>
+                  <strong key={operator.key}>{operator.name} · {operator.minutes > 0 && operator.minutes < 0.01
+                    ? '< 0,01' : operatorMinuteFormat.format(operator.minutes)} min</strong>,
+                ) : <strong>—</strong>}
               </div>
               <div>
                 <span>{phaseRow.taskCount ? 'Inizio previsto' : 'Inizio registrato'}</span>
@@ -375,9 +380,16 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       const assignments = phase.operatorAssignments ?? []
       const tabletAssignments = assignments.filter(assignment => assignment.id.startsWith('tablet:'))
       const recorded = tabletAssignments.length ? tabletAssignments : assignments
-      const workedOperatorNames = unique(recorded
-        .filter(assignment => assignment.workedMinutes > 0 || assignment.activityStatus === 'Attivo')
-        .map(assignment => assignment.operatorName))
+      const workByOperator = new Map<string, { key: string; name: string; minutes: number }>()
+      for (const assignment of recorded) {
+        const name = assignment.operatorName.trim()
+        const minutes = Math.max(0, Number(assignment.workedMinutes) || 0)
+        if (!name || (!minutes && assignment.activityStatus !== 'Attivo')) continue
+        const key = assignment.id.startsWith('tablet:') ? assignment.id : name.toLocaleLowerCase('it-IT')
+        const operator = workByOperator.get(key) ?? { key, name, minutes: 0 }
+        operator.minutes += minutes
+        workByOperator.set(key, operator)
+      }
       const workedMinutes = Number.isFinite(phase.tabletWorkedSeconds) ? Math.max(0, phase.tabletWorkedSeconds! / 60)
         : recorded.length ? recorded.reduce((sum, assignment) => sum + Math.max(0, Number(assignment.workedMinutes) || 0), 0)
           : phase.actualMinutes > 0 ? phase.actualMinutes : null
@@ -391,7 +403,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
         technicalWaitMinutes,
         panelNames: unique([...taskPanelNames, ...linePanels]),
         operatorNames,
-        workedOperatorNames,
+        workedOperators: [...workByOperator.values()],
         workedMinutes,
         panelNotes,
         taskCount: taskRows.length,
