@@ -3,7 +3,6 @@ import { closedJobMargin } from '../../services/closedJobMargin'
 import { reportDuration } from '../../services/deliveredJobReport'
 import { normalizePlate } from '../../services/erp'
 import { recordedJobVehicleCosts } from '../../services/jobMaterialCosts'
-import { resolveInternalHourlyRate } from '../../services/workflow'
 import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
 import type { ErpData, RepairJob, Vehicle } from '../../types'
 
@@ -32,8 +31,7 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
   const deliveredAt = Date.parse(job?.deliveredAt ?? vehicleDelivery ?? '')
   const costs = job && vehicle && Number.isFinite(deliveredAt)
     ? recordedJobVehicleCosts(vehicle, job, data.jobs ?? [], romeDate.format(new Date(deliveredAt))) : undefined
-  const result = job ? closedJobMargin(job, resolveInternalHourlyRate(data.plannerSettings).effectiveHourlyRate,
-    data.plannerSettings.operators, costs?.materials, costs?.parts) : undefined
+  const result = job ? closedJobMargin(job, data.plannerSettings.operators, costs?.materials, costs?.parts) : undefined
   const provisional = result?.materialsToConfirm || result?.partsEstimated
 
   return <>
@@ -41,17 +39,15 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
       <p>{job.number} · Importi IVA esclusa</p>
       <div className="summary-grid">
         <div className="summary-card"><span>{provisional ? 'Margine provvisorio' : 'Margine a consuntivo'}</span><strong>{money(result.marginCents)}</strong></div>
-        <div className="summary-card"><span>Ricavo commessa</span><strong>{money(result.revenueCents)}</strong></div>
-        <div className="summary-card"><span>Manodopera e struttura</span><strong>{money(result.laborCents)}</strong></div>
+        <div className="summary-card"><span>Importo concordato</span><strong>{money(result.revenueCents)}</strong></div>
+        <div className="summary-card"><span>Costo operatori</span><strong>{money(result.laborCents)}</strong></div>
         <div className="summary-card"><span>Materiali{result.materialsToConfirm ? ' da confermare' : ''}</span><strong>{money(result.materialCents)}</strong></div>
         <div className="summary-card"><span>Ricambi{result.partsEstimated ? ' da preventivo' : ''}</span><strong>{money(result.partsCents)}</strong></div>
-        {result.otherDirectCents !== 0 && <div className="summary-card"><span>Altri costi diretti</span><strong>{money(result.otherDirectCents)}</strong></div>}
-        {result.externalLabor.map(worker => <div className="summary-card" key={worker.name}>
+        {result.operatorLabor.map(worker => <div className="summary-card" key={worker.id}>
           <span>{worker.name} · {reportDuration(worker.seconds)}</span><strong>{money(worker.costCents)}</strong>
         </div>)}
       </div>
-      {result.laborCents === null && <p>Completa le ore lavorate e il costo orario interno per calcolare la manodopera.</p>}
-      {!result.externalHoursComplete && <p>Completa le ore per operatore o la tariffa dei collaboratori esterni.</p>}
+      {result.laborCents === null && <p>Completa le ore registrate e le tariffe dei singoli operatori.</p>}
       {result.materialCents === null && <p>Registra il totale dei materiali nella scheda commessa, anche se è zero.</p>}
       {result.partsCents === null && <p>Registra il costo d’acquisto dei ricambi nella scheda vettura.</p>}
     </> : <p>Il guadagno è da calcolare. Per questa consegna manca una commessa collegata.</p>}

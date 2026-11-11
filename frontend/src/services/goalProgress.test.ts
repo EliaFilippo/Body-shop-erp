@@ -26,7 +26,7 @@ it('subtracts Martin, internal labor and materials and reconciles delivery witho
   }
   data.plannerSettings.operators = [{
     id: 'martin', name: 'Martin', costMode: 'external-extra', externalHourlyCost: 40, dailyHours: 8, active: true,
-  }]
+  }, { id: 'other', name: 'Altro', hourlyCost: 30, dailyHours: 8, active: true }]
   const job = makeReportJob()
   job.status = 'In lavorazione'
   job.materialActualCost = { amount: 100, at: '', note: '' }
@@ -35,13 +35,13 @@ it('subtracts Martin, internal labor and materials and reconciles delivery witho
   job.phases = [completedPhase, { ...completedPhase, id: 'paint', name: 'Verniciatura', status: 'In lavorazione',
     completedAt: undefined, operatorAssignments: [other] }]
   data.jobs = [job]
-  expect(calculateGoalProgress(data, '2026-11-10').map(({ done }) => done)).toEqual([0, 130, 130])
+  expect(calculateGoalProgress(data, '2026-11-10').map(({ done }) => done)).toEqual([0, 160, 160])
   job.phases[1] = { ...job.phases[1], status: 'Completata', completedAt: other.endedAt }
   job.status = 'Consegnata'
   job.deliveredAt = '2026-11-10T10:00:00Z'
   const result = calculateGoalProgress(data, '2026-11-10')
-  expect(result.map(({ done, billed }) => [done, billed])).toEqual([[170, 0], [300, 0], [300, 0]])
-  expect(result[2]).toMatchObject({ goal: 3000, gap: 2700, percent: 10, incomplete: false })
+  expect(result.map(({ done, billed }) => [done, billed])).toEqual([[170, 0], [330, 0], [330, 0]])
+  expect(result[2]).toMatchObject({ goal: 3000, gap: 2670, percent: 11, incomplete: false })
 })
 
 it('marks the period incomplete when a signed phase has hours without operator attribution', () => {

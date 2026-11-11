@@ -31,7 +31,7 @@ export function GoalProgressPanel({ data }: { data: ErpData }) {
         <small>Fatturato registrato · {money.format(period.billed)}</small>
       </article>)}
     </div>
-    <p>Il margine delle fasi completate sottrae manodopera, collaboratori esterni, materiali e altri costi diretti. Si attribuisce alla data di completamento della fase e si conguaglia alla consegna. I materiali restano stimati fino alla conferma del costo effettivo.</p>
+    <p>Il margine delle fasi completate sottrae il costo delle ore di ciascun operatore, i materiali di consumo e i ricambi. Si attribuisce alla data di completamento della fase e si conguaglia alla consegna. I materiali restano stimati fino alla conferma del costo effettivo.</p>
   </section>
   {target && <MarginTargetRatePanel target={target} />}
   </>
