@@ -30,23 +30,39 @@ export function recordedPhaseWork(phase: JobPhase, externalOperators: PlannerOpe
   return { seconds, external, externalHoursComplete }
 }
 
-export function closedJobDirectCosts(job: RepairJob) {
-  let directCost = 0
+function directCostBreakdown(job: RepairJob, recordedParts?: number) {
+  let parts = knownAmount(recordedParts) ? recordedParts : 0
+  let other = 0
+  let partsComplete = true
+  let otherComplete = true
+  let partsEstimated = false
   for (const line of job.lines) {
     if (isProductionLabourLine(line) || line.category === 'materiali' || line.quantity <= 0) continue
-    if (!knownAmount(line.budgetDirectUnitCost)) return null
-    directCost += line.quantity * line.budgetDirectUnitCost
+    const unitCost = line.budgetDirectUnitCost
+    if (line.category === 'ricambi') {
+      if (knownAmount(recordedParts)) continue
+      if (knownAmount(unitCost)) {
+        parts += line.quantity * unitCost
+        partsEstimated = true
+      } else partsComplete = false
+    } else if (knownAmount(unitCost)) other += line.quantity * unitCost
+    else otherComplete = false
   }
-  return cents(directCost)
+  return { partsCents: partsComplete ? cents(parts) : null, otherDirectCents: otherComplete ? cents(other) : null, partsEstimated }
 }
 
-export function closedJobMargin(job: RepairJob, hourlyCost: number, operators: PlannerOperator[] = [], recordedMaterials?: number) {
+export function closedJobDirectCosts(job: RepairJob, recordedParts?: number) {
+  const { partsCents, otherDirectCents } = directCostBreakdown(job, recordedParts)
+  return partsCents === null || otherDirectCents === null ? null : partsCents + otherDirectCents
+}
+
+export function closedJobMargin(job: RepairJob, hourlyCost: number, operators: PlannerOperator[] = [], recordedMaterials?: number, recordedParts?: number) {
   const { complete, workedSeconds, materials } = deliveredJobReport(job)
   const revenueCents = knownAmount(job.taxableAmount) ? cents(job.taxableAmount) : null
   const hourlyRevenue = complete && workedSeconds > 0 && revenueCents !== null
     ? revenueCents / 100 * 3600 / workedSeconds
     : null
-  const directCostCents = closedJobDirectCosts(job)
+  const { partsCents, otherDirectCents, partsEstimated } = directCostBreakdown(job, recordedParts)
 
   const externalOperators = operators.filter(operator => operator.costMode === 'external-extra')
   const externalWork = new Map<string, { name: string; seconds: number; rate: number }>()
@@ -67,10 +83,13 @@ export function closedJobMargin(job: RepairJob, hourlyCost: number, operators: P
 
   const materialsToConfirm = materials.actualMaterials === null && knownAmount(recordedMaterials)
   const actualMaterials = materials.actualMaterials ?? recordedMaterials
-  const marginCents = complete && revenueCents !== null && knownAmount(actualMaterials)
-    && directCostCents !== null && externalHoursComplete && Number.isFinite(hourlyCost) && hourlyCost > 0
-    ? revenueCents - cents(actualMaterials) - directCostCents - cents(workedSeconds / 3600 * hourlyCost) - externalLaborCents
+  const materialCents = knownAmount(actualMaterials) ? cents(actualMaterials) : null
+  const laborCents = complete && Number.isFinite(hourlyCost) && hourlyCost > 0 ? cents(workedSeconds / 3600 * hourlyCost) : null
+  const marginCents = revenueCents !== null && materialCents !== null && partsCents !== null && otherDirectCents !== null
+    && externalHoursComplete && laborCents !== null
+    ? revenueCents - materialCents - partsCents - otherDirectCents - laborCents - externalLaborCents
     : null
 
-  return { complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, externalHoursComplete, externalLabor, materialsToConfirm }
+  return { complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, externalHoursComplete, externalLabor,
+    materialsToConfirm, materialCents, laborCents, partsCents, otherDirectCents, partsEstimated }
 }

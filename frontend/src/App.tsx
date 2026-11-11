@@ -1,3 +1,4 @@
+import { DeliveryMarginSummary } from './features/workflow/DeliveryMarginSummary'
 import { ConeCustomerSummary } from './features/cones/ConeCustomerSummary'
 import { createInvoice, payableDueAlerts, vehicleInvoiceTaxableAmount, vehicleWorkFinished } from './services/finance'
 import { ribaVehicleOptions } from './services/vehicleRiba'
@@ -689,6 +690,7 @@ function App() {
   const [error, setError] = useState('')
   const [menu, setMenu] = useState(false)
   const [notice, setNotice] = useState('')
+  const [deliverySummary, setDeliverySummary] = useState<{ jobId?: string; vehicleId?: string } | null>(null)
   const [acceptanceAutosaveState, setAcceptanceAutosaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const allowCountReductionRef = useRef(false)
   const nextPersistenceActionRef = useRef<'save-and-sync' | 'sync-only' | 'skip'>('save-and-sync')
@@ -1092,9 +1094,33 @@ function App() {
   const vehicleStatusOptions = listSelectableVehicleStatuses(data.plannerSettings)
   const statusLabel = (status: VehicleStatus) => resolveVehicleStatusLabel(data.plannerSettings, status)
 
+  const showNewDelivery = (next: ErpData, vehicleId?: string) => {
+    if (next.jobs !== data.jobs) {
+      const alreadyDelivered = new Set((data.jobs ?? []).filter(job => job.status === 'Consegnata').map(job => job.id))
+      const delivered = next.jobs?.find(job => job.status === 'Consegnata' && !alreadyDelivered.has(job.id))
+      if (delivered) {
+        setDeliverySummary({ jobId: delivered.id, vehicleId: vehicleId ?? delivered.vehicleId })
+        return
+      }
+    }
+    if (!vehicleId) return
+    const before = data.vehicles.find(vehicle => vehicle.id === vehicleId)
+    const after = next.vehicles.find(vehicle => vehicle.id === vehicleId)
+    if (after && isVehicleDeliveredStatus(next.plannerSettings, after.status)
+      && (!before || !isVehicleDeliveredStatus(data.plannerSettings, before.status))) {
+      setDeliverySummary({ vehicleId })
+    }
+  }
+
   const updateStatus = (vehicleId: string, status: VehicleStatus) => {
-    try { setData(changeVehicleStatus(data, vehicleId, resolveVehicleStatusId(data.plannerSettings, status), { source: 'manual', note: 'Aggiornamento manuale stato vettura.' })); setError('') }
-    catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') }
+    try {
+      const next = changeVehicleStatus(data, vehicleId, resolveVehicleStatusId(data.plannerSettings, status), { source: 'manual', note: 'Aggiornamento manuale stato vettura.' })
+      setData(next)
+      showNewDelivery(next, vehicleId)
+      setError('')
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.')
+    }
   }
 
   const title = titleOverrides[view] ?? nav.find((item) => item.id === view)?.label
@@ -1336,7 +1362,7 @@ function App() {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')
           const result = await productionRpc<{ok:boolean;message?:string}>('production_private_password', {p_company_id:cloudMembership.companyId,p_action:'unlock',p_password:password}, cloudSession, cloudConfig)
           if (!result.ok) throw new Error(result.message || 'Password dei blocchi non corretta.')
-        }} isOwner={cloudMembership?.role === 'owner'} data={data} customerById={customerById} query={query} onChange={setData} setError={setError} setNotice={setNotice} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
+        }} isOwner={cloudMembership?.role === 'owner'} data={data} customerById={customerById} query={query} onChange={next => { setData(next); showNewDelivery(next) }} setError={setError} setNotice={setNotice} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'acceptance' && <AcceptancePage data={data} autosaveState={acceptanceAutosaveState} customerById={customerById} onCreate={(customerId, vehicleId) => {
           const draft = createAcceptanceDraft(customerId, vehicleId, data.plannerSettings, new Date().toISOString().slice(0, 7))
           const existing = data.acceptances ?? []
@@ -1389,6 +1415,7 @@ function App() {
       </div></Suspense>
     </main>
 
+    {deliverySummary && <DeliveryMarginSummary data={data} {...deliverySummary} onClose={() => setDeliverySummary(null)} />}
     {modal?.type === 'customer' && <CustomerForm customer={modal.item} onClose={() => setModal(null)} onSave={async (input) => {
       try {
         const nextData = modal.item
@@ -1431,6 +1458,7 @@ function App() {
         nextPersistenceActionRef.current = 'sync-only'
         skipNextHeavySyncRef.current = true
         setData(result.data)
+        showNewDelivery(result.data, result.vehicleId)
         setQuery('')
         if (modal.returnToAcceptance) {
           setView('acceptance')

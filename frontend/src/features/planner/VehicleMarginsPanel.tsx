@@ -7,7 +7,7 @@ import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
 import { normalizePlate } from '../../services/erp'
 import { monthlyTargetRate } from '../../services/monthlyTargetRate'
 import { marginMetrics } from '../../services/planner'
-import { recordedJobConsumables } from '../../services/jobMaterialCosts'
+import { recordedJobVehicleCosts } from '../../services/jobMaterialCosts'
 import type { ErpData } from '../../types'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
@@ -76,12 +76,11 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
       if (job.status === 'Annullata' || (job.status !== 'Consegnata' && !matchingDelivery)) return []
       const deliveredAt = job.deliveredAt || matchingDelivery
       const deliveryDate = deliveredAt && Number.isFinite(Date.parse(deliveredAt)) ? romeDate.format(new Date(deliveredAt)) : undefined
-      const recordedMaterials = deliveryDate && vehicle && uniqueVehicleJob
-        ? recordedJobConsumables(vehicle, job.entryDate, deliveryDate) : undefined
-      return [{ job, deliveredAt, deliveryDate, ...closedJobMargin(job, hourlyCost, plannerSettings.operators, recordedMaterials) }]
+      const costs = deliveryDate && vehicle ? recordedJobVehicleCosts(vehicle, job, jobs ?? [], deliveryDate) : undefined
+      return [{ job, deliveredAt, deliveryDate, ...closedJobMargin(job, hourlyCost, plannerSettings.operators, costs?.materials, costs?.parts) }]
     }).sort((a, b) => (b.deliveredAt ?? b.job.updatedAt).localeCompare(a.deliveredAt ?? a.job.updatedAt))
   }, [jobs, vehicles, hourlyCost, plannerSettings])
-  const calculated = rows.filter(row => row.marginCents !== null && !row.materialsToConfirm)
+  const calculated = rows.filter(row => row.marginCents !== null && !row.materialsToConfirm && !row.partsEstimated)
   const totalCents = calculated.reduce((sum, row) => sum + (row.marginCents ?? 0), 0)
   const targets = new Map<string, number | null>()
   const coneAssignments = useMemo(() => {
@@ -126,7 +125,7 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
             </div>) : '—'}{!row.externalHoursComplete && <small>Controlla ore e tariffe</small>}</td>
             <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
             <td>{row.hourlyRevenue === null || target === null ? '—' : row.hourlyRevenue < target ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
-            <td>{row.marginCents === null ? 'Dati da completare' : <strong>{money(row.marginCents / 100)}</strong>}{row.marginCents !== null && row.materialsToConfirm && <small> · Materiali da confermare</small>}</td>
+            <td>{row.marginCents === null ? 'Dati da completare' : <strong>{money(row.marginCents / 100)}</strong>}{row.marginCents !== null && row.materialsToConfirm && <small> · Materiali da confermare</small>}{row.marginCents !== null && row.partsEstimated && <small> · Ricambi stimati</small>}</td>
           </tr>
         })}</tbody>
       </table>
