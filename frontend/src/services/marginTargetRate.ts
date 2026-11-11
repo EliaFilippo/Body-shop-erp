@@ -2,18 +2,19 @@ import type { ErpData } from '../types'
 import { calculateGoalProgress } from './goalProgress'
 import { monthlyTargetRate } from './monthlyTargetRate'
 import { addDays, isWorkingDate, workingMinutesForDate } from './workCalendar'
+import type { OffVehicleWork } from './productionPlanningState'
 import { operatorHourlyCost } from './closedJobMargin'
 
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
 const round = (amount: number) => Math.round(amount * 100) / 100
 
-export function marginTargetRate(data: ErpData, monthKey: string, today = romeDate.format(new Date()), monthProgress?: Pick<ReturnType<typeof calculateGoalProgress>[number], 'done' | 'incomplete'>) {
+export function marginTargetRate(data: ErpData, monthKey: string, today = romeDate.format(new Date()), monthProgress?: Pick<ReturnType<typeof calculateGoalProgress>[number], 'done' | 'incomplete'>, offVehicleWork?: readonly OffVehicleWork[]) {
   const settings = data.plannerSettings
   const monthGoal = Math.max(0, settings.monthlyMarginGoal ?? 0)
   if (!monthGoal || monthKey !== today.slice(0, 7)) return null
   const nightly = data.nightlyPlanning?.economics
   const baseline = monthlyTargetRate(settings, monthKey)
-  const progress = monthProgress ?? calculateGoalProgress(data, today)[2]
+  const progress = monthProgress ?? calculateGoalProgress(data, today, offVehicleWork)[2]
   const remainingMargin = round(Math.max(0, monthGoal - progress.done))
   const materialsPercent = Math.min(100, Math.max(0, settings.internalCostSettings?.budgetMaterialsPercent ?? 20))
   const activeOperators = settings.operators.filter(operator => operator.active)

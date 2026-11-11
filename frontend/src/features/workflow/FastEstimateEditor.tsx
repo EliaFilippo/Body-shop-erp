@@ -1,5 +1,6 @@
 import { estimatePdfFile, downloadEstimatePdf } from '../../services/estimatePdf'
 import { DeliveryForecastPanel } from '../../components/DeliveryForecastPanel'
+import type { OffVehicleWork } from '../../services/productionPlanningState'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { QuoteEconomicsPreview } from './QuoteEconomicsPreview'
 import { FastPaymentTerms } from './FastPaymentTerms'
@@ -18,7 +19,7 @@ import { WORK_CYCLE, phaseDisplayName } from '../../services/workCycle'
 import { QUOTE_PANELS } from './vehiclePanels'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 
-export function FastEstimateEditor({data,livePrograms,initial,onDone,onCancel}:{data:ErpData;initial?:EstimateDocument;livePrograms?:ErpData['operatorPrograms'];onDone:(next:ErpData,confirmed:boolean,pdfPrepared?:boolean)=>void;onCancel:()=>void}) {
+export function FastEstimateEditor({data,livePrograms,offVehicleWork,initial,onDone,onCancel}:{data:ErpData;offVehicleWork?:OffVehicleWork[];initial?:EstimateDocument;livePrograms?:ErpData['operatorPrograms'];onDone:(next:ErpData,confirmed:boolean,pdfPrepared?:boolean)=>void;onCancel:()=>void}) {
  const forecastData = useMemo(() => livePrograms ? {...data,operatorPrograms:livePrograms} : data, [data,livePrograms])
  const [discountInput, setDiscountInput] = useState(() => {
   const gross = initial?.lines.reduce((sum,line)=>sum+line.quantity*line.unitPrice,0) ?? 0
@@ -94,7 +95,7 @@ export function FastEstimateEditor({data,livePrograms,initial,onDone,onCancel}:{
   return sum + net + Math.round(net * line.vatRate) / 100
  }, 0) : taxable * (1 + quote.appliedVatRate / 100)
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
- const marginRate = useMemo(() => marginTargetRate(data, quote.monthKey), [data, quote.monthKey])
+ const marginRate = useMemo(() => marginTargetRate(data, quote.monthKey, undefined, undefined, offVehicleWork), [data, quote.monthKey, offVehicleWork])
  return <Modal title="Preventivo fast" onClose={onCancel}>
   <form onSubmit={e=>{e.preventDefault();if(busy.current||invalidDiscount)return;busy.current=true;try{
    const next=createFastEstimate(data,{estimateId:initial?.id,plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
