@@ -52,7 +52,7 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
     merged.completedAt=p.completedAt;merged.endedAt=p.endedAt;merged.completedByName=p.completedByName;merged.tabletWorkedSeconds=p.tabletWorkedSeconds
     if(p.completedAt&&p.completedByName){
      const id=`tablet:${job.id}:${p.id}:${p.completedAt}`
-     if(!history.some(h=>h.id===id)){history.unshift({id,at:p.completedAt,actor:p.completedByName,message:`Fase ${p.name} completata da tablet.`});jobChanged=true;changed=true}
+     if(!history.some(h=>h.id===id)){history.unshift({id,at:p.completedAt,actor:p.completedByName,message:`Fase ${p.name} completata.`});jobChanged=true;changed=true}
     }
    }else{
     delete merged.completedAt;delete merged.endedAt;delete merged.completedByName;delete merged.tabletWorkedSeconds
