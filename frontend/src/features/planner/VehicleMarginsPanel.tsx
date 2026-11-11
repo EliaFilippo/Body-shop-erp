@@ -7,14 +7,11 @@ import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
 import { normalizePlate } from '../../services/erp'
 import { monthlyTargetRate } from '../../services/monthlyTargetRate'
 import { marginMetrics } from '../../services/planner'
-import type { ErpData, VehicleCostCategory } from '../../types'
+import { recordedJobConsumables } from '../../services/jobMaterialCosts'
+import type { ErpData } from '../../types'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
-const consumableCategories = new Set<VehicleCostCategory>([
-  'vernice', 'trasparente', 'fondo', 'stucco', 'carta abrasiva', 'nastro e materiale da mascheratura',
-  'minuteria', 'materiali di lucidatura', 'materiale verniciatura',
-])
 const number = (value: number) => value.toLocaleString('it-IT', { maximumFractionDigits: 2 })
 
 export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKey: string }) {
@@ -79,10 +76,8 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
       if (job.status === 'Annullata' || (job.status !== 'Consegnata' && !matchingDelivery)) return []
       const deliveredAt = job.deliveredAt || matchingDelivery
       const deliveryDate = deliveredAt && Number.isFinite(Date.parse(deliveredAt)) ? romeDate.format(new Date(deliveredAt)) : undefined
-      const entries = deliveryDate && vehicle && uniqueVehicleJob
-        ? vehicle.costEntries?.filter(entry => consumableCategories.has(entry.category)
-          && entry.usedAt >= job.entryDate && entry.usedAt <= deliveryDate) : undefined
-      const recordedMaterials = entries?.length ? entries.reduce((sum, entry) => sum + entry.total, 0) : undefined
+      const recordedMaterials = deliveryDate && vehicle && uniqueVehicleJob
+        ? recordedJobConsumables(vehicle, job.entryDate, deliveryDate) : undefined
       return [{ job, deliveredAt, deliveryDate, ...closedJobMargin(job, hourlyCost, plannerSettings.operators, recordedMaterials) }]
     }).sort((a, b) => (b.deliveredAt ?? b.job.updatedAt).localeCompare(a.deliveredAt ?? a.job.updatedAt))
   }, [jobs, vehicles, hourlyCost, plannerSettings])

@@ -1,4 +1,4 @@
-import type { ErpData, RepairJob } from '../types'
+import type { ErpData, RepairJob, Vehicle, VehicleCostCategory } from '../types'
 const round=(n:number)=>Math.round((n+Number.EPSILON)*100)/100
 import { isProductionLabourLine } from './liveProduction'
 export function calculateJobMaterialMargin(job:RepairJob) {
@@ -40,4 +40,16 @@ export function setJobMaterialActualCost(data:ErpData,jobId:string,amount:number
  return {...data,jobs:data.jobs!.map(j=>j.id!==jobId?j:{...j,materialActualCost:{amount:value,at,note:text},
   materialCostHistory:[{at,before:j.materialActualCost?.amount??null,amount:value,note:text},...(j.materialCostHistory??[])],
   updatedAt:at,history:[{id:crypto.randomUUID(),at,actor:'Ufficio',message:`Materiali a consuntivo: ${value.toFixed(2)} € IVA esclusa. Il costo reale sostituisce la stima.`},...j.history]})}
+}
+
+
+const consumableCategories = new Set<VehicleCostCategory>([
+ 'vernice', 'trasparente', 'fondo', 'stucco', 'carta abrasiva', 'nastro e materiale da mascheratura',
+ 'minuteria', 'materiali di lucidatura', 'materiale verniciatura',
+])
+
+export function recordedJobConsumables(vehicle: Vehicle, entryDate: string, deliveryDate: string) {
+ const entries = vehicle.costEntries?.filter(entry => consumableCategories.has(entry.category)
+  && entry.usedAt >= entryDate && entry.usedAt <= deliveryDate)
+ return entries?.length ? entries.reduce((sum, entry) => sum + entry.total, 0) : undefined
 }

@@ -14,17 +14,18 @@ export function GoalProgressPanel({ data }: { data: ErpData }) {
   }, [])
   const periods = useMemo(() => calculateGoalProgress(data, today), [data, today])
 
-  return <section className="panel" aria-label="Avanzamento obiettivi di produzione">
-    <div className="panel-head"><div><span className="eyebrow">PRODUZIONE · IVA ESCLUSA</span><h3>Avanzamento obiettivi</h3></div></div>
+  return <section className="panel" aria-label="Avanzamento obiettivi di margine">
+    <div className="panel-head"><div><span className="eyebrow">MARGINE · IVA ESCLUSA</span><h3>Avanzamento obiettivi</h3></div></div>
     <div className="owner-kpi-grid">
       {periods.map(period => <article className="owner-kpi-card" key={period.label}>
         <span>{period.label}</span>
-        <strong>{money.format(period.done)} prodotti</strong>
-        <small>Obiettivo · {period.goal > 0 ? money.format(period.goal) : 'Nessun importo previsto'}</small>
+        <strong>{period.hasMargin ? money.format(period.done) : '—'}</strong>
+        {period.incomplete ? <small>Margine parziale · Dati da completare</small> : period.provisional && <small>Margine provvisorio</small>}
+        <small>{period.goal > 0 ? `Obiettivo di margine · ${money.format(period.goal)}` : 'Obiettivo di margine da impostare'}</small>
         {period.percent !== null && <><CapacityBar kind="goal" percent={period.percent} /><small>Mancano {money.format(period.gap)}</small></>}
         <small>Fatturato registrato · {money.format(period.billed)}</small>
       </article>)}
     </div>
-    <p>Il valore prodotto è una stima per fasi completate, ripartita secondo i tempi previsti. Alla consegna si aggiunge solo il valore ancora da conteggiare. Il fatturato è mostrato a parte.</p>
+    <p>Il margine delle fasi completate sottrae manodopera, collaboratori esterni, materiali e altri costi diretti. Si attribuisce alla data di completamento della fase e si conguaglia alla consegna. I materiali restano stimati fino alla conferma del costo effettivo.</p>
   </section>
 }

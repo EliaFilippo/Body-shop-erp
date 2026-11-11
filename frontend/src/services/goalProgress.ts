@@ -1,74 +1,109 @@
 import type { ErpData } from '../types'
+import { closedJobDirectCosts, closedJobMargin, recordedPhaseWork } from './closedJobMargin'
+import { deliveredWorkPhases } from './deliveredJobReport'
 import { historicalRevenues, isRealizedInvoice } from './historicalActuals'
+import { calculateJobMaterialMargin, recordedJobConsumables } from './jobMaterialCosts'
 import { isVehicleStatusSemantic } from './vehicleStatuses'
 import { addDays, isWorkingDate, workingMinutesForDate } from './workCalendar'
+import { resolveInternalHourlyRate } from './workflow'
 
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
 const dayOf = (timestamp?: string) => timestamp && Number.isFinite(Date.parse(timestamp))
   ? romeDate.format(new Date(timestamp)) : undefined
-const round = (amount: number) => Math.round(amount * 100) / 100
+const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 
 export function calculateGoalProgress(data: ErpData, today = romeDate.format(new Date())) {
   const settings = data.plannerSettings
-  const monthGoal = Math.max(0, settings.monthlyRevenueGoal || 0)
   const month = today.slice(0, 7)
+  const monthGoal = Math.max(0, settings.monthlyMarginGoal ?? 0)
   const monday = addDays(today, -((new Date(today + 'T12:00:00Z').getUTCDay() + 6) % 7))
   const week = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
-  const nightly = data.nightlyPlanning?.economics
-  const snapshots = [nightly, ...(data.nightlyPlanning?.economicsHistory ?? [])].sort((a, b) =>
-    (b?.plannedFor ?? '').localeCompare(a?.plannedFor ?? ''))
   const operators = settings.operators.filter(operator => operator.active)
+  const externalOperators = settings.operators.filter(operator => operator.costMode === 'external-extra')
+  const hourlyCost = resolveInternalHourlyRate(settings).effectiveHourlyRate
   const capacity = (date: string) => operators.length
     ? operators.reduce((sum, operator) => sum + workingMinutesForDate(date, settings, operator), 0)
     : Number(isWorkingDate(date, settings))
+  const monthCapacity = new Map<string, number>()
   const dailyGoal = (date: string) => {
-    for (const snapshot of snapshots) {
-      const value = snapshot?.dailyGoals.find(day => day.date === date)?.revenueGoal
-      if (value != null) return value
-    }
     const monthKey = date.slice(0, 7)
-    const first = monthKey + '-01'
-    const [year, monthNumber] = monthKey.split('-').map(Number)
-    const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
-    const monthCapacity = Array.from({ length: days }, (_, index) => capacity(addDays(first, index))).reduce((a, b) => a + b, 0)
-    return monthCapacity > 0 ? monthGoal * capacity(date) / monthCapacity : 0
+    const target = monthKey === month ? monthGoal
+      : Math.max(0, settings.monthlyGoalHistory?.find(record => record.monthKey === monthKey)?.marginGoal ?? 0)
+    if (target === 0) return 0
+    if (!monthCapacity.has(monthKey)) {
+      const [year, monthNumber] = monthKey.split('-').map(Number)
+      const days = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
+      monthCapacity.set(monthKey, Array.from({ length: days }, (_, index) => capacity(addDays(monthKey + '-01', index))).reduce((a, b) => a + b, 0))
+    }
+    const total = monthCapacity.get(monthKey) ?? 0
+    return total > 0 ? target * capacity(date) / total : 0
   }
 
-  const production: Array<{ date: string; amount: number }> = []
+  const production: Array<{ date: string; marginCents: number | null; provisional: boolean }> = []
   const vehicles = new Map(data.vehicles.map(vehicle => [vehicle.id, vehicle]))
+  const jobsByVehicle = new Map<string, number>()
+  for (const job of data.jobs ?? []) {
+    if (job.vehicleId) jobsByVehicle.set(job.vehicleId, (jobsByVehicle.get(job.vehicleId) ?? 0) + 1)
+  }
   for (const job of data.jobs ?? []) {
     const vehicle = job.vehicleId ? vehicles.get(job.vehicleId) : undefined
     if (job.status === 'Annullata' || (vehicle && isVehicleStatusSemantic(settings, vehicle.status, 'cancelled'))) continue
-    const revenue = Math.max(0, job.taxableAmount || 0)
-    const phases = job.phases.filter(phase => !phase.notRequired && phase.name !== 'Consegna')
+    const uniqueVehicleJob = vehicle && jobsByVehicle.get(vehicle.id) === 1
+    const vehicleDelivery = uniqueVehicleJob && isVehicleStatusSemantic(settings, vehicle.status, 'delivered')
+      ? dayOf(vehicle.deliveredAt) : undefined
+    const matchingDelivery = vehicleDelivery && vehicleDelivery >= job.entryDate ? vehicleDelivery : undefined
+    const deliveryDate = job.status === 'Consegnata' ? dayOf(job.deliveredAt) ?? matchingDelivery : matchingDelivery
+    const materials = calculateJobMaterialMargin(job)
+    const recordedMaterials = deliveryDate && vehicle && uniqueVehicleJob
+      ? recordedJobConsumables(vehicle, job.entryDate, deliveryDate) : undefined
+    const materialCost = materials.actualMaterials ?? recordedMaterials ?? materials.estimatedMaterials
+    const provisional = materials.actualMaterials === null
+    const directCostCents = closedJobDirectCosts(job)
+    const netBeforeLabor = Number.isFinite(job.taxableAmount) && directCostCents !== null && Number.isFinite(materialCost)
+      ? cents(job.taxableAmount) - directCostCents - cents(materialCost) : null
+    const phases = deliveredWorkPhases(job)
     const sharedCounts = new Map<string, number>()
     for (const phase of phases) {
-      if (phase.sharedTimeKey) sharedCounts.set(phase.sharedTimeKey, (sharedCounts.get(phase.sharedTimeKey) ?? 0) + 1)
+      if (phase.sharedTimeKey && !phase.notRequired) sharedCounts.set(phase.sharedTimeKey, (sharedCounts.get(phase.sharedTimeKey) ?? 0) + 1)
     }
-    const weights = phases.map(phase => Math.max(0, phase.sharedTimeKey && phase.sharedTimeMinutes !== undefined
+    const weights = phases.map(phase => phase.notRequired ? 0 : Math.max(0, phase.sharedTimeKey && phase.sharedTimeMinutes !== undefined
       ? phase.sharedTimeMinutes / (sharedCounts.get(phase.sharedTimeKey) ?? 1) : phase.estimatedMinutes || 0))
     const totalWeight = weights.reduce((a, b) => a + b, 0)
-    let credited = 0
-    const delivered = job.status === 'Consegnata' || (vehicle && isVehicleStatusSemantic(settings, vehicle.status, 'delivered'))
-    const deliveryDate = delivered ? dayOf(job.deliveredAt || vehicle?.deliveredAt) : undefined
+    let creditedMargin = 0
     phases.forEach((phase, index) => {
       const date = phase.status === 'Completata' ? dayOf(phase.completedAt || phase.endedAt) : undefined
-      if (!date || date > today || (deliveryDate && date > deliveryDate) || totalWeight <= 0) return
-      const amount = revenue * weights[index] / totalWeight
-      credited += amount
-      production.push({ date, amount })
+      if (!date || date > today || (deliveryDate && date > deliveryDate)) return
+      const work = recordedPhaseWork(phase, externalOperators)
+      const laborCents = work.seconds !== null && work.externalHoursComplete && hourlyCost > 0
+        ? cents(work.seconds / 3600 * hourlyCost + work.external.reduce((sum, row) => sum + row.seconds / 3600 * row.rate, 0))
+        : null
+      const marginCents = netBeforeLabor !== null && laborCents !== null
+        ? Math.round(totalWeight > 0 ? netBeforeLabor * weights[index] / totalWeight : 0) - laborCents
+        : null
+      creditedMargin += marginCents ?? 0
+      production.push({ date, marginCents, provisional: provisional || !deliveryDate })
     })
-    if (deliveryDate && deliveryDate <= today) production.push({ date: deliveryDate, amount: Math.max(0, revenue - credited) })
+    if (deliveryDate && deliveryDate <= today) {
+      const closed = closedJobMargin(job, hourlyCost, settings.operators, materialCost)
+      const marginCents = closed.marginCents === null ? null : closed.marginCents - creditedMargin
+      production.push({ date: deliveryDate, marginCents, provisional })
+    }
   }
   const billed = [
     ...data.invoices.filter(isRealizedInvoice).map(invoice => ({ date: invoice.issueDate, amount: invoice.taxableAmount || 0 })),
     ...historicalRevenues(data),
   ]
   const period = (label: string, start: string, goal: number) => {
-    const sum = (entries: typeof production) => round(entries.reduce((total, entry) =>
-      entry.date >= start && entry.date <= today ? total + entry.amount : total, 0))
-    const done = sum(production)
-    return { label, goal: round(goal), done, billed: sum(billed), gap: round(Math.max(0, goal - done)), percent: goal > 0 ? 100 * done / goal : null }
+    const includes = (date: string) => date >= start && date <= today
+    const recognized = production.filter(entry => includes(entry.date))
+    const done = recognized.reduce((sum, entry) => sum + (entry.marginCents ?? 0), 0) / 100
+    const incomplete = recognized.some(entry => entry.marginCents === null)
+    const provisional = recognized.some(entry => entry.marginCents !== null && entry.provisional)
+    const hasMargin = !incomplete || recognized.some(entry => entry.marginCents !== null)
+    const invoiced = billed.reduce((sum, entry) => includes(entry.date) ? sum + entry.amount : sum, 0)
+    const target = cents(goal) / 100
+    return { label, goal: target, done, billed: cents(invoiced) / 100, incomplete, provisional, hasMargin,
+      gap: Math.max(0, cents(target - done)) / 100, percent: target > 0 && !incomplete ? 100 * done / target : null }
   }
   return [
     period('Oggi', today, dailyGoal(today)),
