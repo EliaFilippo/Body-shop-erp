@@ -956,6 +956,28 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
   const {jobIds} = closedPlanningWork(data)
   const openJobs = (data.jobs ?? []).filter(job => job.vehicleId && !jobIds.has(job.id))
+  const manualAssignments = new Map<string, { operatorId: string; start: string; end: string; rank: number }>()
+  for (const day of (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date >= effectiveDate).sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const [rank, assignment] of day.assignments.entries()) {
+      const key = assignment.jobId + '|' + assignment.phaseId
+      if (manualAssignments.has(key)) continue
+      const start = day.date + (day.period === 'afternoon' ? 'T13:00:00.000Z' : 'T00:00:00.000Z')
+      const end = day.period === 'morning' ? day.date + 'T13:00:00.000Z' : addDays(day.date, 1) + 'T00:00:00.000Z'
+      manualAssignments.set(key, { operatorId: assignment.operatorId, start, end, rank })
+    }
+  }
+  const manualPhase = (job: RepairJob, phase: JobPhase, readyAt: string) => {
+    const assignment = manualAssignments.get(job.id + '|' + phase.id)
+    if (!assignment || phase.status === 'In lavorazione') return { phase, readyAt, manualRank: Infinity, manualEnd: '' }
+    const operator = operators.find(item => item.id === assignment.operatorId)
+    if (!operator || !operatorCompatible(operator, phase)) return { phase, readyAt, manualRank: Infinity, manualEnd: '' }
+    return {
+      phase: { ...phase, preferredOperatorId: operator.id, supportOperatorId: undefined },
+      readyAt: assignment.start > readyAt ? assignment.start : readyAt,
+      manualRank: assignment.rank,
+      manualEnd: assignment.end,
+    }
+  }
   const hasPrecedence = openJobs.some(job => job.planningPrecedence)
   const precedenceRank = ({ job, phase }: {job: RepairJob; phase: JobPhase}) => {
     if (!hasPrecedence) return 0
@@ -983,8 +1005,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const dueToday = Boolean(job.expectedDeliveryDate && job.expectedDeliveryDate <= effectiveDate)
       return {
         job,
-        phase: selectedPhase.phase,
-        readyAt: [selectedPhase.readyAt,availability?.jobs[job.id]??''].sort().at(-1)!,
+        ...manualPhase(job, selectedPhase.phase, [selectedPhase.readyAt,availability?.jobs[job.id]??''].sort().at(-1)!),
         vehicle,
         blocked,
         dueToday,
@@ -1062,7 +1083,13 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const a=candidates[index],b=candidates[nextIndex]
       const ageA=Math.max(0,betweenDays(a.job.createdAt.slice(0,10),effectiveDate))
       const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
-      const priorityOrder=precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
+      const rankA = slot < a.manualEnd ? a.manualRank : Infinity
+      const rankB = earliest < b.manualEnd ? b.manualRank : Infinity
+      const manualOrder = rankA === rankB ? 0
+        : a.phase.status === 'In lavorazione' || b.phase.status === 'In lavorazione'
+          ? Number(b.phase.status === 'In lavorazione') - Number(a.phase.status === 'In lavorazione')
+          : rankA - rankB
+      const priorityOrder=manualOrder||precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
         || a.score.dueDate.localeCompare(b.score.dueDate)
         || (martinCanStart(a, slot) && martinCanStart(b, earliest)
           ? phaseResidualMinutes(b.phase, now, b.job) - phaseResidualMinutes(a.phase, now, a.job)
@@ -1168,7 +1195,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         endAt:workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
+        reason: `${Number.isFinite(item.manualRank) ? 'Programma manuale · ' : ''}${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
@@ -1190,7 +1217,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         completedAt:remaining>0?undefined:endAt,endedAt:remaining>0?undefined:endAt,
       })}
       const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}:selectSchedulablePhase(virtualJob)
-      if(selectedNext&&endAt.slice(0,10)<=horizonEndDate)candidates.push({...item,job:virtualJob,phase:selectedNext.phase,readyAt:[selectedNext.readyAt,endAt].sort().at(-1)!})
+      if(selectedNext&&endAt.slice(0,10)<=horizonEndDate)candidates.push({...item,job:virtualJob,...manualPhase(virtualJob,selectedNext.phase,[selectedNext.readyAt,endAt].sort().at(-1)!)})
     }
   }
 
