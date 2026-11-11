@@ -353,7 +353,7 @@ function allocate(
 ) {
   let remaining = remainingHours(vehicle)
   const assignments: PlannerAssignment[] = []
-  const start = [referenceDate, vehicle.plannedEntryDate, vehicle.manualPlanningDate].filter(Boolean).sort().at(-1) ?? referenceDate
+  const start = [referenceDate, vehicle.presentInShop ? undefined : vehicle.plannedEntryDate, vehicle.manualPlanningDate].filter(Boolean).sort().at(-1) ?? referenceDate
   let date = start
   for (let day = 0; day < maxDays && remaining > 0; day += 1, date = addDays(date, 1)) {
     const available = availableFor(date, settings, usage, protectedMode)
@@ -895,6 +895,28 @@ export function selectSchedulablePhase(job: RepairJob) {
   return todo[0] ?? null
 }
 
+function independentShopPhase(job: RepairJob, primaryId?: string) {
+  const required = job.phases.filter(phase => !phase.notRequired)
+  if (required.some(phase => (phase.operatorAssignments ?? []).some(assignment => assignment.activityStatus === 'Attivo' && !assignment.endedAt))) return null
+  const paint = required.find(phase => phase.name === 'Verniciatura')
+  const paintedAt = paint?.status === 'Completata' ? completedAtForPhase(paint) : ''
+  const entry = `${job.entryDate || todayKey()}T00:00:00.000Z`
+  const dryAt = paint && paintedAt
+    ? new Date(Date.parse(paintedAt) + Math.max(60, paint.technicalWaitMinutes ?? 0) * 60_000).toISOString()
+    : ''
+  for (const phase of [...required].reverse()) {
+    if (phase.id === primaryId || phase.status !== 'Da fare' || phase.remainingTimeUnknown
+      || !(phase.estimatedMinutes > 0 || (phase.sharedTimeMinutes ?? 0) > 0)) continue
+    if (phase.name === 'Lavaggio interni' && !paint) return { phase, readyAt: entry }
+    if (!paint || !dryAt || required.indexOf(phase) <= required.indexOf(paint)
+      || !['Scartatura', 'Lucidatura', 'Ritocchi', 'Lavaggio interni'].includes(phase.name)) continue
+    const earlierFinishing = required.slice(required.indexOf(paint) + 1, required.indexOf(phase))
+    if (earlierFinishing.some(previous => previous.status !== 'Completata')) continue
+    return { phase, readyAt: [entry, dryAt, ...earlierFinishing.map(completedAtForPhase)].sort().at(-1)! }
+  }
+  return null
+}
+
 function summarizeOperatorDay(data: ErpData, operatorId: string, date: string, tasks: OperatorProgramTask[]): OperatorDayProgramSummary {
   const logs = (data.production?.workLogs ?? []).filter((log: ProductionWorkLog) => log.operatorId === operatorId && log.startedAt.slice(0, 10) === date)
   const actualMinutes = logs.reduce((sum, log) => sum + Math.max(0, Number(log.totalMinutes ?? 0)), 0)
@@ -985,11 +1007,15 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     return job.planningPrecedence ? 1 : 2
   }
   const candidates = openJobs
-    .map((job, arrivalIndex) => {
-      const selectedPhase = selectSchedulablePhase(job)
-      if (!selectedPhase) return null
-      const vehicle = vehiclesById.get(job.vehicleId ?? '')
+    .map((savedJob, arrivalIndex) => {
+      const vehicle = vehiclesById.get(savedJob.vehicleId ?? '')
       if (!vehicle) return null
+      const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate)
+        ? { ...savedJob, entryDate: effectiveDate } : savedJob
+      const normal = selectSchedulablePhase(job)
+      const alternate = vehicle.presentInShop ? independentShopPhase(job, normal?.phase.id) : null
+      const selectedPhase = normal ?? alternate
+      if (!selectedPhase) return null
       const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle)
       const compatibleCount = operators.filter((operator) => operatorCompatible(operator, selectedPhase.phase)).length
       const score = computePriorityScore({
@@ -1006,6 +1032,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       return {
         job,
         ...manualPhase(job, selectedPhase.phase, [selectedPhase.readyAt,availability?.jobs[job.id]??''].sort().at(-1)!),
+        independent: !normal,
+        alternate: normal && alternate ? manualPhase(job, alternate.phase, [alternate.readyAt, availability?.jobs[job.id] ?? ''].sort().at(-1)!) : null,
         vehicle,
         blocked,
         dueToday,
@@ -1076,11 +1104,20 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         return findPaintStationStart(start,candidate.job.id,paintReservations,at=>new Date(Date.parse(end(at))+drying).toISOString(),normalize)
       }).sort()[0]
     }
+    const nextUsable = (candidate: typeof candidates[number]) => {
+      const normalStart = earliestSlot(candidate)
+      if (!candidate.alternate || Number.isFinite(candidate.manualRank) || normalStart.slice(0, 10) <= effectiveDate) {
+        return { candidate, slot: normalStart }
+      }
+      const alternate = { ...candidate, ...candidate.alternate, independent: true, alternate: null }
+      const slot = earliestSlot(alternate)
+      return slot.slice(0, 10) === effectiveDate ? { candidate: alternate, slot } : { candidate, slot: normalStart }
+    }
     let nextIndex=candidateIndex
-    let earliest=earliestSlot(candidates[nextIndex])
+    let { candidate: chosen, slot: earliest } = nextUsable(candidates[nextIndex])
     for(let index=candidateIndex+1;index<candidates.length;index++){
-      const slot=earliestSlot(candidates[index])
-      const a=candidates[index],b=candidates[nextIndex]
+      const { candidate: a, slot } = nextUsable(candidates[index])
+      const b = chosen
       const ageA=Math.max(0,betweenDays(a.job.createdAt.slice(0,10),effectiveDate))
       const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
       const rankA = slot < a.manualEnd ? a.manualRank : Infinity
@@ -1098,10 +1135,10 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         || Number(ageB>4)-Number(ageA>4)
         || ((ageA>4&&ageB>4)?ageB-ageA:0)
         || a.arrivalIndex-b.arrivalIndex
-      if(slot<earliest||(slot===earliest&&priorityOrder<0)){earliest=slot;nextIndex=index}
+      if(slot<earliest||(slot===earliest&&priorityOrder<0)){earliest=slot;nextIndex=index;chosen=a}
     }
     if(nextIndex!==candidateIndex)[candidates[candidateIndex],candidates[nextIndex]]=[candidates[nextIndex],candidates[candidateIndex]]
-    const item=candidates[candidateIndex]
+    const item=chosen
     if (item.blocked) continue
     const activeAssignments = (item.phase.operatorAssignments ?? []).filter((entry) => entry.activityStatus === 'Attivo' && !entry.endedAt)
     const phaseKey = item.job.id+'|'+item.phase.id
@@ -1119,10 +1156,12 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const earliest=starts.map(entry=>entry.start).sort()[0]
       const duty = (item.phase.requiredSkill || item.phase.name).trim().toLowerCase()
       const primaryName = ['smontaggio','rimontaggio','lucidatura'].includes(duty) ? 'davide'
-        : duty==='scartatura' || duty==='scartare' ? 'federica'
+        : ['incartatura','incartare','scartatura','scartare'].includes(duty) ? 'federica'
         : ['stuccatura','verniciatura'].includes(duty) ? 'filippo' : undefined
       const primary = starts.find(({state,start})=>state.operator.name.trim().toLowerCase()===primaryName
-        && (['smontaggio','rimontaggio'].includes(duty) ? start.slice(0,10)===earliest.slice(0,10) : start===earliest))
+        && (['smontaggio','rimontaggio'].includes(duty) ? start.slice(0,10)===earliest.slice(0,10)
+          : primaryName==='federica' ? start.slice(0,10)===earliest.slice(0,10) && Date.parse(start)-Date.parse(earliest)<=30*60_000
+          : start===earliest))
       eligible=primary ? [primary.state] : starts.filter(entry=>entry.start===earliest).map(entry=>entry.state)
     }
     const ranking = rankPhaseOperators(data,item.job,item.phase,eligible,residual,schedulingFloor,item.readyAt)
@@ -1169,6 +1208,11 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     if(startAt.slice(0,10)>horizonEndDate)continue
     const endAt = crewEnd(startAt)
     if(isWashingPhase(item.phase.name))washReservations.push({jobId:item.job.id,startAt,endAt})
+    if (item.phase.name === 'Scartatura' && duration >= personMinutes) {
+      for (const reservation of paintReservations) {
+        if (reservation.jobId === item.job.id && reservation.startAt < endAt && reservation.endAt > endAt) reservation.endAt = endAt
+      }
+    }
     if(usesBox)paintReservations.push({jobId:item.job.id,startAt,endAt:stationEnd(startAt)})
     const activeNames = activeAssignments.map((entry) => entry.operatorName)
     const isAdvancedFromFuture = Boolean(item.job.expectedDeliveryDate && item.job.expectedDeliveryDate > effectiveDate)
@@ -1182,7 +1226,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const workerEndAt=addWorkingMinutes(startAt,plannedMinutes,data.plannerSettings,state.operator)
       const operatorName = state.operator.name.trim() || 'Operatore'
       const task: OperatorProgramTask = {
-        id: crypto.randomUUID(),
+        id: `${item.independent ? 'early-phase:' : ''}${crypto.randomUUID()}`,
         operatorId: state.operator.id,
         operatorName,
         vehicleId: item.vehicle.id,
@@ -1195,7 +1239,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         endAt:workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${Number.isFinite(item.manualRank) ? 'Programma manuale · ' : ''}${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)} · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
+        reason: `${Number.isFinite(item.manualRank) ? 'Programma manuale · ' : ''}${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)}${item.independent ? ' · Fase indipendente anticipata' : ' · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti'}`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
@@ -1217,7 +1261,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         completedAt:remaining>0?undefined:endAt,endedAt:remaining>0?undefined:endAt,
       })}
       const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}:selectSchedulablePhase(virtualJob)
-      if(selectedNext&&endAt.slice(0,10)<=horizonEndDate)candidates.push({...item,job:virtualJob,...manualPhase(virtualJob,selectedNext.phase,[selectedNext.readyAt,endAt].sort().at(-1)!)})
+      if(selectedNext&&endAt.slice(0,10)<=horizonEndDate)candidates.push({...item,job:virtualJob,...manualPhase(virtualJob,selectedNext.phase,[selectedNext.readyAt,endAt].sort().at(-1)!),independent:remaining>0&&item.independent,alternate:null})
     }
   }
 

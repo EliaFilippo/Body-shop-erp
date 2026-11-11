@@ -5,6 +5,7 @@ import { DeliveredJobReports } from './DeliveredJobReports'
 import { JobMaterialCosts } from './JobMaterialCosts'
 import { setJobMaterialActualCost } from '../../services/jobMaterialCosts'
 import type { VehicleWork } from '../../services/productionPlanningState'
+import { VehiclePresenceButton } from './VehiclePresenceButton'
 import { FastEstimateEditor } from './FastEstimateEditor'
 import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices'
 import { WorkCycleFields } from '../../components/WorkCycleFields'
@@ -659,6 +660,7 @@ function EstimateEditor({
   onSubmit: (payload: {
     customerId: string
     vehicleId?: string
+    presentInShop?: boolean
     plate: string
     companyName: string
     contactName: string
@@ -674,6 +676,7 @@ function EstimateEditor({
   onConfirm?: (payload: {
     customerId: string
     vehicleId?: string
+    presentInShop?: boolean
     plate: string
     companyName: string
     contactName: string
@@ -703,6 +706,7 @@ function EstimateEditor({
   const initialVehicle = initialVehicleId ? data.vehicles.find((vehicle) => vehicle.id === initialVehicleId) : undefined
   const [customerId, setCustomerId] = useState(initial?.customerId ?? initialVehicle?.customerId ?? '')
   const [vehicleId, setVehicleId] = useState(initial?.vehicleId ?? initialVehicle?.id ?? '')
+  const [presentInShop, setPresentInShop] = useState(initial?.presentInShop ?? initialVehicle?.presentInShop ?? true)
   const [plate, setPlate] = useState(initial?.plate ?? initialVehicle?.plate ?? '')
   const [companyName, setCompanyName] = useState(initial?.companyName ?? '')
   const [contactName, setContactName] = useState(initial?.contactName ?? '')
@@ -889,6 +893,7 @@ function EstimateEditor({
     if (!vehicle) return
     setPlate(vehicle.plate)
     setPriority(vehicle.priority ?? 'Normale')
+    setPresentInShop(vehicle.presentInShop ?? true)
     setRequestedDeliveryDate(vehicle.requestedDeliveryDate ?? '')
     applyCustomerSelection(vehicle.customerId)
     setSearchTerm(`${vehicle.plate} · ${customerById(vehicle.customerId)?.name || ''}`.trim())
@@ -1184,6 +1189,7 @@ function EstimateEditor({
       onSubmit({
         customerId,
         vehicleId: vehicleId || undefined,
+        presentInShop,
         plate,
         companyName,
         contactName,
@@ -1235,6 +1241,7 @@ function EstimateEditor({
         </div>
         <div className="estimate-customer-grid">
           <label>Cliente<select required value={customerId} onChange={(event) => applyCustomerSelection(event.target.value)}><option value="">Seleziona cliente</option>{data.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+          <VehiclePresenceButton present={presentInShop} onChange={setPresentInShop} />
           <label>Vettura esistente<select value={vehicleId} onChange={(event) => applyVehicleSelection(event.target.value)}><option value="">Nessuna vettura</option>{vehicleOptions.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} - {vehicle.make} {vehicle.model}</option>)}</select></label>
           <label>Targa<input required value={plate} onChange={(event) => setPlate(event.target.value.toUpperCase())} placeholder="AB123CD" /></label>
           <label>Consegna richiesta<input type="date" value={requestedDeliveryDate} onChange={(event) => setRequestedDeliveryDate(event.target.value)} /></label>
@@ -1629,6 +1636,7 @@ function EstimateEditor({
           {step === 4 && !initial?.convertedJobId && <button type="button" className="primary" onClick={() => onConfirm?.({
             customerId,
             vehicleId: vehicleId || undefined,
+            presentInShop,
             plate,
             companyName,
             contactName,

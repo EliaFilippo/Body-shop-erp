@@ -1067,6 +1067,7 @@ export function createEstimate(data: ErpData, input: {
 	planningPrecedence?: boolean
 	customerId: string
 	vehicleId?: string
+	presentInShop?: boolean
 	plate: string
 	companyName: string
 	contactName: string
@@ -1099,6 +1100,7 @@ export function createEstimate(data: ErpData, input: {
 		date: input.date || today(),
 		customerId: input.customerId,
 		vehicleId: input.vehicleId,
+		presentInShop: input.presentInShop,
 		plate: input.plate.trim().toUpperCase(),
 		companyName: input.companyName.trim(),
 		contactName: input.contactName.trim(),
@@ -1135,6 +1137,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 	source?: EstimateDocument['source']
 	customerId: string
 	vehicleId?: string
+	presentInShop?: boolean
 	plate: string
 	companyName: string
 	contactName: string
@@ -1165,6 +1168,7 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 		planningPrecedence: input.planningPrecedence ?? current.planningPrecedence,
 		customerId: input.customerId,
 		vehicleId: input.vehicleId,
+		presentInShop: input.presentInShop ?? current.presentInShop,
 		plate: input.plate.trim().toUpperCase(),
 		companyName: input.companyName.trim(),
 		contactName: input.contactName.trim(),
@@ -1188,7 +1192,11 @@ export function updateEstimate(data: ErpData, estimateId: string, input: {
 		estimates: estimates.map((estimate) => estimate.id === estimateId ? updated : estimate),
         quotes: (data.quotes ?? []).map(quote => quote.estimateId === estimateId ? { ...quote, paymentTerms: updated.paymentTerms, lines: lines.map(line => ({ id: line.id, description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, vatRate: line.vatRate, discountRate: line.quantity * line.unitPrice > 0 ? line.discount / (line.quantity * line.unitPrice) * 100 : 0, taxableAmount: line.taxableAmount, vatAmount: line.vatAmount, total: line.total })), ...totals, updatedAt: timestamp } : quote),
         jobs: ownerRevision ? (data.jobs ?? []).map(job => job.estimateId === estimateId ? { ...job, lines, ...totals, updatedAt: timestamp } : job) : data.jobs,
-        vehicles: ownerRevision ? data.vehicles.map(vehicle => vehicle.id === current.vehicleId ? { ...vehicle, expectedRevenue: totals.taxableAmount } : vehicle) : data.vehicles,
+        vehicles: ownerRevision ? data.vehicles.map(vehicle => vehicle.id === current.vehicleId ? {
+          ...vehicle,
+          expectedRevenue: totals.taxableAmount,
+          presentInShop: current.convertedJobId ? input.presentInShop ?? vehicle.presentInShop : vehicle.presentInShop,
+        } : vehicle) : data.vehicles,
 	}
 }
 
@@ -1255,6 +1263,7 @@ function createJobFromEstimate(data: ErpData, estimate: EstimateDocument): Repai
 type EstimateWorkflowInput = {
 	customerId: string
 	vehicleId?: string
+	presentInShop?: boolean
 	plate: string
 	companyName: string
 	contactName: string
@@ -1278,6 +1287,7 @@ function buildVehicleFromEstimateInput(input: EstimateWorkflowInput): Omit<Vehic
 	const requestedDeliveryDate = String(input.requestedDeliveryDate ?? '').trim()
 	return {
 		customerId: input.customerId,
+		presentInShop: input.presentInShop,
 		plate: input.plate.trim().toUpperCase(),
 		make: '',
 		model: '',
@@ -1401,6 +1411,8 @@ export function approveEstimateAndCreateJob(data: ErpData, estimateId: string): 
 	if (vehicle) {
 		return syncOperationalStateFromJobs({
 			...nextData,
+			vehicles: approvedEstimate.presentInShop === undefined ? nextData.vehicles : nextData.vehicles.map(item =>
+				item.id === vehicle.id ? { ...item, presentInShop: approvedEstimate.presentInShop } : item),
 			jobs: (nextData.jobs ?? []).map((item) => item.id === job.id ? {
 				...item,
 				expectedDeliveryDate: approvedEstimate.requestedDeliveryDate || vehicle.requestedDeliveryDate || item.expectedDeliveryDate,

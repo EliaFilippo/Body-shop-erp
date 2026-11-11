@@ -1601,3 +1601,33 @@ it('replans the remaining day around a real out-of-program timer despite a diffe
  expect(JSON.stringify(data)).toBe(before)
  expect(phase.status).toBe('In lavorazione')
 })
+
+it('anticipa una vettura presente e propone la scartatura solo dopo la verniciatura asciutta', () => {
+  const data = structuredClone(emptyData)
+  data.plannerSettings = { ...settings, operators: [
+    { id: 'f', name: 'Federica', dailyHours: 4, active: true, skills: ['scartatura'], hourlyCost: 17 },
+  ] }
+  data.vehicles = [{ ...vehicle('1', 1, '2026-07-31'), id: 'present', presentInShop: true }]
+  const job = baseJob('p', 'COMM-P', 'present', data.vehicles[0].plate, 'Normale', '2026-07-31')
+  const phase = job.phases[0]
+  job.entryDate = '2026-07-31'
+  job.workflowCycle = 'elias-v1'
+  job.phases = [
+    { ...phase, id: 'wash', name: 'Lavaggio esterno', requiredSkill: 'lavaggio esterno', estimatedMinutes: 20, status: 'Da fare' },
+    { ...phase, id: 'paint', name: 'Verniciatura', requiredSkill: 'verniciatura', status: 'Completata',
+      completedAt: '2026-07-27T08:15:00.000Z', technicalWaitMinutes: 60 },
+    { ...phase, id: 'unmask', name: 'Scartatura', requiredSkill: 'scartatura', estimatedMinutes: 30, status: 'Da fare' },
+  ]
+  data.jobs = [job]
+  const run = () => generateOperatorPrograms(data, '2026-07-27', 'Test presenza', '2026-07-27T08:30:00.000Z').programs.flatMap(program => program.tasks)
+  const [unmask] = run()
+  expect(unmask.phaseId).toBe('unmask')
+  expect(unmask.startAt).toBe('2026-07-27T09:15:00.000Z')
+  expect(unmask.id).toMatch(/^early-phase:/)
+  expect(job.phases[0].status).toBe('Da fare')
+  job.phases[1].status = 'In lavorazione'
+  expect(run()).toEqual([])
+  job.phases[1].status = 'Completata'
+  data.vehicles[0].presentInShop = false
+  expect(run()).toEqual([])
+})

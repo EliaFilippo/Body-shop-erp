@@ -195,9 +195,9 @@ export function LiveProductionPage() {
         <p>Conteggio dei periodi di lavoro avviati con Start. Pausa e Fine fermano il conteggio personale. Gli extra superano l’orario giornaliero configurato.</p></section>}
       {feed.operatorName && <section className="live-day-hours"><h2>Programma automatico · i miei lavori assegnati</h2><p>Proposte secondo le priorità di consegna, margine e attesa. Puoi scegliere il lavoro manualmente qui sotto senza modificare il programma.</p>
         {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.coneNumber!=null&&<span className="live-program-cone">CONO {task.coneNumber}</span>}{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
-          {task.updatedFromManual&&<p>Fase aggiornata dalle lavorazioni manuali.</p>}<p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
+          {task.id.startsWith('early-phase:') ? <p>Fase indipendente anticipata</p> : task.updatedFromManual && <p>Fase aggiornata dalle lavorazioni manuali.</p>}<p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
-          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => {setSelectionMode('automatic');setVehicleSearch('');setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}}>Apri vettura e fase</a>
+          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => {setSelectionMode(task.id.startsWith('early-phase:') ? 'manual' : 'automatic');setVehicleSearch('');setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}}>Apri vettura e fase</a>
             : <p>Pubblicazione automatica in corso. Se il lavoro non compare, l’ufficio può verificare i dati mancanti in Produzione.</p>}</li>)}</ol>
           : <p>Nessun lavoro assegnato nel Programma operatori. Puoi consultare le vetture disponibili qui sotto.</p>}
       </section>}
