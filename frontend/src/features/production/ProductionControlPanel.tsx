@@ -20,6 +20,7 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
  const [error, setError] = useState('')
  const [busy, setBusy] = useState(false)
  const [history, setHistory] = useState(false)
+ const [reportOpen, setReportOpen] = useState(false)
  const requestId = useRef(0)
  const { companyId, config, session } = connection
  const from = `${month}-01`
@@ -27,18 +28,32 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
  const to = `${month}-${new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()}`
  useEffect(() => {
   let stopped = false
+  let polling = false
   let timer: ReturnType<typeof setTimeout>
   setReport(null)
   async function poll() {
+   if (stopped || polling || document.hidden) return
+   polling = true
    const id = ++requestId.current
    try {
     const next = await productionRpc<ProductionControlReport>('production_control_report', { p_company_id: companyId, p_from: from, p_to: to }, session, config)
     if (!stopped && id === requestId.current) { setReport(next); setError('') }
    } catch (e) { if (!stopped && id === requestId.current) setError(e instanceof Error ? e.message : 'Controllo produzione non disponibile.') }
-   if (!stopped) timer = setTimeout(poll, 5000)
+   polling = false
+   if (!stopped && !document.hidden) timer = setTimeout(poll, 15_000)
   }
+  const visibilityChanged = () => {
+   clearTimeout(timer)
+   if (!document.hidden) void poll()
+  }
+  document.addEventListener('visibilitychange', visibilityChanged)
   void poll()
-  return () => { stopped = true; clearTimeout(timer); requestId.current++ }
+  return () => {
+   stopped = true
+   clearTimeout(timer)
+   document.removeEventListener('visibilitychange', visibilityChanged)
+   requestId.current++
+  }
  }, [companyId, session.accessToken, config.url, config.anonKey, from, to])
  async function acknowledge(id: number) {
   if (busy) return
@@ -57,12 +72,12 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
     <p>+{duration(a.overrunSeconds)} · {a.operators.map(o => o.name).join(', ')} · {a.active ? 'Timer attivo' : 'Timer fermi'}</p>
     <button type="button" disabled={busy || !!error} onClick={() => void acknowledge(a.id)}>Preso in carico</button></article>)}
   </div>}
-  <details><summary>Tempi e produttività operatori{open.length ? ` · ${open.length} avvisi` : ''}</summary>
-   <p>Avvisi interni al gestionale, aggiornati ogni 5 secondi con questa pagina aperta.</p>
+  <details onToggle={event => setReportOpen(event.currentTarget.open)}><summary>Tempi e produttività operatori{open.length ? ` · ${open.length} avvisi` : ''}</summary>
+   <p>Avvisi interni al gestionale, aggiornati ogni 15 secondi mentre la pagina è visibile.</p>
    <label>Mese del rapporto <input type="month" value={month} onChange={e => { if (e.target.value) setMonth(e.target.value) }} /></label>
    {!report && !error && <p>Caricamento…</p>}
    <PrivatePasswordSettings connection={connection} />
-   <PrivateProductivity connection={connection} from={from} to={to} />
+   {reportOpen && <PrivateProductivity connection={connection} from={from} to={to} />}
    <details><summary>Report di tutte le fasi · verifica del tempario</summary>
     <p>Confronto delle lavorazioni concluse nel mese; quelle aperte sono indicate a parte. Uno scostamento medio oltre il 15%, con almeno 5 lavori, segnala una verifica. Vetture, pannelli e difficoltà possono essere diversi: il tempario non cambia da solo.</p>
     <p>S/R e I/S hanno un tempo totale condiviso: il confronto li considera insieme per non duplicare le ore.</p>
@@ -87,10 +102,36 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
 function PrivateProductivity({connection,from,to}:{connection:NoticesConnection;from:string;to:string}) {
  const [report,setReport]=useState<ProductionControlReport|null>(null)
  const [error,setError]=useState('')
- useEffect(()=>{let stopped=false; let timer:ReturnType<typeof setTimeout>;
-  async function poll(){try{const next=await productionRpc<ProductionControlReport>('production_productivity_report',{p_company_id:connection.companyId,p_from:from,p_to:to},connection.session,connection.config);if(!stopped){setReport(next);setError('')}}catch(e){if(!stopped){setReport(null);setError(e instanceof Error?e.message:'Report non disponibile.')}}if(!stopped)timer=setTimeout(poll,5000)}
-  void poll();return()=>{stopped=true;clearTimeout(timer)}
- },[connection.companyId,connection.session.accessToken,connection.config.url,connection.config.anonKey,from,to])
+ useEffect(() => {
+  let stopped = false
+  let polling = false
+  let timer: ReturnType<typeof setTimeout>
+  const poll = async () => {
+   if (stopped || polling || document.hidden) return
+   polling = true
+   try {
+    const next = await productionRpc<ProductionControlReport>('production_productivity_report',
+      { p_company_id: connection.companyId, p_from: from, p_to: to }, connection.session, connection.config)
+    if (!stopped) { setReport(next); setError('') }
+   } catch (problem) {
+    if (!stopped) setError(problem instanceof Error ? problem.message : 'Report non disponibile.')
+   } finally {
+    polling = false
+    if (!stopped && !document.hidden) timer = setTimeout(poll, 30_000)
+   }
+  }
+  const visibilityChanged = () => {
+   clearTimeout(timer)
+   if (!document.hidden) void poll()
+  }
+  document.addEventListener('visibilitychange', visibilityChanged)
+  void poll()
+  return () => {
+   stopped = true
+   clearTimeout(timer)
+   document.removeEventListener('visibilitychange', visibilityChanged)
+  }
+ }, [connection.companyId, connection.session.accessToken, connection.config.url, connection.config.anonKey, from, to])
  return <>{error&&<p role="alert">{error}</p>}   <p>Punteggio = tempo assegnato ÷ tempo lavorato × 100. 100 rispetta il tempo, oltre 100 indica tempo risparmiato. Solo fasi concluse; pause e attese tecniche escluse. I tempi di S/R e I/S contano una sola volta, dopo entrambe le fasi.</p>
    {report && <div className="production-score-table"><table><thead><tr><th>Operatore</th><th>Assegnato</th><th>Lavorato</th><th>Punteggio</th><th>Gruppi conclusi</th><th>Condiviso senza quota personale</th></tr></thead>
     <tbody>{report.operators.map(o => <tr key={o.operatorId}><th>{o.name}</th><td>{duration(o.assignedSeconds)}</td><td>{duration(o.workedSeconds)}</td><td>{o.score === null ? '—' : o.score.toLocaleString('it-IT')}</td><td>{o.completedGroups}</td><td>{duration(o.unscoredSharedSeconds)}</td></tr>)}</tbody></table></div>}
