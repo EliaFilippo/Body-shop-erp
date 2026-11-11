@@ -6,10 +6,10 @@ export interface PlanningEntry {
  runningSince:string|null;firstStartedAt:string;lastEndedAt:string|null
 }
 export interface DailyProductionWork {date:string;operatorId:string;productiveSeconds:number;paidSeconds:number}
-export interface OffVehicleWork { date: string; operatorId: string; seconds: number }
+export interface VehicleWork { date: string; operatorId: string; seconds: number }
 export interface ProductionPlanningState {
  serverNow:string;entries:PlanningEntry[];dailyWork?:DailyProductionWork[]
- offVehicleWork?: OffVehicleWork[]
+ vehicleWork?: VehicleWork[]
  phaseStates?:Array<{jobId:string;phase:JobPhase}>;checks?:PhaseCheckUpdate[]
 }
 const sameJson=(a:unknown,b:unknown)=>{

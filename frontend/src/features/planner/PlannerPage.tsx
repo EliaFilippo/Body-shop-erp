@@ -1,7 +1,7 @@
 import { DeliveryMarginDetails } from '../workflow/DeliveryMarginSummary'
 import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
 import { deliveredWorkPhases, reportDuration } from '../../services/deliveredJobReport'
-import type { OffVehicleWork } from '../../services/productionPlanningState'
+import type { VehicleWork } from '../../services/productionPlanningState'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { MarginTargetRatePanel } from '../dashboard/MarginTargetRatePanel'
 import { VehicleMarginsPanel } from './VehicleMarginsPanel'
@@ -270,9 +270,9 @@ function PlannerVehicleDetailModal({
   </Modal>
 }
 
-export function PlannerPage({ data, offVehicleWork, liveForecasts, customerById, onMove, onOpenSettings, onOpenJob, onOpenOperatorProgram, onRecalculatePlanning, onUpdateVehicleStatus, statusOptions, statusLabel }: {
+export function PlannerPage({ data, vehicleWork, liveForecasts, customerById, onMove, onOpenSettings, onOpenJob, onOpenOperatorProgram, onRecalculatePlanning, onUpdateVehicleStatus, statusOptions, statusLabel }: {
   data: ErpData
-  offVehicleWork?: OffVehicleWork[]
+  vehicleWork?: VehicleWork[]
   liveForecasts?:CompletionForecast[]
   customerById: (id: string) => Customer | undefined
   onMove: (vehicleId: string, date: string) => void
@@ -290,7 +290,7 @@ export function PlannerPage({ data, offVehicleWork, liveForecasts, customerById,
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
 
   const targetMonth=todayKey().slice(0,7)
-  const marginRate = useMemo(() => marginTargetRate(data, targetMonth, undefined, undefined, offVehicleWork), [data, targetMonth, offVehicleWork])
+  const marginRate = useMemo(() => marginTargetRate(data, targetMonth, undefined, undefined, vehicleWork), [data, targetMonth, vehicleWork])
   const targetRate=useMemo(()=>monthlyTargetRate(data.plannerSettings,targetMonth),[data.plannerSettings,targetMonth])
   const targetMonthLabel=new Intl.DateTimeFormat('it-IT',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(`${targetMonth}-01T12:00:00Z`))
   const money=(amount:number)=>amount.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
