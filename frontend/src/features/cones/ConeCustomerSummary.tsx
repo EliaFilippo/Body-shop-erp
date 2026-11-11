@@ -61,9 +61,12 @@ export function ConeCustomerSummary({ data }: { data: ErpData }) {
           const plannedEnd = !completed && phases.every(phase => phase.status === 'Completata' || planned.some(task => task.phaseId === phase.id))
             ? planned.map(task => task.endAt).sort().at(-1) : undefined
           const currentPhase = phases.find(phase => phase.status === 'In lavorazione')
+          const vehicleLabel = resolveVehicleStatusLabel(settings, vehicle.status)
+          const ready = isVehicleStatusSemantic(settings, vehicle.status, 'ready')
+          const status = waiting ? 'In attesa ricambi' : ready ? vehicleLabel : job?.status || vehicleLabel
           return <li key={vehicle.id} className={waiting ? 'waiting-parts' : undefined}>
             <div><strong>{vehicle.plate}</strong><small>{vehicle.coneNumber == null ? 'Senza cono' : `Cono ${vehicle.coneNumber}`}</small></div>
-            <div><strong>{waiting ? 'In attesa ricambi' : job?.status || resolveVehicleStatusLabel(settings, vehicle.status)}</strong>
+            <div><strong>{status}</strong>
               {!waiting && currentPhase && <small>{currentPhase.name}</small>}</div>
             <div><small>{actualStart ? 'Inizio effettivo' : 'Inizio previsto'}</small>{dateLabel(actualStart || plannedStart)}</div>
             <div><small>{actualEnd ? 'Fine effettiva' : 'Fine prevista'}</small>{dateLabel(actualEnd || plannedEnd)}</div>

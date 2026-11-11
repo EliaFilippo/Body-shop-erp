@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
-import type { Vehicle } from '../../types'
+import type { RepairJob, Vehicle } from '../../types'
 import { addVehicle, emptyData } from '../../services/erp'
 import { ConeCustomerSummary } from './ConeCustomerSummary'
 
@@ -36,4 +36,17 @@ it('raggruppa le vetture presenti e distingue il timer attivo dall’attesa rica
   expect(row.getByText('In attesa ricambi').closest('li')).toHaveClass('waiting-parts')
   expect(row.getByText('Cono 9')).toBeInTheDocument()
   expect(screen.queryByText('CC333CC')).not.toBeInTheDocument()
+})
+
+
+it('shows the ready vehicle status when its job still says in progress', () => {
+  const data = structuredClone(emptyData)
+  data.vehicles = [{ id: 'v20', customerId: 'c1', plate: 'GR246SS', coneNumber: 20, status: 'pronta',
+    partsStatus: 'Disponibili' } as Vehicle]
+  data.jobs = [{ id: 'j20', vehicleId: 'v20', status: 'In lavorazione', phases: [] } as unknown as RepairJob]
+  render(<ConeCustomerSummary data={data} />)
+  const vehicle = within(screen.getByText('GR246SS').closest('li')!)
+  expect(vehicle.getByText('Pronta')).toBeInTheDocument()
+  expect(vehicle.getByText('Cono 20')).toBeInTheDocument()
+  expect(vehicle.queryByText('In lavorazione')).not.toBeInTheDocument()
 })
