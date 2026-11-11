@@ -1479,6 +1479,23 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(assigned(data)).toEqual(['op-1'])
     expect(assigned(recalculateOperatorPrograms(data, '2026-07-27', 'Ricalcolo'))).toEqual(['op-1'])
   })
+  it('assegna le fasi del pomeriggio all’operatore scelto e rispetta l’ordine quando sono pronte', () => {
+    const data = setup()
+    const first = data.jobs![0]
+    const vehicle = data.vehicles.find(item => item.id === first.vehicleId)!
+    const second = { ...structuredClone(first), id: 'manual-job-2', vehicleId: 'manual-vehicle-2' }
+    data.jobs!.push(second)
+    data.vehicles.push({ ...vehicle, id: 'manual-vehicle-2', plate: 'MANUAL2' })
+    data.plannerSettings.manualOperatorDays = [{ date: '2026-07-27', period: 'afternoon',
+      assignments: [second, first].map(job => ({ operatorId: 'op-1', jobId: job.id, phaseId: job.phases[0].id })),
+    }]
+    const tasks = generateOperatorPrograms(data, '2026-07-27').programs
+      .filter(program => program.operatorId === 'op-1').flatMap(program => program.tasks)
+    expect(tasks.map(task => task.jobId)).toEqual([second.id, first.id])
+    expect(tasks[0].startAt >= '2026-07-27T13:00:00.000Z').toBe(true)
+    expect(tasks[1].startAt >= tasks[0].endAt).toBe(true)
+    expect(first.phases[0].preferredOperatorId).toBeUndefined()
+  })
   it('non sostituisce silenziosamente un operatore manuale inattivo', () => {
     const data = setup(); data.jobs![0].phases[0].preferredOperatorId = 'op-1'; data.plannerSettings.operators[0].active = false
     expect(assigned(data)).toEqual([])
