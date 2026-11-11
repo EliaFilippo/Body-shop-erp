@@ -1,4 +1,4 @@
-import type { ConeEvent, Customer, ErpData, InternalMonthlyCostCategory, InternalMonthlyCostItem, PlannerSettings, Vehicle, VehicleCostEntry, VehicleStatus, VehicleStatusChange } from '../types'
+import type { ConeEvent, Customer, ErpData, InternalMonthlyCostCategory, InternalMonthlyCostItem, PlannerSettings, RepairJob, Vehicle, VehicleCostEntry, VehicleStatus, VehicleStatusChange } from '../types'
 import { calculateVehicleEconomicSnapshot } from './economic'
 import { defaultVehicleStatus, isVehicleConeRequiredStatus, isVehicleStatusSemantic, resolveVehicleStatusId } from './vehicleStatuses'
 import { DEFAULT_WEEKLY_WORK_SCHEDULE } from './workCalendar'
@@ -434,11 +434,24 @@ const statusHistoryEvent = (
   source,
 })
 
+export function completeJobDelivery(job: RepairJob, deliveredAt: string): RepairJob {
+  const phases = job.phases.map(phase => phase.name === 'Consegna' && phase.status !== 'Completata'
+    ? { ...phase, status: 'Completata' as const, completedAt: deliveredAt, endedAt: deliveredAt } : phase)
+  const required = phases.filter(phase => !phase.notRequired)
+  const progressPercent = required.length
+    ? Math.round(required.filter(phase => phase.status === 'Completata').length / required.length * 100)
+    : job.progressPercent
+  return {
+    ...job, phases, progressPercent, status: 'Consegnata', deliveredAt, updatedAt: now(),
+    history: [{ id: id(), at: deliveredAt, actor: 'Operatore ERP', message: 'Stato aggiornato a Consegnata.' }, ...(job.history ?? [])],
+  }
+}
+
 export function changeVehicleStatus(
   data: ErpData,
   vehicleId: string,
   status: VehicleStatus,
-  options?: { source?: 'manual' | 'automatic'; note?: string; forceAutomatic?: boolean },
+  options?: { source?: 'manual' | 'automatic'; note?: string; forceAutomatic?: boolean; deliveryJobId?: string },
 ): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) throw new Error('Vettura non trovata.')
@@ -474,9 +487,26 @@ export function changeVehicleStatus(
   if (source === 'manual' && waitingForParts && partsStatus === 'Disponibili') partsStatus = 'Mancanti'
   if (source === 'manual' && wasWaitingForParts && !waitingForParts) partsStatus = 'Disponibili'
 
+  const delivered = isVehicleStatusSemantic(data.plannerSettings, nextStatus, 'delivered')
+  const wasDelivered = isVehicleStatusSemantic(data.plannerSettings, vehicle.status, 'delivered')
+  const previousDelivery = wasDelivered && Number.isFinite(Date.parse(vehicle.deliveredAt ?? '')) ? vehicle.deliveredAt : undefined
+  const linkedJobs = delivered && source === 'manual'
+    ? (data.jobs ?? []).filter(job => job.vehicleId ? job.vehicleId === vehicle.id
+      : normalizePlate(job.plate) === normalizePlate(vehicle.plate))
+    : []
+  const recorded = previousDelivery && linkedJobs.some(job => job.status === 'Consegnata' && job.deliveredAt === previousDelivery)
+  const deliveryJob = linkedJobs.filter(job => job.status !== 'Consegnata' && job.status !== 'Annullata'
+    && (options?.deliveryJobId ? job.id === options.deliveryJobId
+      : !recorded && (!previousDelivery || !job.createdAt || Date.parse(job.createdAt) <= Date.parse(previousDelivery))))
+    .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0]
+  const deliveredAt = previousDelivery && (!deliveryJob?.createdAt || Date.parse(deliveryJob.createdAt) <= Date.parse(previousDelivery))
+    ? previousDelivery : now()
+
   return reconcileVehicleCones({
     ...data,
     coneHistory: history,
+    ...(deliveryJob ? { jobs: data.jobs?.map(job => job.id === deliveryJob.id
+      ? completeJobDelivery(job, deliveredAt) : job) } : {}),
     vehicles: data.vehicles.map((item) =>
       item.id === vehicleId
         ? {
@@ -486,8 +516,8 @@ export function changeVehicleStatus(
             statusMode: source,
             suggestedStatus: source === 'automatic' ? item.suggestedStatus : null,
             coneNumber: item.coneNumber,
-            deliveredAt: nextStatus === resolveVehicleStatusId(data.plannerSettings, 'Consegnata') ? (item.deliveredAt || now()) : item.deliveredAt,
-            billingStatus: nextStatus === resolveVehicleStatusId(data.plannerSettings, 'Consegnata') && !item.invoiceId ? 'Da fatturare' : item.billingStatus,
+            deliveredAt: delivered ? deliveredAt : item.deliveredAt,
+            billingStatus: delivered && !item.invoiceId ? 'Da fatturare' : item.billingStatus,
             statusHistory,
           }
         : item,
