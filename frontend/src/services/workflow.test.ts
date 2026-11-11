@@ -1267,10 +1267,13 @@ describe('workflow preventivi e commesse', () => {
       })),
     }
     const ready = updateJobStatus(quality, quality.jobs?.[0].id ?? '', 'Pronta consegna')
-    const delivered = updateJobStatus(ready, ready.jobs?.[0].id ?? '', 'Consegnata')
+    const manualReady = changeVehicleStatus(ready, 'v1', 'pronta')
+    const delivered = updateJobStatus(manualReady, ready.jobs?.[0].id ?? '', 'Consegnata')
 
     expect(delivered.jobs?.[0].deliveredAt).toBeTruthy()
-    expect(delivered.vehicles[0].coneNumber).toBeNull()
+    expect(delivered.vehicles[0]).toMatchObject({
+      status: 'consegnata', coneNumber: null, deliveredAt: delivered.jobs?.[0].deliveredAt,
+    })
   })
 
   it('assegna automaticamente un cono quando la commessa diventa In lavorazione', () => {
@@ -2185,4 +2188,29 @@ describe('avanzamento sulle sole fasi richieste',()=>{
   const completed={...job,phases:job.phases.map(phase=>phase.id===wash.id?{...phase,status:'Completata' as const}:phase)}
   expect(workflowOperationalSnapshot(completed).progressPercent).toBe(25)
  })
+})
+
+
+it('synchronizes delivery from the vehicle without completing unfinished production phases', () => {
+  const data = createDirectJob(makeData(), {
+    customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD', companyName: '', contactName: '',
+    entryDate: '2026-11-11', expectedDeliveryDate: '2026-11-11', priority: 'Normale', responsible: '',
+    notes: '', lines: [{ description: 'Riparazione', category: 'carrozzeria', quantity: 1, unitPrice: 120, discount: 0, vatRate: 22 }],
+  })
+  const job = data.jobs![0]
+  const productionPhase = { ...job.phases[0], id: 'work', name: 'Stuccatura', status: 'In lavorazione' as const }
+  job.phases = [productionPhase, { ...productionPhase, id: 'delivery', name: 'Consegna', status: 'Da fare' }]
+  const cancelled = { ...job, id: 'cancelled', status: 'Annullata' as const }
+  const older = { ...job, id: 'older', createdAt: '2026-11-01T07:00:00Z' }
+  data.jobs!.push(cancelled, older)
+  const ready = changeVehicleStatus(data, 'v1', 'pronta')
+  const delivered = changeVehicleStatus(ready, 'v1', 'consegnata')
+  const date = delivered.vehicles[0].deliveredAt
+  expect(date).toBeTruthy()
+  expect(delivered.jobs![0]).toMatchObject({ status: 'Consegnata', deliveredAt: date })
+  expect(delivered.jobs![0].phases[0]).toEqual(productionPhase)
+  expect(delivered.jobs![0].phases[1]).toMatchObject({ status: 'Completata', completedAt: date, endedAt: date })
+  expect(delivered.jobs![1]).toBe(cancelled)
+  expect(delivered.jobs![2]).toBe(older)
+  expect(changeVehicleStatus(delivered, 'v1', 'consegnata').jobs).toBe(delivered.jobs)
 })

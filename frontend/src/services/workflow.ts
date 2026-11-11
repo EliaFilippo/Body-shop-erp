@@ -22,8 +22,8 @@ import type {
 	StandardWorkPriceListItem,
 	StandardWorkTimePreset,
 } from '../types'
-import { addVehicle, changeVehicleStatus, reconcileVehicleCones } from './erp'
-import { suggestVehicleStatus } from './vehicleStatuses'
+import { addVehicle, changeVehicleStatus, completeJobDelivery, normalizePlate, reconcileVehicleCones } from './erp'
+import { isVehicleDeliveredStatus, suggestVehicleStatus } from './vehicleStatuses'
 
 const id = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
@@ -1487,14 +1487,23 @@ export function updateJobStatus(data: ErpData, jobId: string, status: JobStatus)
 	if (status === 'Pronta consegna' && current.qualityChecklist.some((item) => !item.checked)) {
 		throw new Error('Completa il controllo qualità prima di impostare Pronta consegna.')
 	}
+	if (status === 'Consegnata') {
+		const vehicle = current.vehicleId ? data.vehicles.find(item => item.id === current.vehicleId)
+			: data.vehicles.find(item => normalizePlate(item.plate) === normalizePlate(current.plate))
+		if (vehicle) return syncOperationalStateFromJobs(changeVehicleStatus(data, vehicle.id, 'Consegnata', {
+			source: 'manual', deliveryJobId: current.id, note: 'Consegna registrata dalla commessa.',
+		}))
+		return syncOperationalStateFromJobs({
+			...data,
+			jobs: jobs.map(job => job.id === current.id ? completeJobDelivery(job, now()) : job),
+		})
+	}
 	const timestamp = now()
 	let next: ErpData = {
 		...data,
 		jobs: jobs.map((job) => job.id === jobId ? {
 			...job,
 			status,
-			deliveredAt: status === 'Consegnata' ? (job.deliveredAt || timestamp) : job.deliveredAt,
-			phases: status === 'Consegnata' && job.workflowCycle === 'elias-v1' ? job.phases.map(phase=>phase.name==='Consegna'?{...phase,status:'Completata' as const,completedAt:timestamp,endedAt:timestamp}:phase) : job.phases,
 			updatedAt: timestamp,
 			history: [{ id: id(), at: timestamp, actor: 'Operatore ERP', message: `Stato aggiornato a ${status}.` }, ...job.history],
 		} : job),
@@ -1756,7 +1765,7 @@ export function syncOperationalStateFromJobs(data: ErpData): ErpData {
 	for (const job of jobs) {
 		if (!job.vehicleId || job.status === 'Annullata') continue
 		const vehicle = withSuggestedStatuses.vehicles.find((item) => item.id === job.vehicleId)
-		if (!vehicle) continue
+		if (!vehicle || (job.status === 'Consegnata' && isVehicleDeliveredStatus(withSuggestedStatuses.plannerSettings, vehicle.status))) continue
 		const suggested = suggestVehicleStatus(withSuggestedStatuses.plannerSettings, vehicle, job.status)
 		if (!suggested) continue
 		withSuggestedStatuses = changeVehicleStatus(withSuggestedStatuses, vehicle.id, suggested, {
