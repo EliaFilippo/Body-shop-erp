@@ -1663,7 +1663,7 @@ function applyLivePhaseChecks(data, checks) {
       changed = true;
       jobChanged = true;
       const historyId = `tablet:${job.id}:${phase.id}:${check.checkedAt}`;
-      if (!history.some((h) => h.id === historyId)) history.unshift({ id: historyId, at: check.checkedAt, actor: check.checkedBy, message: `Fase ${phase.name} completata.` });
+      if (!history.some((h) => h.id === historyId)) history.unshift({ id: historyId, at: check.checkedAt, actor: check.checkedBy, message: `Fase ${phase.name} completata da tablet.` });
       return {
         ...phase,
         status: "Completata",
@@ -1735,7 +1735,7 @@ function applyProductionPlanningState(data, state) {
         if (p.completedAt && p.completedByName) {
           const id2 = `tablet:${job.id}:${p.id}:${p.completedAt}`;
           if (!history.some((h) => h.id === id2)) {
-            history.unshift({ id: id2, at: p.completedAt, actor: p.completedByName, message: `Fase ${p.name} completata.` });
+            history.unshift({ id: id2, at: p.completedAt, actor: p.completedByName, message: `Fase ${p.name} completata da tablet.` });
             jobChanged = true;
             changed = true;
           }
