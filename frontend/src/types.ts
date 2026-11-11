@@ -611,7 +611,14 @@ export interface EliasCatalogOverride {
 }
 export interface OperatorDayExtension { id:string; operatorId:string; date:string; startMinute:number; endMinute:number }
 
+export interface ManualOperatorDay {
+  date: string
+  period: 'day' | 'morning' | 'afternoon'
+  assignments: { operatorId: string; jobId: string; phaseId: string }[]
+}
+
 export interface PlannerSettings {
+  manualOperatorDays?: ManualOperatorDay[]
   operatorDayExtensions?: OperatorDayExtension[]
   eliasPriceOverrides?: Record<string, EliasCatalogOverride>
   eliasExteriorWashMinutes?: number
