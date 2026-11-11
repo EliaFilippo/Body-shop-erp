@@ -11,7 +11,7 @@ import { CloudSessionExpiredError, persistCloudSession, readStoredCloudSession, 
 import { LocalRecoveryPanel } from './features/settings/LocalRecoveryPanel'
 import { sameCloudArchive, recoverMissingBusinessRecords } from './services/localRecovery'
 import { enableFilippoTransport } from './services/transportDutySetup'
-import { applyProductionPlanningState, type OffVehicleWork, type ProductionPlanningState } from './services/productionPlanningState'
+import { applyProductionPlanningState, type VehicleWork, type ProductionPlanningState } from './services/productionPlanningState'
 import { applyDayExtensions } from './services/operatorDayExtensions'
 import type { OperatorDayExtension } from './types'
 import { GoalProgressPanel } from './features/dashboard/GoalProgressPanel'
@@ -665,8 +665,8 @@ function App() {
   const [cloudSession, setCloudSession] = useState<CloudAuthSession | null>(() => cloudConfig ? readCloudSession() : null)
   useCloudSessionRenewal(cloudSession, cloudConfig, next => setCloudSession(current=>current?.userId===next.userId?next:current), () => {cloudReadyRef.current=false;setCloudReady(false);setCloudSession(null)})
   const [cloudMembership, setCloudMembership] = useState<CloudCompanyMembership | null>(null)
-  const [outsideWork, setOutsideWork] = useState<{ companyId: string; rows: OffVehicleWork[] }>()
-  const offVehicleWork = outsideWork && outsideWork.companyId === cloudMembership?.companyId ? outsideWork.rows : undefined
+  const [recordedVehicleWork, setRecordedVehicleWork] = useState<{ companyId: string; rows: VehicleWork[] }>()
+  const vehicleWork = recordedVehicleWork && recordedVehicleWork.companyId === cloudMembership?.companyId ? recordedVehicleWork.rows : undefined
   const [cloudReady, setCloudReady] = useState(false)
   const [cloudInitializationError, setCloudInitializationError] = useState('')
   const [cloudSyncAttempt, setCloudSyncAttempt] = useState(0)
@@ -859,8 +859,8 @@ function App() {
           if (!cancelled) {
             setData(current => Date.parse(actual.serverNow) < Date.parse(current.productionPlanningSampleAt ?? '')
               ? current : applyLivePhaseChecks(applyProductionPlanningState(current, actual), actual.checks ?? checks))
-            const rows = actual.offVehicleWork
-            if (Array.isArray(rows)) setOutsideWork(current =>
+            const rows = actual.vehicleWork
+            if (Array.isArray(rows)) setRecordedVehicleWork(current =>
               current?.companyId === companyId && JSON.stringify(current.rows) === JSON.stringify(rows)
                 ? current : { companyId, rows })
           }
@@ -1224,7 +1224,7 @@ function App() {
       {(completion.pending||completion.error||displayData!==data)&&<p role="status" style={{margin:'8px 24px'}}>{completion.error|| (completion.pending?'Ricalcolo del piano dopo completamento fase…':`Piano aggiornato alle ${new Date(completion.plan!.generatedAt).toLocaleTimeString('it-IT',{timeZone:'Europe/Rome'})} · consegne previste aggiornate`)}</p>}
       <Suspense fallback={<p role="status">Apertura schermata…</p>}><div className="content">
             {cloudConfig && cloudSession && cloudMembership && cloudMembership.role !== 'production' && <ProductionControlPanel connection={{ config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId }} />}
-        {view === 'dashboard' && <Dashboard data={displayData} offVehicleWork={offVehicleWork} setView={setView} onNewVehicle={() => {
+        {view === 'dashboard' && <Dashboard data={displayData} vehicleWork={vehicleWork} setView={setView} onNewVehicle={() => {
           if (data.customers.length) setModal({ type: 'vehicle' })
           else {
             setView('customers')
@@ -1256,7 +1256,7 @@ function App() {
           }}
         />}
         {view === 'cones' && <Cones data={displayData} customerById={customerById} onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
-        {view === 'planner' && <PlannerPage data={displayData} offVehicleWork={offVehicleWork} liveForecasts={displayData!==data?completion.plan?.forecasts:undefined} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
+        {view === 'planner' && <PlannerPage data={displayData} vehicleWork={vehicleWork} liveForecasts={displayData!==data?completion.plan?.forecasts:undefined} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
           setView('estimates-jobs')
           setQuery(query)
         }} onOpenOperatorProgram={() => setView('operator-program')} onRecalculatePlanning={() => {
@@ -1368,7 +1368,7 @@ function App() {
         }} setNotice={setNotice} setError={setError} /></>}
         {view === 'price-list' && <><EliasCatalogSettings settings={data.plannerSettings} onSave={plannerSettings => { setData({ ...data, plannerSettings }); setNotice('Tempi e prezzi preimpostati salvati.'); setError('') }} /><details className="panel"><summary>Listino avanzato e altre lavorazioni</summary><PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} /></details></>}
         {view === 'finance' && <FinancePage ribaVehicleId={ribaVehicleId} onRibaVehicleHandled={()=>setRibaVehicleId(undefined)} passwordConnection={cloudConfig && cloudSession && cloudMembership ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
-        {view === 'estimates-jobs' && <WorkflowPage offVehicleWork={offVehicleWork} livePrograms={livePrograms} noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
+        {view === 'estimates-jobs' && <WorkflowPage vehicleWork={vehicleWork} livePrograms={livePrograms} noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')
           const result = await productionRpc<{ok:boolean;message?:string}>('production_private_password', {p_company_id:cloudMembership.companyId,p_action:'unlock',p_password:password}, cloudSession, cloudConfig)
           if (!result.ok) throw new Error(result.message || 'Password dei blocchi non corretta.')
@@ -1867,7 +1867,7 @@ function WorkHoursSettingsPage({ settings, onSave }: { settings: ErpData['planne
   </section>
 }
 
-function Dashboard({ data, offVehicleWork, setView, onNewVehicle, onNewCustomer }: { data: ErpData; offVehicleWork?: OffVehicleWork[]; setView: (view: View) => void; onNewVehicle: () => void; onNewCustomer: () => void }) {
+function Dashboard({ data, vehicleWork, setView, onNewVehicle, onNewCustomer }: { data: ErpData; vehicleWork?: VehicleWork[]; setView: (view: View) => void; onNewVehicle: () => void; onNewCustomer: () => void }) {
   const normalizeStatus = (value: string) => value.trim().toLowerCase()
   const today = new Date().toISOString().slice(0, 10)
   const plusDays = (days: number) => {
@@ -1949,7 +1949,7 @@ function Dashboard({ data, offVehicleWork, setView, onNewVehicle, onNewCustomer 
     <TreasuryPanel data={data} compact />
     <section className="welcome premium-welcome compact-welcome"><div><span className="eyebrow">DASHBOARD TITOLARE</span><h2>Visione sintetica e operativa</h2><p>Vista pulita basata solo su dati reali ERP: economico, produzione, incassi e criticità.</p></div><div className="quick-links"><button className="secondary" onClick={onNewCustomer}><Icon name="plus" /> Nuovo cliente</button><button className="secondary" onClick={onNewVehicle}><Icon name="plus" /> Nuova vettura</button><button className="secondary" onClick={() => setView('finance')}><Icon name="plus" /> Nuova fattura</button><button className="secondary" onClick={() => setView('planner')}><Icon name="planner" /> Planner</button></div></section>
 
-    <GoalProgressPanel data={data} offVehicleWork={offVehicleWork} />
+    <GoalProgressPanel data={data} vehicleWork={vehicleWork} />
     <ConfirmedWorkOverview data={data}/>
     <section className="owner-kpi-grid">{topKpis.map((kpi) => <article className="owner-kpi-card" key={kpi.id}><span>{kpi.label}</span><strong>{kpi.value}</strong><small>{kpi.note}</small></article>)}</section>
 

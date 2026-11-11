@@ -58,12 +58,15 @@ it('marks the period incomplete when a signed phase has hours without operator a
   })
 })
 
-it('deducts Federica’s registered off-vehicle time and the loss of a delivered job once each', () => {
+it('deducts scheduled hours minus time on cars alongside the loss of a delivered job', () => {
   const data = structuredClone(emptyData)
   data.plannerSettings.monthlyMarginGoal = 3000
+  data.plannerSettings.closures = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06']
+  data.plannerSettings.absences = [{ id: 'absence', operatorId: 'federica', startDate: '2026-11-11', endDate: '2026-11-11', hoursPerDay: null, reason: '' }]
   data.plannerSettings.operators = [
     { id: 'martin', name: 'Martin', costMode: 'external-extra', externalHourlyCost: 40, dailyHours: 8, active: true },
-    { id: 'federica', name: 'FEDERICA', hourlyCost: 17, dailyHours: 4, active: true },
+    { id: 'federica', name: 'FEDERICA', hourlyCost: 17, dailyHours: 8, active: true,
+      weeklySchedule: [{ dayOfWeek: 1, active: true, intervals: [{ startTime: '08:30', endTime: '12:30' }] }] },
   ]
   const job = makeReportJob()
   job.status = 'Consegnata'
@@ -73,13 +76,20 @@ it('deducts Federica’s registered off-vehicle time and the loss of a delivered
   job.phases = [completedPhase]
   data.jobs = [job]
   data.historicalActuals = [
-    { id: 'archived', kind: 'hours', date: '2026-11-09', operatorId: 'federica', paidSeconds: 14400, productiveSeconds: 7200 },
-    { id: 'manual', kind: 'hours', date: '2026-11-10', operatorId: 'federica', paidSeconds: 14400, productiveSeconds: 10800 },
+    { id: 'archived', kind: 'hours', date: '2026-11-09', operatorId: 'federica', paidSeconds: 14400, productiveSeconds: 10800 },
+    { id: 'manual', kind: 'hours', date: '2026-11-10', operatorId: 'federica', paidSeconds: 14400, productiveSeconds: 7200 },
   ]
-  const result = calculateGoalProgress(data, '2026-11-10', [
+  const liveWork = [
     { date: '2026-11-09', operatorId: 'federica', seconds: 7200 },
     { date: '2026-11-10', operatorId: 'martin', seconds: 3600 },
-  ])
-  expect(result.map(({ done, offVehicleCost }) => [done, offVehicleCost])).toEqual([[-17, 17], [-71, 51], [-71, 51]])
-  expect(result[2]).toMatchObject({ gap: 3071, incomplete: false })
+  ]
+  expect(calculateGoalProgress(data, '2026-11-09', liveWork)[0]).toMatchObject({ done: -122, offVehicleHours: 6, offVehicleCost: 102 })
+  const result = calculateGoalProgress(data, '2026-11-11', liveWork)
+  expect(result.map(({ done, offVehicleCost }) => [done, offVehicleCost])).toEqual([[0, 0], [-224, 204], [-224, 204]])
+  expect(result[2]).toMatchObject({ gap: 3224, incomplete: false })
+  expect(calculateGoalProgress(data, '2026-11-12')[0]).toMatchObject({ offVehicleTimeIncomplete: true })
+  expect(calculateGoalProgress(data, '2026-11-12', [])[0]).toMatchObject({ offVehicleHours: 8, offVehicleCost: 136 })
+  expect(calculateGoalProgress(data, '2026-11-12', [
+    { date: '2026-11-12', operatorId: 'federica', seconds: 32400 },
+  ])[0]).toMatchObject({ offVehicleHours: 0, offVehicleCost: 0 })
 })
