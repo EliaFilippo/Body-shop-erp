@@ -73,6 +73,17 @@ describe('closed job margin', () => {
   })
  })
 
+ it('subtracts recorded parts once and labels the quoted purchase cost as estimated when no receipt is recorded', () => {
+  const job = makeReportJob()
+  job.phases = [phase('a', { tabletWorkedSeconds: 3600 })]
+  job.materialActualCost = { amount: 20, at: '', note: '' }
+  job.lines.push({ ...job.lines[0], id: 'parts', category: 'ricambi', budgetDirectUnitCost: 90 })
+  expect(closedJobMargin(job, 30, [], undefined, 60)).toMatchObject({
+   materialCents: 2000, partsCents: 6000, laborCents: 3000, marginCents: 39000, partsEstimated: false,
+  })
+  expect(closedJobMargin(job, 30)).toMatchObject({ partsCents: 9000, marginCents: 36000, partsEstimated: true })
+ })
+
  it('keeps margins unavailable until actual material cost and work time are recorded', () => {
   const job = makeReportJob()
   job.phases = [phase('a', { tabletWorkedSeconds: 3600 }), phase('b')]

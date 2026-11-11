@@ -48,8 +48,24 @@ const consumableCategories = new Set<VehicleCostCategory>([
  'minuteria', 'materiali di lucidatura', 'materiale verniciatura',
 ])
 
-export function recordedJobConsumables(vehicle: Vehicle, entryDate: string, deliveryDate: string) {
- const entries = vehicle.costEntries?.filter(entry => consumableCategories.has(entry.category)
-  && entry.usedAt >= entryDate && entry.usedAt <= deliveryDate)
- return entries?.length ? entries.reduce((sum, entry) => sum + entry.total, 0) : undefined
+const costDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
+
+export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: RepairJob[], deliveryDate: string) {
+ const inVisit = (vehicle.costEntries ?? []).filter(entry => job.entryDate && entry.usedAt >= job.entryDate && entry.usedAt <= deliveryDate)
+ if (!inVisit.length) return { materials: undefined, parts: undefined }
+
+ const plateKey = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
+ const competing = jobs.filter(other => other.id !== job.id && other.status !== 'Annullata'
+  && (other.vehicleId ? other.vehicleId === vehicle.id : plateKey(other.plate) === plateKey(vehicle.plate)))
+  .map(other => {
+   const delivered = Date.parse(other.deliveredAt ?? '')
+   return { start: other.entryDate, end: Number.isFinite(delivered) ? costDate.format(new Date(delivered)) : undefined }
+  })
+ const entries = inVisit.filter(entry => !competing.some(visit => (!visit.start || entry.usedAt >= visit.start)
+   && (!visit.end || entry.usedAt <= visit.end)))
+ const sum = (selected: typeof entries) => selected.length ? selected.reduce((total, entry) => total + entry.total, 0) : undefined
+ return {
+  materials: sum(entries.filter(entry => consumableCategories.has(entry.category))),
+  parts: sum(entries.filter(entry => entry.category === 'ricambi')),
+ }
 }

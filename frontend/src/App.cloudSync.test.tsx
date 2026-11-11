@@ -244,6 +244,7 @@ describe('avvio e salvataggio cloud', () => {
     fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'da-pianificare' } })
     await waitFor(async () => expect((await latestRemote()).vehicles[0].coneNumber).toBe(1))
     fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'consegnata' } })
+    expect(screen.getByRole('heading', { name: 'Guadagno alla consegna · CL123UD' })).toBeInTheDocument()
     await waitFor(async () => {
       const remote = await latestRemote()
       expect(remote.vehicles[0]).toMatchObject({ status: 'consegnata', coneNumber: null })
