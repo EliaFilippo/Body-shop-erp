@@ -2,9 +2,12 @@ import type { RepairJob } from '../types'
 import { phaseDisplayName } from './workCycle'
 import { calculateJobMaterialMargin } from './jobMaterialCosts'
 const valid=(n:unknown):n is number=>typeof n==='number'&&Number.isFinite(n)&&n>=0
+export function deliveredWorkPhases(job:RepairJob){
+ return job.phases.filter(p=>p.name!=='Consegna'&&(!p.notRequired||(p.tabletWorkedSeconds??0)>0||p.operatorAssignments?.some(a=>a.endedAt&&a.workedMinutes>0)))
+}
 /** Productive person-time: a tablet signature already sums all staff on that phase. */
 export function deliveredJobReport(job:RepairJob){
- const phases=job.phases.filter(p=>p.name!=='Consegna'&&(!p.notRequired||(p.tabletWorkedSeconds??0)>0||p.operatorAssignments?.some(a=>a.endedAt&&a.workedMinutes>0)))
+ const phases=deliveredWorkPhases(job)
  const groups=new Map<string,{label:string;plannedMinutes:number;allowance:number;workedSeconds:number;missing:number;manual:boolean}>()
  for(const phase of phases){
   const key=phase.sharedTimeKey||phase.id

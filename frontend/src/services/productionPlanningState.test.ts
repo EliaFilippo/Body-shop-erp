@@ -26,6 +26,18 @@ describe('canonical operational replanning',()=>{
   expect(phase.operatorAssignments).toHaveLength(2)
   expect(phase.operatorAssignments[1]).toMatchObject({workedMinutes:15,endedAt:state.serverNow,activityStatus:'Concluso'})
  })
+ it('backfills per-operator tablet time for a delivered job while preserving its signature',()=>{
+  const data=fixture()
+  data.jobs[0].status='Consegnata'
+  const phase=data.jobs[0].phases[0]
+  Object.assign(phase,{status:'Completata',tabletWorkedSeconds:900,completedByName:'Firmato'})
+  const recorded={...state,entries:[{...state.entries[0],runningSince:null,closedSeconds:900,lastEndedAt:state.serverNow}]}
+  const updated=applyProductionPlanningState(data,recorded)
+  expect(updated.jobs![0].status).toBe('Consegnata')
+  expect(updated.jobs![0].phases[0]).toMatchObject({status:'Completata',tabletWorkedSeconds:900,completedByName:'Firmato',
+   operatorAssignments:[{id:'tablet:a',workedMinutes:15,activityStatus:'Concluso'}]})
+  expect(applyProductionPlanningState(updated,recorded)).toBe(updated)
+ })
  it('never overwrites the signed phase',()=>{
   const data=fixture();data.jobs[0].phases[0].status='Completata';data.jobs[0].phases[0].completedByName='Firmato'
   expect(applyProductionPlanningState(data,state).jobs![0].phases[0]).toBe(data.jobs[0].phases[0])

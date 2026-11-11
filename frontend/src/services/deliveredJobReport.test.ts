@@ -53,6 +53,26 @@ describe('closed job margin', () => {
   expect(result.hourlyRevenue).toBeCloseTo(491.76, 2)
  })
 
+ it('charges Martin for his own share of a signed phase shared with another operator', () => {
+  const job = makeReportJob()
+  const martin = { id: 'martin', name: 'Martin', dailyHours: 8, active: true, costMode: 'external-extra' as const, externalHourlyCost: 40 }
+  const assignment = { startedAt: '2026-10-26T08:00:00Z', endedAt: '2026-10-26T10:00:00Z', activityStatus: 'Concluso' as const }
+  const martinWork = { ...assignment, id: 'tablet:martin', operatorName: 'MARTIN', workedMinutes: 90 }
+  job.materialActualCost = { amount: 0, at: '', note: '' }
+  job.phases = [phase('a', { tabletWorkedSeconds: 7200, operatorAssignments: [
+   martinWork, { ...assignment, id: 'tablet:a', operatorName: 'A', workedMinutes: 30 },
+   { ...martinWork, id: 'office-duplicate' },
+  ] })]
+  expect(closedJobMargin(job, 30, [martin])).toMatchObject({
+   workedSeconds: 7200, marginCents: 38000, externalHoursComplete: true,
+   externalLabor: [{ name: 'Martin', seconds: 5400, costCents: 6000 }],
+  })
+  job.phases[0].operatorAssignments = []
+  expect(closedJobMargin(job, 30, [martin])).toMatchObject({
+   workedSeconds: 7200, marginCents: null, externalHoursComplete: false,
+  })
+ })
+
  it('keeps margins unavailable until actual material cost and work time are recorded', () => {
   const job = makeReportJob()
   job.phases = [phase('a', { tabletWorkedSeconds: 3600 }), phase('b')]

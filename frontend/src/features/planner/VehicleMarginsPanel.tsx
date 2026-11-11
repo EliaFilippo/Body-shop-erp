@@ -60,9 +60,9 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
   const hourlyCost = resolveInternalHourlyRate(plannerSettings).effectiveHourlyRate
   const rows = useMemo(() => (jobs ?? [])
     .filter(job => job.status === 'Consegnata')
-    .map(job => ({ job, ...closedJobMargin(job, hourlyCost) }))
+    .map(job => ({ job, ...closedJobMargin(job, hourlyCost, plannerSettings.operators) }))
     .sort((a, b) => (b.job.deliveredAt ?? b.job.updatedAt).localeCompare(a.job.deliveredAt ?? a.job.updatedAt)),
-  [jobs, hourlyCost])
+  [jobs, hourlyCost, plannerSettings.operators])
   const calculated = rows.filter(row => row.marginCents !== null)
   const totalCents = calculated.reduce((sum, row) => sum + (row.marginCents ?? 0), 0)
   const targets = new Map<string, number | null>()
@@ -82,11 +82,11 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
 
   return <details className="panel">
     <summary><strong>Margini a consuntivo per vettura</strong> · {rows.length} commesse consegnate</summary>
-    <p>Importi IVA esclusa. Il margine usa l’importo concordato in commessa, i materiali registrati a consuntivo, i costi diretti da commessa e le ore lavorate valorizzate al costo orario interno del gestionale.</p>
+    <p>Importi IVA esclusa. Il margine usa l’importo concordato in commessa, i materiali registrati a consuntivo, i costi diretti da commessa e le ore lavorate valorizzate al costo orario interno. Per i collaboratori esterni si aggiunge il loro costo orario sulle ore registrate.</p>
     {calculated.length > 0 && <p>Margine complessivo su {calculated.length} commesse con dati completi · <strong>{money(totalCents / 100)}</strong></p>}
     {rows.length === 0 ? <p>Nessuna commessa consegnata.</p> : <div style={{ overflowX: 'auto' }}>
       <table aria-label="Margini a consuntivo delle commesse consegnate">
-        <thead><tr><th scope="col">Targa</th><th scope="col">Cono</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore lavorate</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine a consuntivo</th></tr></thead>
+        <thead><tr><th scope="col">Targa</th><th scope="col">Cono</th><th scope="col">Commessa</th><th scope="col">Ricavo senza IVA</th><th scope="col">Ore lavorate</th><th scope="col">Collaboratori esterni</th><th scope="col">Ricavo orario</th><th scope="col">Rispetto all’obiettivo</th><th scope="col">Margine a consuntivo</th></tr></thead>
         <tbody>{rows.map(row => {
           const deliveryMonth = row.job.deliveredAt?.slice(0, 7) ?? monthKey
           if (!targets.has(deliveryMonth)) {
@@ -102,6 +102,9 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
             <th scope="row">{job.plate}</th><td>{cone ?? '—'}</td><td>{job.number}</td>
             <td>{row.revenueCents === null ? '—' : money(row.revenueCents / 100)}</td>
             <td>{row.complete ? reportDuration(row.workedSeconds) : row.workedSeconds > 0 ? `${reportDuration(row.workedSeconds)} (parziale)` : 'Da registrare'}</td>
+            <td>{row.externalLabor.length ? row.externalLabor.map(worker => <div key={worker.name}>
+              {worker.name} · {reportDuration(worker.seconds)} · {worker.costCents === null ? 'Tariffa da configurare' : money(worker.costCents / 100)}
+            </div>) : '—'}{!row.externalHoursComplete && <small>Controlla ore e tariffe</small>}</td>
             <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
             <td>{row.hourlyRevenue === null || target === null ? '—' : row.hourlyRevenue < target ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
             <td>{row.marginCents === null ? 'Dati da completare' : <strong>{money(row.marginCents / 100)}</strong>}</td>

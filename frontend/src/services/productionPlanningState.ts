@@ -19,12 +19,22 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
  if(!Array.isArray(state.entries)||!Number.isFinite(Date.parse(state.serverNow))||Date.parse(state.serverNow)<Date.parse(data.productionPlanningSampleAt??''))return data
  let changed=false
  const sample=new Date(Math.floor(Date.parse(state.serverNow)/60000)*60000).toISOString()
+ const entriesByJob=new Map<string,Map<string,PlanningEntry[]>>()
+ for(const entry of state.entries){
+  if(!Number.isFinite(entry.closedSeconds)||entry.closedSeconds<0)continue
+  const byPhase=entriesByJob.get(entry.jobId)??new Map<string,PlanningEntry[]>()
+  const entries=byPhase.get(entry.phaseId)??[]
+  entries.push(entry)
+  byPhase.set(entry.phaseId,entries)
+  entriesByJob.set(entry.jobId,byPhase)
+ }
  const jobs=(data.jobs??[]).map(job=>{
-  if(['Consegnata','Annullata'].includes(job.status))return job
+  if(job.status==='Annullata')return job
+  const delivered=job.status==='Consegnata'
   let jobChanged=false
   let phases=[...job.phases]
   const history=[...(job.history??[])]
-  for(const definition of state.phaseStates??[]){
+  for(const definition of delivered?[]:state.phaseStates??[]){
    const p=definition.phase
    if(definition.jobId!==job.id||!p?.id||!p.name||!p.serverWorkTracked||!['Da fare','In lavorazione','Completata','Bloccata'].includes(p.status))continue
    const index=phases.findIndex(phase=>phase.id===p.id),base=index>=0?phases[index]:undefined
@@ -55,16 +65,16 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
    phases.sort((a,b)=>order(a)-order(b))
   }
   phases=phases.map(phase=>{
-   if(phase.status==='Completata'&&!phase.serverWorkTracked)return phase
-   const entries=state.entries.filter(e=>e.jobId===job.id&&e.phaseId===phase.id&&Number.isFinite(e.closedSeconds)&&e.closedSeconds>=0)
-   if(!entries.length)return phase
+   if(!delivered&&phase.status==='Completata'&&!phase.serverWorkTracked)return phase
+   const entries=entriesByJob.get(job.id)?.get(phase.id)
+   if(!entries)return phase
    const assignments:JobPhaseOperatorAssignment[]=entries.map(e=>({
     id:'tablet:'+e.operatorId,operatorName:e.operatorName,startedAt:e.runningSince||e.firstStartedAt,
     ...(e.runningSince?{}:{endedAt:e.lastEndedAt||state.serverNow}),
     workedMinutes:e.closedSeconds/60,activityStatus:e.runningSince?'Attivo':'Concluso',
    }))
    const operatorAssignments=[...(phase.operatorAssignments??[]).filter(a=>!a.id.startsWith('tablet:')), ...assignments]
-   const next={...phase,operatorAssignments,status:phase.status==='Da fare'?'In lavorazione' as const:phase.status}
+   const next={...phase,operatorAssignments,status:!delivered&&phase.status==='Da fare'?'In lavorazione' as const:phase.status}
    if(sameJson(next,phase))return phase
    changed=true;jobChanged=true;return next
   })
