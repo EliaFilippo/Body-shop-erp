@@ -16,6 +16,7 @@ export interface FastEstimateInput {
  quote:AcceptanceQuote
  paymentTerms?:EstimatePaymentTerms
  confirmed:boolean
+ presentInShop?:boolean
  requestedDeliveryDate?:string
  planningPrecedence?:boolean
  notes?:string
@@ -51,7 +52,7 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
  }
  if(!customer)throw new Error('Scegli il cliente o inserisci nome e telefono.')
  if(!vehicle){
-  next=addVehicle(next,{customerId:customer.id,plate,make:'',model:'',color:'',year:'',vin:'',mileage:'',status:'',estimatedHours:0,workedHours:0,plannedEntryDate:'',requestedDeliveryDate:input.requestedDeliveryDate||'',calculatedDeliveryDate:'',expectedRevenue:0,expectedMargin:0,partsStatus:'Disponibili',blockReason:'',manualPlanningDate:'',notes:'Creata da Preventivo fast.'})
+  next=addVehicle(next,{customerId:customer.id,presentInShop:input.presentInShop,plate,make:'',model:'',color:'',year:'',vin:'',mileage:'',status:'',estimatedHours:0,workedHours:0,plannedEntryDate:'',requestedDeliveryDate:input.requestedDeliveryDate||'',calculatedDeliveryDate:'',expectedRevenue:0,expectedMargin:0,partsStatus:'Disponibili',blockReason:'',manualPlanningDate:'',notes:'Creata da Preventivo fast.'})
   vehicle=next.vehicles[0]
  }
  const lines=acceptanceEstimateLines(input.quote,next.plannerSettings)
@@ -64,7 +65,7 @@ export function createFastEstimate(data:ErpData,input:FastEstimateInput,at=new D
  } catch (error) {
   if (!(error instanceof StationAvailabilityError)) throw error
  }
- const fields={customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date:current?.date??today,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined}
+ const fields={presentInShop:input.presentInShop??current?.presentInShop,customerId:customer.id,vehicleId:vehicle.id,plate,companyName:customer.name,contactName:customer.name,date:current?.date??today,planningPrecedence,requestedDeliveryDate:input.requestedDeliveryDate||'',notes:input.notes||'',lines,selectedPhases,productionForecast,paymentTerms:input.paymentTerms?{...input.paymentTerms,expectedCollectionDate:expectedPaymentDate(input.paymentTerms,input.requestedDeliveryDate)}:undefined}
  next=current ? updateEstimate(next,current.id,{...fields,source:'fast',lines:lines as EstimateLine[]}) : createEstimate(next,fields)
  const estimate=current ? next.estimates!.find(item=>item.id===current.id)! : {...next.estimates![0],source:'fast' as const}
  if(!current)next={...next,estimates:[estimate,...next.estimates!.slice(1)]}

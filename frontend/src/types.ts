@@ -269,6 +269,7 @@ export interface VehicleStatusChange {
 }
 
 export interface Vehicle {
+  presentInShop?: boolean
   planningPrecedence?: boolean
   id: string
   customerId: string
@@ -1092,6 +1093,7 @@ export interface EstimatePaymentTerms {
 }
 
 export interface EstimateDocument {
+  presentInShop?: boolean
   source?: 'fast'
   planningPrecedence?: boolean
   selectedPhases?: string[]

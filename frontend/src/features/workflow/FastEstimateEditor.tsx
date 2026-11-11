@@ -3,6 +3,7 @@ import { DeliveryForecastPanel } from '../../components/DeliveryForecastPanel'
 import type { VehicleWork } from '../../services/productionPlanningState'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { QuoteEconomicsPreview } from './QuoteEconomicsPreview'
+import { VehiclePresenceButton } from './VehiclePresenceButton'
 import { FastPaymentTerms } from './FastPaymentTerms'
 import { OptionalPanelPhases } from './OptionalPanelPhases'
 import { useMemo, useRef, useState } from 'react'
@@ -26,6 +27,7 @@ export function FastEstimateEditor({data,livePrograms,vehicleWork,initial,onDone
   const savedDiscount = initial?.lines.reduce((sum,line)=>sum+line.discount,0) ?? 0
   return gross>0 && savedDiscount>0 ? String(savedDiscount/gross*100) : ''
  })
+ const [presenceChoice,setPresentInShop]=useState(initial?.presentInShop)
  const [plate,setPlate]=useState(initial?.plate??'')
  const [customerId,setCustomerId]=useState(initial?.customerId??'')
  const [name,setName]=useState('')
@@ -43,6 +45,7 @@ export function FastEstimateEditor({data,livePrograms,vehicleWork,initial,onDone
  const busy=useRef(false)
  const lineElements=useRef(new Map<string,HTMLElement>())
  const existing=data.vehicles.find(v=>normalizePlate(v.plate)===normalizePlate(plate))
+ const presentInShop=presenceChoice ?? existing?.presentInShop ?? true
  const owner=data.customers.find(c=>c.id===existing?.customerId)
  const recipient=owner||data.customers.find(c=>c.id===customerId)
  const terms:EstimatePaymentTerms=termsOverride??{method:recipient?.usualPaymentMethod??'Bonifico',days:recipient?.paymentDays??0,endOfMonth:Boolean(recipient?.endOfMonth),expectedInvoiceDate:'',atDelivery:!recipient}
@@ -98,7 +101,7 @@ export function FastEstimateEditor({data,livePrograms,vehicleWork,initial,onDone
  const marginRate = useMemo(() => marginTargetRate(data, quote.monthKey, undefined, undefined, vehicleWork), [data, quote.monthKey, vehicleWork])
  return <Modal title="Preventivo fast" onClose={onCancel}>
   <form onSubmit={e=>{e.preventDefault();if(busy.current||invalidDiscount)return;busy.current=true;try{
-   const next=createFastEstimate(data,{estimateId:initial?.id,plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
+   const next=createFastEstimate(data,{estimateId:initial?.id,plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,presentInShop,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
    const saved = initial ? next.estimates!.find(item=>item.id===initial.id)! : next.estimates![0]
    const send=(e.nativeEvent as SubmitEvent).submitter?.getAttribute('value')==='whatsapp'
    const link=send?fastEstimateWhatsAppLink(saved,targetPhone):null
@@ -110,6 +113,7 @@ export function FastEstimateEditor({data,livePrograms,vehicleWork,initial,onDone
   }catch(problem){setError(problem instanceof Error?problem.message:'Creazione non riuscita.');busy.current=false}}}>
    <p>Per danni lievi: scegli la vettura, aggiungi i pannelli e salva. Prezzi e tempi arrivano dal listino; i danni gravi si gestiscono nel preventivo completo.</p>
    <div className="form-grid">
+    <VehiclePresenceButton present={presentInShop} onChange={setPresentInShop}/>
     <label>Targa<input required minLength={5} readOnly={Boolean(initial)} value={plate} list="fast-plates" autoComplete="off" onChange={e=>{setPlate(e.target.value.toUpperCase());setWhatsappPhone(null);setTermsOverride(null);setError('')}}/></label>
     <datalist id="fast-plates">{data.vehicles.map(v=><option value={v.plate} key={v.id}>{data.customers.find(c=>c.id===v.customerId)?.name}</option>)}</datalist>
     {owner?<p>Cliente riconosciuto: <strong>{owner.name}</strong></p>:<label>Cliente<select required value={customerId} onChange={e=>{setCustomerId(e.target.value);setWhatsappPhone(null);setTermsOverride(null)}}><option value="">Scegli cliente</option><option value="new">+ Nuovo cliente</option>{data.customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
