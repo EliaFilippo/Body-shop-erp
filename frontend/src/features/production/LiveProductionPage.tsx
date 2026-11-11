@@ -216,7 +216,12 @@ export function LiveProductionPage() {
           const requiresPhase = job.dutiesFiltered || (manual ? (job.phases ?? []).length > 0 : (job.phases ?? []).some(p => !p.notRequired))
           const selectedPhase = availablePhases.find(p => p.id === selected)
           const switchesWork=Boolean(feed.activity?.kind || ownRunning && (ownRunning.jobId!==job.jobId || (ownRunning.ownPhaseId??'')!==selected))
-          const startBlockedReason=!selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.automaticAllowed!==false&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
+          const earlyTask = manual ? feed.program?.find(task => task.id.startsWith('early-phase:')
+            && task.jobId === job.jobId && task.phaseId === selected) : undefined
+          const requiredPaint = job.phases?.find(phase => phase.name === 'Verniciatura' && !phase.notRequired)
+          const earlyStartBlocked = !!earlyTask && ((requiredPaint && requiredPaint.status !== 'Completata')
+            || Date.parse(earlyTask.startAt) > Date.parse(feed.serverNow) + (performance.now() - lastSample.current))
+          const startBlockedReason=earlyStartBlocked ? 'Attendi che la fase sia pronta all’orario indicato dal programma.' : !selected&&requiresPhase ? [...new Set((job.phases??[]).filter(p=>!p.notRequired&&p.name!=='Consegna'&&p.automaticAllowed!==false&&p.status==='Bloccata').map(p=>p.blockedReason||'La fase è bloccata: verifica le lavorazioni precedenti.'))].join(' · ')||'Nessuna fase aperta abilitata per questo operatore.' : ''
           const permissionRemoved = job.dutiesFiltered && !job.phases?.some(p => p.id === job.ownPhaseId) && ['running','paused'].includes(job.ownStatus ?? '')
           const phaseActiveCount = selectedPhase?.clock?.activeCount ?? job.activeCount
           const standardClock = !(selectedPhase?.notRequired||selectedPhase?.manualExtra) && selectedPhase?.standardClock ? liveCountdown({ ...job, ...selectedPhase.standardClock }, (performance.now() - lastSample.current) / 1000) : null
@@ -258,7 +263,7 @@ export function LiveProductionPage() {
             {selectedPhase?.manualWorkTracked&&selectedPhase.status!=='Completata'&&<p>Premi «✓ Completa {phaseDisplayName(selectedPhase.name)}» per aggiornare anche il processo automatico. Il comando ferma il tuo timer sulla fase; Pausa e Fine fermano solo il conteggio.</p>}
             {startBlockedReason&&<p role="status">Avvio non disponibile: {startBlockedReason}{!manual && feed.manualSelection ? ' Puoi passare alla scelta manuale.' : ''}</p>}
             {feed.activity?.kind&&selected&&<p>Premendo Start termini {feed.activity.kind==='cleaning'?'Pulizie':'Pausa caffè'} e avvii questa vettura. Se l’avvio non riesce, l’attività precedente continua.</p>}
-            <div className="live-controls"><button disabled={busy || stale || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected) || (manual && job.manualStartAllowed === false)}
+            <div className="live-controls"><button disabled={busy || stale || earlyStartBlocked || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected) || (manual && job.manualStartAllowed === false)}
               onClick={() => void act(manual ? 'production_manual_start' : switchesWork ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(manual || switchesWork ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : manual ? 'Avvia manualmente' : 'Start'}</button>
               <button disabled={busy || stale || job.ownStatus !== 'running'} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'pause' })}>Pausa</button>
               <button disabled={busy || stale || !['running', 'paused'].includes(job.ownStatus ?? '')} onClick={() => void act('production_timer_action', { p_job_id: job.jobId, p_action: 'finish' })}>Fine</button></div>
