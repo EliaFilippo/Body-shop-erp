@@ -129,7 +129,7 @@ export function applyLivePhaseChecks(data: ErpData, checks: PhaseCheckUpdate[]):
       if (phase.status === 'Completata' && phase.completedByName === check.checkedBy && phase.completedAt === check.checkedAt && phase.tabletWorkedSeconds === check.workedSeconds) return phase
       changed = true; jobChanged = true
       const historyId = `tablet:${job.id}:${phase.id}:${check.checkedAt}`
-      if (!history.some(h => h.id === historyId)) history.unshift({ id: historyId, at: check.checkedAt, actor: check.checkedBy, message: `Fase ${phase.name} completata da tablet.` })
+      if (!history.some(h => h.id === historyId)) history.unshift({ id: historyId, at: check.checkedAt, actor: check.checkedBy, message: `Fase ${phase.name} completata.` })
       return { ...phase, status: 'Completata' as const, completedByName: check.checkedBy, completedAt: check.checkedAt,
         endedAt: check.checkedAt, tabletWorkedSeconds: check.workedSeconds }
     })

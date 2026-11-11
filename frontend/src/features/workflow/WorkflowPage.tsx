@@ -7,6 +7,8 @@ import { setJobMaterialActualCost } from '../../services/jobMaterialCosts'
 import type { VehicleWork } from '../../services/productionPlanningState'
 import { VehiclePresenceButton } from './VehiclePresenceButton'
 import { FastEstimateEditor } from './FastEstimateEditor'
+import { OfficePhaseCompleteButton } from '../production/OfficePhaseCompleteButton'
+import { closedPlanningWork } from '../../services/closedPlanningWork'
 import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices'
 import { WorkCycleFields } from '../../components/WorkCycleFields'
 import { cyclePhasesForLine } from '../../services/workCycle'
@@ -1840,6 +1842,7 @@ function JobEditor({
   const [phaseReasonDraft, setPhaseReasonDraft] = useState<Record<string, string>>({})
 
   if (!job) return null
+  const cloudCompletion = closedPlanningWork(data).jobIds.has(job.id) ? undefined : noticesConnection
 
   const operatorOptions = Array.from(new Set([
     ...data.plannerSettings.operators.map((operator) => operator.name.trim()).filter(Boolean),
@@ -1911,7 +1914,8 @@ function JobEditor({
                 {phase.notRequired && <small className="tag">Non necessaria</small>}
               </div>
               <div className="job-phase-controls">
-                <label>Stato<select value={phase.status} onChange={(event) => onUpdatePhase(job.id, phase.id, { status: event.target.value as JobPhaseStatus, notes: phase.notes, blockedReason: phase.blockedReason, notRequired: phase.notRequired })}><option>Da fare</option><option>In lavorazione</option><option>Completata</option><option>Bloccata</option></select></label>
+                <label>Stato<select value={phase.status} onChange={(event) => onUpdatePhase(job.id, phase.id, { status: event.target.value as JobPhaseStatus, notes: phase.notes, blockedReason: phase.blockedReason, notRequired: phase.notRequired })}><option>Da fare</option><option>In lavorazione</option>{(!cloudCompletion || phase.status === 'Completata' || phase.name === 'Consegna') && <option>Completata</option>}<option>Bloccata</option></select></label>
+                {cloudCompletion && <OfficePhaseCompleteButton connection={cloudCompletion} job={job} phase={phase} />}
                 <label>Operatori attivi<select multiple value={activeOperators} onChange={(event) => onSetPhaseOperators(job.id, phase.id, Array.from(event.target.selectedOptions).map((option) => option.value))}>{operatorOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
                 {!isQuality && <label className="check">Non necessaria<input type="checkbox" checked={Boolean(phase.notRequired)} onChange={(event) => onUpdatePhase(job.id, phase.id, { status: phase.status, notes: phase.notes, blockedReason: phase.blockedReason, notRequired: event.target.checked })} /></label>}
               </div>

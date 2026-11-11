@@ -15,7 +15,9 @@ import {
 import { isVehicleWaitingForCone } from '../../services/erp'
 import { productionRpc } from '../../services/liveProduction'
 import type { NoticesConnection } from './PhaseNotices'
-import { workflowOperationalSnapshot } from '../../services/workflow'
+import { OfficePhaseCompleteButton } from './OfficePhaseCompleteButton'
+import { closedPlanningWork } from '../../services/closedPlanningWork'
+import { findJobCurrentPhase, workflowOperationalSnapshot } from '../../services/workflow'
 import type { Customer, ErpData, ProductionReportType, VehicleStatus } from '../../types'
 
 const dateTime = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
@@ -81,10 +83,11 @@ export function TodayShopPage({ connection, data, customerById, onOpenPlanner, o
 
   const rows = useMemo(() => {
     const jobs = data.production?.jobs ?? []
+    const { jobIds: closed } = closedPlanningWork(data)
     return jobs.map((job) => {
       const vehicle = data.vehicles.find((item) => item.id === job.vehicleId)
       const customer = vehicle ? customerById(vehicle.customerId) : undefined
-      const workflowJob = (data.jobs ?? []).find((item) => item.vehicleId === job.vehicleId && item.status !== 'Annullata')
+      const workflowJob = (data.jobs ?? []).find((item) => item.vehicleId === job.vehicleId && !closed.has(item.id))
       const workflow = workflowJob ? workflowOperationalSnapshot(workflowJob) : null
       const activeLog = activeWorkLogForVehicle(data, job.vehicleId)
       const openForVehicle = reports.filter((report) => report.vehicleId === job.vehicleId)
@@ -164,6 +167,7 @@ export function TodayShopPage({ connection, data, customerById, onOpenPlanner, o
       <div className="panel-head"><div><span className="eyebrow">GESTIONE RAPIDA</span><h3>Pratiche operative</h3></div></div>
       <div className="today-ops-grid">{rows.map((row) => {
         const blocked = row.openForVehicle.length > 0
+        const currentPhase = row.workflowJob && findJobCurrentPhase(row.workflowJob)
         const operatorLabel = row.workflow?.lastOperator || row.activeLog?.operatorName || row.openForVehicle[0]?.operatorName || '—'
         const elapsedLabel = row.activeLog ? humanDuration(row.elapsed) : row.elapsed ? `${row.elapsed} min registrati` : 'Nessun tempo registrato'
         const activeOperatorsLabel = row.workflow?.activeOperators?.length ? row.workflow.activeOperators.join(', ') : 'Nessuno'
@@ -177,7 +181,9 @@ export function TodayShopPage({ connection, data, customerById, onOpenPlanner, o
           <div className="today-vehicle-info"><small>Commessa: {row.workflowJob?.number || '—'}</small><small>Cono: {coneLabel(row.vehicle?.coneNumber, row.vehicle?.status)}</small><small>Stato vettura: {row.vehicle ? <select value={row.vehicle.status} onChange={(event) => { event.stopPropagation(); onUpdateVehicleStatus(row.vehicle!.id, event.target.value) }}>{(statusOptions.some((status) => status.id === row.vehicle!.status) ? statusOptions : [...statusOptions, { id: row.vehicle!.status, label: statusLabel(row.vehicle!.status) }]).map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select> : '—'}</small><small>Fase corrente: {row.workflow?.currentPhase || row.job.phase}</small><small>Avanzamento: {row.workflow?.progressPercent ?? 0}%</small><small>Ultima fase completata: {row.workflow?.lastCompletedPhase || '—'}</small><small>Prossima fase: {row.workflow?.nextPhase || '—'}</small><small>Operatori attivi: {activeOperatorsLabel}</small><small>Operatori coinvolti fase: {row.workflow?.operatorCount ?? 0}</small><small>Durata lavorazione fase: {humanDuration(row.workflow?.phaseDurationMinutes ?? 0)}</small><small>Ore uomo fase: {humanDuration(row.workflow?.manHoursMinutes ?? 0)}</small><small>Operatore ultimo aggiornamento: {operatorLabel}</small><small>Tempo: {elapsedLabel}</small><small>Consegna prevista: {row.job.promisedAt || 'Non definita'}</small><small>Motivo segnalazione: {row.openForVehicle[0]?.note || row.vehicle?.blockReason || 'Nessuno'}</small><small>Stato tabella di marcia: {paceLabel}</small><small>Note pannello fase: {phasePanelNotes.join(' | ') || 'Nessuna'}</small></div>
           <div className="today-actions">
             <button className="primary" onClick={() => quickStart(row.job.vehicleId)}>Avvia fase</button>
-            <button className="secondary" onClick={() => quickComplete(row.job.vehicleId)} disabled={row.job.phase === 'Pronta'}>Completa fase</button>
+            {connection ? row.workflowJob && currentPhase && <OfficePhaseCompleteButton key={`${row.workflowJob.id}:${currentPhase.id}`}
+              connection={connection} job={row.workflowJob} phase={currentPhase} label="Completa fase dall’ufficio" />
+              : <button className="secondary" onClick={() => quickComplete(row.job.vehicleId)} disabled={row.job.phase === 'Pronta'}>Completa fase</button>}
             <button className="secondary" onClick={() => quickReady(row.job.vehicleId)} disabled={row.job.phase === 'Pronta'}>Pronta per consegna</button>
             <button className="secondary" onClick={() => onOpenPractice(row.vehicle?.plate || '')}>Apri pratica</button>
             <span className={paceLabel === 'IN RITARDO' ? 'tag late' : paceLabel === 'A RISCHIO' ? 'tag warning' : blocked ? 'tag' : 'tag ok'}>{paceLabel === 'IN RITARDO' ? 'IN RITARDO' : paceLabel === 'A RISCHIO' ? 'A RISCHIO' : blocked ? `${row.openForVehicle.length} blocchi` : 'IN ORARIO'}</span>
