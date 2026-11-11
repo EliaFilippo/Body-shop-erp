@@ -32,7 +32,7 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
           { p_company_id: companyId, p_job_ids: ids }, session, config, undefined, controller.signal)
         if (!controller.signal.aborted && started === generation.current) setResult({ key, notices, error: '' })
       } catch (problem) {
-        nextDelay = noticesRetryMs
+        nextDelay = controller.signal.aborted ? 0 : noticesRetryMs
         if (!controller.signal.aborted && started === generation.current) {
           const error = problem instanceof Error ? problem.message : 'Avvisi non disponibili.'
           setResult(previous => ({ key, notices: previous?.key === key ? previous.notices : {}, error }))
@@ -114,7 +114,7 @@ export function PhaseNotices({ connection, jobId, phases, office = false, closed
           setReadError('')
         }
       } catch (problem) {
-        nextDelay = noticesRetryMs
+        nextDelay = controller.signal.aborted ? 0 : noticesRetryMs
         if (!stopped && !controller.signal.aborted && request === generation.current) {
           setReadError(problem instanceof Error ? problem.message : 'Avvisi non disponibili.')
         }
