@@ -1,8 +1,9 @@
 import type { ErpData } from '../types'
-import { closedJobPartsCost, closedJobMargin, recordedPhaseLabor } from './closedJobMargin'
+import { closedJobPartsCost, closedJobMargin, operatorHourlyCost, recordedPhaseLabor } from './closedJobMargin'
 import { deliveredWorkPhases } from './deliveredJobReport'
 import { historicalRevenues, isRealizedInvoice } from './historicalActuals'
 import { calculateJobMaterialMargin, recordedJobVehicleCosts } from './jobMaterialCosts'
+import type { OffVehicleWork } from './productionPlanningState'
 import { isVehicleStatusSemantic } from './vehicleStatuses'
 import { addDays, isWorkingDate, workingMinutesForDate } from './workCalendar'
 
@@ -11,7 +12,7 @@ const dayOf = (timestamp?: string) => timestamp && Number.isFinite(Date.parse(ti
   ? romeDate.format(new Date(timestamp)) : undefined
 const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 
-export function calculateGoalProgress(data: ErpData, today = romeDate.format(new Date())) {
+export function calculateGoalProgress(data: ErpData, today = romeDate.format(new Date()), offVehicleWork: readonly OffVehicleWork[] = []) {
   const settings = data.plannerSettings
   const month = today.slice(0, 7)
   const monthGoal = Math.max(0, settings.monthlyMarginGoal ?? 0)
@@ -85,6 +86,25 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       production.push({ date: deliveryDate, marginCents, provisional })
     }
   }
+  const federica = new Map(settings.operators.filter(operator => operator.name.trim().toLowerCase() === 'federica')
+    .map(operator => [operator.id, operatorHourlyCost(operator)]))
+  const outsideWork = new Map<string, OffVehicleWork>()
+  for (const entry of data.historicalActuals ?? []) {
+    if (entry.kind !== 'hours' || !federica.has(entry.operatorId)) continue
+    const seconds = entry.paidSeconds - entry.productiveSeconds
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      outsideWork.set(`${entry.operatorId}/${entry.date}`, { date: entry.date, operatorId: entry.operatorId, seconds })
+    }
+  }
+  for (const entry of offVehicleWork) {
+    if (federica.has(entry.operatorId) && Number.isFinite(entry.seconds) && entry.seconds >= 0) {
+      outsideWork.set(`${entry.operatorId}/${entry.date}`, entry)
+    }
+  }
+  const outsideCosts = Array.from(outsideWork.values(), entry => {
+    const rate = federica.get(entry.operatorId) ?? null
+    return { date: entry.date, costCents: entry.seconds > 0 && rate === null ? null : cents(entry.seconds / 3600 * (rate ?? 0)) }
+  })
   const billed = [
     ...data.invoices.filter(isRealizedInvoice).map(invoice => ({ date: invoice.issueDate, amount: invoice.taxableAmount || 0 })),
     ...historicalRevenues(data),
@@ -92,13 +112,17 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
   const period = (label: string, start: string, goal: number) => {
     const includes = (date: string) => date >= start && date <= today
     const recognized = production.filter(entry => includes(entry.date))
-    const done = recognized.reduce((sum, entry) => sum + (entry.marginCents ?? 0), 0) / 100
-    const incomplete = recognized.some(entry => entry.marginCents === null)
+    const expenses = outsideCosts.filter(entry => includes(entry.date))
+    const offVehicleCostCents = expenses.reduce((sum, entry) => sum + (entry.costCents ?? 0), 0)
+    const done = (recognized.reduce((sum, entry) => sum + (entry.marginCents ?? 0), 0) - offVehicleCostCents) / 100
+    const offVehicleCostIncomplete = expenses.some(entry => entry.costCents === null)
+    const incomplete = recognized.some(entry => entry.marginCents === null) || offVehicleCostIncomplete
     const provisional = recognized.some(entry => entry.marginCents !== null && entry.provisional)
-    const hasMargin = !incomplete || recognized.some(entry => entry.marginCents !== null)
+    const hasMargin = !incomplete || recognized.some(entry => entry.marginCents !== null) || offVehicleCostCents > 0
     const invoiced = billed.reduce((sum, entry) => includes(entry.date) ? sum + entry.amount : sum, 0)
     const target = cents(goal) / 100
     return { label, goal: target, done, billed: cents(invoiced) / 100, incomplete, provisional, hasMargin,
+      offVehicleCost: offVehicleCostCents / 100, offVehicleCostIncomplete,
       gap: Math.max(0, cents(target - done)) / 100, percent: target > 0 && !incomplete ? 100 * done / target : null }
   }
   return [

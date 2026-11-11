@@ -57,3 +57,29 @@ it('marks the period incomplete when a signed phase has hours without operator a
     incomplete: true, hasMargin: false, percent: null,
   })
 })
+
+it('deducts Federica’s registered off-vehicle time and the loss of a delivered job once each', () => {
+  const data = structuredClone(emptyData)
+  data.plannerSettings.monthlyMarginGoal = 3000
+  data.plannerSettings.operators = [
+    { id: 'martin', name: 'Martin', costMode: 'external-extra', externalHourlyCost: 40, dailyHours: 8, active: true },
+    { id: 'federica', name: 'FEDERICA', hourlyCost: 17, dailyHours: 4, active: true },
+  ]
+  const job = makeReportJob()
+  job.status = 'Consegnata'
+  job.deliveredAt = '2026-11-09T10:00:00Z'
+  job.taxableAmount = 20
+  job.materialActualCost = { amount: 0, at: '', note: '' }
+  job.phases = [completedPhase]
+  data.jobs = [job]
+  data.historicalActuals = [
+    { id: 'archived', kind: 'hours', date: '2026-11-09', operatorId: 'federica', paidSeconds: 14400, productiveSeconds: 7200 },
+    { id: 'manual', kind: 'hours', date: '2026-11-10', operatorId: 'federica', paidSeconds: 14400, productiveSeconds: 10800 },
+  ]
+  const result = calculateGoalProgress(data, '2026-11-10', [
+    { date: '2026-11-09', operatorId: 'federica', seconds: 7200 },
+    { date: '2026-11-10', operatorId: 'martin', seconds: 3600 },
+  ])
+  expect(result.map(({ done, offVehicleCost }) => [done, offVehicleCost])).toEqual([[-17, 17], [-71, 51], [-71, 51]])
+  expect(result[2]).toMatchObject({ gap: 3071, incomplete: false })
+})
