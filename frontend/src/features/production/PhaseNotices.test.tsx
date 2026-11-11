@@ -57,3 +57,17 @@ it('loads avvisi for two vehicles in one request and refreshes when the tablet b
     ])
   } finally { hidden.mockRestore() }
 })
+
+
+it('skips office notice reads in a hidden tab and refreshes when it is visible', async () => {
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+  mocked.rpc.mockResolvedValue([note])
+  try {
+    render(<PhaseNotices connection={connection} jobId="j" phases={phases} office />)
+    expect(mocked.rpc).not.toHaveBeenCalled()
+    hidden.mockReturnValue(false)
+    fireEvent(document, new Event('visibilitychange'))
+    expect(await screen.findByText(note.body)).toBeInTheDocument()
+    expect(mocked.rpc).toHaveBeenCalledTimes(1)
+  } finally { hidden.mockRestore() }
+})

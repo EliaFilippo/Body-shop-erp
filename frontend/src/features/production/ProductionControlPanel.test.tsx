@@ -27,3 +27,15 @@ it('shows phase comparisons and a review suggestion without editing assigned tim
  expect(screen.getByText('PHASE01 · COMM-1')).toBeInTheDocument()
  expect(mock.rpc.mock.calls.filter(call=>call[0]==='production_control_report')).toHaveLength(1)
 })
+
+
+it('loads the detailed productivity report only after opening it', async () => {
+ mock.rpc.mockResolvedValue({alerts:[],operators:[],teams:[]})
+ render(<ProductionControlPanel connection={connection} />)
+ await waitFor(() => expect(mock.rpc.mock.calls.some(call=>call[0]==='production_control_report')).toBe(true))
+ expect(mock.rpc.mock.calls.some(call=>call[0]==='production_productivity_report')).toBe(false)
+ const details = screen.getByText('Tempi e produttività operatori').closest('details')!
+ details.open = true
+ fireEvent(details, new Event('toggle'))
+ await waitFor(() => expect(mock.rpc.mock.calls.some(call=>call[0]==='production_productivity_report')).toBe(true))
+})
