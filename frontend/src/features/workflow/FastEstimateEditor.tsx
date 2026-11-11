@@ -1,5 +1,6 @@
 import { estimatePdfFile, downloadEstimatePdf } from '../../services/estimatePdf'
 import { DeliveryForecastPanel } from '../../components/DeliveryForecastPanel'
+import { marginTargetRate } from '../../services/marginTargetRate'
 import { QuoteEconomicsPreview } from './QuoteEconomicsPreview'
 import { FastPaymentTerms } from './FastPaymentTerms'
 import { OptionalPanelPhases } from './OptionalPanelPhases'
@@ -93,6 +94,7 @@ export function FastEstimateEditor({data,livePrograms,initial,onDone,onCancel}:{
   return sum + net + Math.round(net * line.vatRate) / 100
  }, 0) : taxable * (1 + quote.appliedVatRate / 100)
  const minutes=lines.reduce((sum,line)=>sum+(line.estimatedMinutes||0),0)+(wash?(data.plannerSettings.eliasExteriorWashMinutes??25):0)
+ const marginRate = useMemo(() => marginTargetRate(data, quote.monthKey), [data, quote.monthKey])
  return <Modal title="Preventivo fast" onClose={onCancel}>
   <form onSubmit={e=>{e.preventDefault();if(busy.current||invalidDiscount)return;busy.current=true;try{
    const next=createFastEstimate(data,{estimateId:initial?.id,plate,customerId:owner?.id||customerId,newCustomer:customerId==='new'?{name,phone}:undefined,quote,confirmed,requestedDeliveryDate:delivery,planningPrecedence,notes,paymentTerms:terms},undefined,livePrograms)
@@ -144,7 +146,7 @@ export function FastEstimateEditor({data,livePrograms,initial,onDone,onCancel}:{
     {invalidDiscount && <p role="alert">Inserisci una percentuale da 0 a 100.</p>}
     {discount > 0 && <p>Imponibile prima dello sconto {euro(subtotal)} · Sconto {euro(discount)}</p>}
     <h3>{euro(taxable)} + IVA · {euro(total)} totale</h3><p>Tempo tecnico: {minutes} min. I prezzi non allungano il tempario.</p><p>Condizioni di pagamento del cliente precompilate. Alla conferma: commessa, cono, pianificazione e pubblicazione sui tablet automatiche, con mansioni e disponibilità degli operatori.</p></section>
-   <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings} nightly={data.nightlyPlanning?.economics}/>
+   <QuoteEconomicsPreview quote={quote} settings={data.plannerSettings} nightly={data.nightlyPlanning?.economics} marginTarget={marginRate}/>
    <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Il cliente ha già confermato questo preventivo</label>
    <label>Numero WhatsApp del cliente<input type="tel" value={targetPhone} placeholder="+39 333 1234567" onChange={e=>setWhatsappPhone(e.target.value)}/></label>
    <p>Il gestionale scarica il preventivo PDF e apre WhatsApp. Nella chat premi la graffetta → Documento e allega il PDF appena scaricato. Conferma l’invio dall’account aziendale collegato; il preventivo resta da confermare finché non registri l’approvazione del cliente.</p>

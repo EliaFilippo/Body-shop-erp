@@ -14,7 +14,7 @@ const money = (value: number) => value.toLocaleString('it-IT', { style: 'currenc
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
 const number = (value: number) => value.toLocaleString('it-IT', { maximumFractionDigits: 2 })
 
-export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKey: string }) {
+export function VehicleMarginsPanel({ data, monthKey, marginHourlyRate }: { data: ErpData; monthKey: string; marginHourlyRate?: number | null }) {
   const { jobs, vehicles, plannerSettings, nightlyPlanning } = data
   const rows = useMemo(() => {
     const { jobIds } = closedPlanningWork(data)
@@ -32,14 +32,14 @@ export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKe
       }]
     }).sort((a, b) => a.plate.localeCompare(b.plate, 'it') || a.jobNumber.localeCompare(b.jobNumber))
   }, [data, jobs, vehicles, plannerSettings])
-  const target = monthlyTargetRate(plannerSettings, monthKey, nightlyPlanning?.economics)
+  const target = marginHourlyRate === undefined ? monthlyTargetRate(plannerSettings, monthKey, nightlyPlanning?.economics).hourlyRate : marginHourlyRate
   const estimated = rows.filter(row => row.margin !== null)
   const total = estimated.reduce((sum, row) => sum + (row.margin ?? 0), 0)
 
   return <>
   <details className="panel">
     <summary><strong>Margini stimati per vettura</strong> · {rows.length} commesse aperte</summary>
-    <p>Stima del Planner sui ricavi senza IVA, sulle ore previste e sui costi configurati. La tariffa obiettivo {target.hourlyRate === null ? 'è da configurare' : `è ${money(target.hourlyRate)}/h`} e serve per confrontare il ricavo orario.</p>
+    <p>Stima del Planner sui ricavi senza IVA, sulle ore previste e sui costi configurati. La tariffa obiettivo {target === null ? 'è da configurare' : `è ${money(target)}/h`} e serve per confrontare il ricavo orario.</p>
     {estimated.length > 0 && <p>Margine stimato complessivo su {estimated.length} commesse con dati disponibili · <strong>{money(total)}</strong></p>}
     {rows.length === 0 ? <p>Nessuna commessa aperta.</p> : <div style={{ overflowX: 'auto' }}>
       <table aria-label="Margini stimati delle commesse aperte">
@@ -48,17 +48,17 @@ export function VehicleMarginsPanel({ data, monthKey }: { data: ErpData; monthKe
           <th scope="row">{row.plate}</th><td>{row.cone ?? '—'}</td><td>{row.jobNumber}</td><td>{money(row.revenue)}</td>
           <td>{row.hours > 0 ? number(row.hours) : '—'}</td>
           <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
-          <td>{row.hourlyRevenue === null || target.hourlyRate === null ? '—' : row.hourlyRevenue < target.hourlyRate ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
+          <td>{row.hourlyRevenue === null || target === null ? '—' : row.hourlyRevenue < target ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
           <td>{row.margin === null ? 'Dati da completare' : <strong>{money(row.margin)}</strong>}</td>
         </tr>)}</tbody>
       </table>
     </div>}
   </details>
-  <ClosedJobMargins data={data} monthKey={monthKey} />
+  <ClosedJobMargins data={data} monthKey={monthKey} marginHourlyRate={marginHourlyRate} />
   </>
 }
 
-function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string }) {
+function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData; monthKey: string; marginHourlyRate?: number | null }) {
   const { jobs, vehicles, plannerSettings, nightlyPlanning, coneHistory } = data
   const hourlyCost = resolveInternalHourlyRate(plannerSettings).effectiveHourlyRate
   const rows = useMemo(() => {
@@ -108,7 +108,8 @@ function ClosedJobMargins({ data, monthKey }: { data: ErpData; monthKey: string 
         <tbody>{rows.map(row => {
           const deliveryMonth = row.deliveryDate?.slice(0, 7) ?? monthKey
           if (!targets.has(deliveryMonth)) {
-            targets.set(deliveryMonth, monthlyTargetRate(plannerSettings, deliveryMonth, nightlyPlanning?.economics).hourlyRate)
+            targets.set(deliveryMonth, deliveryMonth === monthKey && marginHourlyRate !== undefined ? marginHourlyRate
+              : monthlyTargetRate(plannerSettings, deliveryMonth, nightlyPlanning?.economics).hourlyRate)
           }
           const target = targets.get(deliveryMonth) ?? null
           const { job } = row
