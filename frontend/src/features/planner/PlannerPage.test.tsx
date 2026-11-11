@@ -278,5 +278,6 @@ it('shows recorded work and the ready vehicle status after the last production p
   expect(detail.getByText('Ore lavorate').nextElementSibling).toHaveTextContent('2 h 00 min')
   expect(detail.getByText('Ore residue stimate').nextElementSibling).toHaveTextContent('0,0 h')
   expect(detail.getByText('Avanzamento lavorazioni').nextElementSibling).toHaveTextContent('100%')
-  expect(detail.getByText('Martin, Filippo')).toBeInTheDocument()
+  expect(detail.getByText('Martin · 90 min')).toBeInTheDocument()
+  expect(detail.getByText('Filippo · 30 min')).toBeInTheDocument()
 })
