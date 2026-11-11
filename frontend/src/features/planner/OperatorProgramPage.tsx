@@ -18,6 +18,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
   const [showTimers,setShowTimers]=useState(false)
   const {running,message}=useOperatorStatus(showHours||showTimers?undefined:connection)
   const [date, setDate] = useState(todayKey)
+  const [selectedPhases, setSelectedPhases] = useState<Record<string, string>>({})
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const closed = useMemo(() => closedPlanningWork(data), [data])
   const waiting = useMemo(() => waitingPartsPlanningWork(data), [data])
@@ -66,13 +67,28 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     </section>
 
     <section className="panel table-panel">
-      <h3>Assegna il prossimo lavoro</h3>
-      <p>Scegli un operatore per la fase, oppure lascia Automatico. Il prezzo del preventivo resta invariato.</p>
+      <h3>Assegna le fasi di lavorazione</h3>
+      <p>Per ogni vettura scegli una fase e l’operatore, oppure lascia Automatico. Puoi assegnare in anticipo anche le fasi successive.</p>
       {openJobs.filter(job => !waiting.jobIds.has(job.id)).map(job => {
-        const phase = selectSchedulablePhase(job)?.phase
+        const phases = job.phases.filter(phase => !phase.notRequired && phase.status !== 'Completata' && phase.name !== 'Consegna')
+        const nextPhase = selectSchedulablePhase(job)?.phase
+        const phase = phases.find(item => item.id === selectedPhases[job.id])
+          ?? phases.find(item => item.id === nextPhase?.id)
+          ?? phases[0]
         if (!phase) return null
         const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))
-        return <div key={job.id}>{job.plate} · {phaseDisplayName(phase.name)}
+        return <div key={job.id}>
+          <strong>{job.plate}</strong>
+          <label>Fase di lavorazione
+            <select aria-label={`Fase di lavorazione ${job.plate}`} value={phase.id} onChange={event => {
+              const phaseId = event.target.value
+              setSelectedPhases(previous => ({ ...previous, [job.id]: phaseId }))
+            }}>
+              {phases.map(item => <option key={item.id} value={item.id}>
+                {phaseDisplayName(item.name)}{item.id === nextPhase?.id ? ' · Prossima fase' : ''}
+              </option>)}
+            </select>
+          </label>
           <select aria-label={`Assegnazione ${job.plate}`} value={phase.preferredOperatorId ?? ''} onChange={event => {
             const operatorId = event.target.value
             const operator = operators.find(o => o.id === operatorId)
