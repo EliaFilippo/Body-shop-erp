@@ -106,7 +106,7 @@ main{min-width:0}header{height:92px;padding:0 32px;display:flex;align-items:cent
 .planner-detail-phase-head strong{display:block;font-size:15px;color:#fff}
 .planner-detail-phase-head small{color:#a39b8d;font-size:10px}
 .phase-tag{font-size:9px;white-space:nowrap}
-.planner-detail-time-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.planner-detail-time-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px}
 .planner-detail-time-box{display:grid;gap:5px;padding:10px 12px;border-radius:9px;border:1px solid #2f2d32;background:#111114}
 .planner-detail-time-box span{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#a69f92}
 .planner-detail-time-box strong{font:600 17px 'Playfair Display'}

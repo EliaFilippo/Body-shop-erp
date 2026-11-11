@@ -1,3 +1,4 @@
+import { deliveredWorkPhases, reportDuration } from '../../services/deliveredJobReport'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { MarginTargetRatePanel } from '../dashboard/MarginTargetRatePanel'
 import { VehicleMarginsPanel } from './VehicleMarginsPanel'
@@ -10,7 +11,7 @@ import { Modal } from '../../components/Modal'
 import { CapacityBar } from '../../components/CapacityBar'
 import { TrafficLight } from '../../components/TrafficLight'
 import { isVehicleWaitingForCone } from '../../services/erp'
-import { addDays, buildPlannerQueue, calculatePlanner, capacityWithAssignments, parseDate, todayKey } from '../../services/planner'
+import { addDays, buildPlannerQueue, calculatePlanner, capacityWithAssignments, parseDate, phaseResidualMinutes, todayKey } from '../../services/planner'
 import { workflowOperationalSnapshot } from '../../services/workflow'
 import type { Customer, ErpData, JobPhase, RepairJob, Vehicle } from '../../types'
 import type { PlannerQueueItem } from '../../services/planner'
@@ -57,6 +58,8 @@ type PlannerVehicleDetailRow = {
   technicalWaitMinutes: number
   panelNames: string[]
   operatorNames: string[]
+  workedOperatorNames: string[]
+  workedMinutes: number | null
   panelNotes: string[]
   taskCount: number
   reason: string
@@ -108,7 +111,7 @@ function PlannerVehicleDetailModal({
 }) {
   const { vehicle, customer, job, plan, queueEntry, workflow, phaseRows } = detail
   const warningReason = detail.deliveryReason || queueEntry?.reason || 'Da verificare'
-  const hasWarning = plan?.status === 'red'
+  const hasWarning = plan?.status === 'red' && detail.progressPercent < 100
 
   return <Modal title="Dettaglio pianificazione vettura" onClose={onClose} className="planner-detail-modal">
     <div className="planner-detail-body">
@@ -126,8 +129,8 @@ function PlannerVehicleDetailModal({
           <strong>{job?.number || '—'}</strong>
         </article>
         <article className="planner-detail-card">
-          <span>Stato</span>
-          <strong>{job?.status || vehicle.status}</strong>
+          <span>Stato vettura</span>
+          <strong>{statusLabel(vehicle.status)}</strong>
         </article>
         <article className="planner-detail-card">
           <span>Cono</span>
@@ -146,15 +149,15 @@ function PlannerVehicleDetailModal({
           <strong>{formatHours(detail.estimatedHours)}</strong>
         </article>
         <article className="planner-detail-card">
-          <span>Ore completate</span>
-          <strong>{formatHours(detail.workedHours)}</strong>
+          <span>Ore lavorate</span>
+          <strong>{reportDuration(detail.workedHours * 3600)}</strong>
         </article>
         <article className="planner-detail-card">
-          <span>Ore residue</span>
+          <span>Ore residue stimate</span>
           <strong>{formatHours(detail.residualHours)}</strong>
         </article>
         <article className="planner-detail-card">
-          <span>Avanzamento</span>
+          <span>Avanzamento lavorazioni</span>
           <strong>{Math.round(detail.progressPercent)}%</strong>
         </article>
       </section>
@@ -190,14 +193,19 @@ function PlannerVehicleDetailModal({
             <div className="planner-detail-phase-head">
               <div>
                 <strong>{index + 1}. {phaseRow.phase.name}</strong>
-                <small>{phaseRow.taskCount > 0 ? `${phaseRow.taskCount} task schedulati` : 'Nessun task schedulato'}</small>
+                {(phaseRow.taskCount > 0 || phaseRow.phase.status !== 'Completata') && <small>{phaseRow.taskCount > 0
+                  ? `${phaseRow.taskCount} attività pianificate` : 'Nessuna attività pianificata'}</small>}
               </div>
               <span className={`tag phase-tag phase-tag-${phaseRow.phase.status.toLowerCase().replace(/\s+/g, '-')}`}>{phaseRow.phase.status}</span>
             </div>
             <div className="planner-detail-time-grid">
               <div className="planner-detail-time-box work">
-                <span>TEMPO LAVORAZIONE</span>
+                <span>TEMPO PREVISTO</span>
                 <strong>{formatMinutes(phaseRow.plannedMinutes)}</strong>
+              </div>
+              <div className="planner-detail-time-box work">
+                <span>TEMPO LAVORATO</span>
+                <strong>{phaseRow.workedMinutes === null ? '—' : reportDuration(phaseRow.workedMinutes * 60)}</strong>
               </div>
               <div className="planner-detail-time-box wait">
                 <span>TEMPO TECNICO / ATTESA</span>
@@ -210,16 +218,20 @@ function PlannerVehicleDetailModal({
                 <strong>{phaseRow.panelNames.length ? phaseRow.panelNames.join(', ') : '—'}</strong>
               </div>
               <div>
-                <span>Operatori assegnati</span>
+                <span>Operatori pianificati</span>
                 <strong>{phaseRow.operatorNames.length ? phaseRow.operatorNames.join(', ') : '—'}</strong>
               </div>
               <div>
-                <span>Inizio previsto</span>
-                <strong>{phaseRow.taskStartAt ? shortDateTime(phaseRow.taskStartAt,liveClock) : '—'}</strong>
+                <span>Operatori che hanno lavorato</span>
+                <strong>{phaseRow.workedOperatorNames.length ? phaseRow.workedOperatorNames.join(', ') : '—'}</strong>
               </div>
               <div>
-                <span>Fine prevista</span>
-                <strong>{phaseRow.taskEndAt ? shortDateTime(phaseRow.taskEndAt,liveClock) : '—'}</strong>
+                <span>{phaseRow.taskCount ? 'Inizio previsto' : 'Inizio registrato'}</span>
+                <strong>{phaseRow.taskStartAt ? shortDateTime(phaseRow.taskStartAt,liveClock || !phaseRow.taskCount) : '—'}</strong>
+              </div>
+              <div>
+                <span>{phaseRow.taskCount ? 'Fine prevista' : 'Fine registrata'}</span>
+                <strong>{phaseRow.taskEndAt ? shortDateTime(phaseRow.taskEndAt,liveClock || !phaseRow.taskCount) : '—'}</strong>
               </div>
               <div>
                 <span>Prima disponibilità fase successiva</span>
@@ -356,10 +368,19 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       const panelNotes = unique(taskRows.flatMap((task) => task.panelNotes ?? []))
       const plannedMinutes = taskRows.reduce((sum, task) => sum + Math.max(0, Number(task.plannedMinutes ?? 0)), 0) || Math.max(0, Number(phase.estimatedMinutes ?? 0))
       const technicalWaitMinutes = Math.max(0, Number(phase.technicalWaitMinutes ?? 0))
-      const taskStartAt = taskRows[0]?.startAt || phase.startedAt || ''
-      const taskEndAt = taskRows.at(-1)?.endAt || phase.endedAt || ''
+      const taskStartAt = (taskRows.length ? taskRows[0].startAt : phase.startedAt) || ''
+      const taskEndAt = (taskRows.length ? taskRows.at(-1)?.endAt : phase.endedAt || phase.completedAt) || ''
       const nextPhaseAvailableAt = nextPhaseTasks[0]?.startAt || (taskEndAt && technicalWaitMinutes > 0 ? new Date(new Date(taskEndAt).getTime() + technicalWaitMinutes * 60_000).toISOString() : '')
       const operatorNames = unique(taskRows.map((task) => task.operatorName))
+      const assignments = phase.operatorAssignments ?? []
+      const tabletAssignments = assignments.filter(assignment => assignment.id.startsWith('tablet:'))
+      const recorded = tabletAssignments.length ? tabletAssignments : assignments
+      const workedOperatorNames = unique(recorded
+        .filter(assignment => assignment.workedMinutes > 0 || assignment.activityStatus === 'Attivo')
+        .map(assignment => assignment.operatorName))
+      const workedMinutes = Number.isFinite(phase.tabletWorkedSeconds) ? Math.max(0, phase.tabletWorkedSeconds! / 60)
+        : recorded.length ? recorded.reduce((sum, assignment) => sum + Math.max(0, Number(assignment.workedMinutes) || 0), 0)
+          : phase.actualMinutes > 0 ? phase.actualMinutes : null
       const reason = taskRows[0]?.reason || phase.blockedReason || (phase.status === 'Completata' ? 'Fase completata' : phase.status === 'In lavorazione' ? 'Fase in corso' : 'Da pianificare')
       return {
         phase,
@@ -370,6 +391,8 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
         technicalWaitMinutes,
         panelNames: unique([...taskPanelNames, ...linePanels]),
         operatorNames,
+        workedOperatorNames,
+        workedMinutes,
         panelNotes,
         taskCount: taskRows.length,
         reason,
@@ -377,11 +400,25 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       }
     })
     const estimatedHours = Math.max(0, Number(vehicle.estimatedHours ?? 0))
-    const workedHours = Math.max(0, Number(vehicle.workedHours ?? 0))
-    const residualHours = Math.max(0, estimatedHours - workedHours)
+    const workPhases = job ? deliveredWorkPhases(job) : []
+    const workIds = new Set(workPhases.map(phase => phase.id))
+    const recordedRows = phaseRows.filter(row => workIds.has(row.phase.id) && row.workedMinutes !== null)
+    const workedHours = recordedRows.length ? recordedRows.reduce((sum, row) => sum + (row.workedMinutes ?? 0), 0) / 60
+      : Math.max(0, Number(vehicle.workedHours ?? 0))
+    const unfinished = workPhases.filter(phase => phase.status !== 'Completata')
+    const at = new Date().toISOString()
+    const shared = new Set<string>()
+    const residualHours = workPhases.length ? unfinished.reduce((sum, phase) => {
+      if (phase.sharedTimeKey && phase.sharedTimeMinutes !== undefined) {
+        if (shared.has(phase.sharedTimeKey)) return sum
+        shared.add(phase.sharedTimeKey)
+      }
+      return sum + phaseResidualMinutes(phase, at, job) / 60
+    }, 0) : Math.max(0, estimatedHours - workedHours)
     const requestedDeliveryDate = vehicle.requestedDeliveryDate || job?.expectedDeliveryDate || ''
     const calculatedDeliveryDate = plan?.calculatedDeliveryDate || vehicle.calculatedDeliveryDate || ''
-    const progressPercent = workflow?.progressPercent ?? job?.progressPercent ?? 0
+    const progressPercent = workPhases.length ? (workPhases.length - unfinished.length) / workPhases.length * 100
+      : workflow?.progressPercent ?? job?.progressPercent ?? 0
     const deliveryReason = plan?.status === 'red'
       ? queueEntry?.reason && queueEntry.reason !== 'Schedulabile'
         ? queueEntry.reason

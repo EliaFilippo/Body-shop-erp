@@ -192,7 +192,7 @@ describe('PlannerPage regressione visibilita commessa pianificata', () => {
     expect(screen.getByText('Dettaglio pianificazione vettura')).toBeInTheDocument()
     expect(screen.getAllByText('Mario Rossi').length).toBeGreaterThan(0)
     expect(screen.getAllByText('COMM-00001').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('TEMPO LAVORAZIONE').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('TEMPO PREVISTO').length).toBeGreaterThan(0)
     expect(screen.getAllByText('TEMPO TECNICO / ATTESA').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Data non rispettabile').length).toBeGreaterThan(0)
     expect(screen.getByText(/Perché\?/i)).toBeInTheDocument()
@@ -255,4 +255,28 @@ it('includes a vehicle delivered from its vehicle record and shows the margin on
   expect(table.getByText(/374,16/)).toBeVisible()
   expect(table.getByText(/Materiali da confermare/)).toBeVisible()
   expect(screen.queryByText(/Margine complessivo su/)).not.toBeInTheDocument()
+})
+
+it('shows recorded work and the ready vehicle status after the last production phase', () => {
+  const data = makeData()
+  const vehicle = data.vehicles[0]
+  vehicle.status = 'pronta'
+  const job = data.jobs![0]
+  job.status = 'In lavorazione'
+  const phase = job.phases[0]
+  job.phases = [{ ...phase, status: 'Completata', tabletWorkedSeconds: 7200, operatorAssignments: [
+    { id: 'tablet:a', operatorName: 'Martin', startedAt: '2026-08-14T08:00:00Z', endedAt: '2026-08-14T09:30:00Z', workedMinutes: 90, activityStatus: 'Concluso' },
+    { id: 'tablet:b', operatorName: 'Filippo', startedAt: '2026-08-14T09:00:00Z', endedAt: '2026-08-14T09:30:00Z', workedMinutes: 30, activityStatus: 'Concluso' },
+  ] }, { ...job.phases[1], name: 'Consegna', status: 'Da fare' }]
+  data.operatorPrograms = []
+  render(<PlannerPage data={data} customerById={() => undefined} onMove={() => {}} onOpenSettings={() => {}}
+    onUpdateVehicleStatus={() => {}} statusOptions={[]} statusLabel={status => status === 'pronta' ? 'Pronta' : status}/>)
+  const planned = within(screen.getByRole('heading', { name: 'Vetture pianificate' }).closest('section')!)
+  fireEvent.click(planned.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
+  const detail = within(screen.getByRole('heading', { name: 'Dettaglio pianificazione vettura' }).closest('.modal')!)
+  expect(detail.getByText('Stato vettura').nextElementSibling).toHaveTextContent('Pronta')
+  expect(detail.getByText('Ore lavorate').nextElementSibling).toHaveTextContent('2 h 00 min')
+  expect(detail.getByText('Ore residue stimate').nextElementSibling).toHaveTextContent('0,0 h')
+  expect(detail.getByText('Avanzamento lavorazioni').nextElementSibling).toHaveTextContent('100%')
+  expect(detail.getByText('Martin, Filippo')).toBeInTheDocument()
 })
