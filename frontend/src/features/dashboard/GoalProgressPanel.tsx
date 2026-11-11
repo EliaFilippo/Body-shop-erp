@@ -36,7 +36,7 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
         <small>Fatturato registrato · {money.format(period.billed)}</small>
       </article>)}
     </div>
-    <p>Il margine delle fasi completate sottrae il costo delle ore di ciascun operatore, i materiali di consumo e i ricambi. Si attribuisce alla data di completamento della fase e si conguaglia alla consegna. Il totale include le commesse in perdita e il costo delle ore di Federica fuori vettura, ricavate dalle ore giornaliere impostate e dal tempo registrato sulle auto. I materiali restano stimati fino alla conferma del costo effettivo.</p>
+    <p>Il margine delle fasi completate sottrae il costo delle ore di ciascun operatore, i materiali di consumo e i ricambi. Si attribuisce alla data di completamento della fase e si conguaglia alla consegna. Il totale include le commesse in perdita e il costo delle ore di Federica fuori vettura, calcolate sommando le 4 ore di ufficio e le ore di produzione rimaste fuori vettura. I materiali restano stimati fino alla conferma del costo effettivo.</p>
   </section>
   {target && <MarginTargetRatePanel target={target} />}
   </>
