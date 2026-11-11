@@ -7,23 +7,86 @@ export interface NoticesConnection { companyId: string; session: CloudAuthSessio
 interface PhaseNotice { id: string; phaseId: string; phaseName: string; body: string; authorName: string; authorRole: string; createdAt: string; reviewedName: string | null; reviewedAt: string | null }
 const stamp = (value: string) => new Date(value).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })
 
-export function PhaseNotices({ connection, jobId, phases, office = false, closed = false }: {
-  connection: NoticesConnection; jobId: string; phases: { id: string; name: string; notRequired?: boolean }[]; office?: boolean; closed?: boolean
+export function useTabletNotices(companyId: string, session: CloudAuthSession | null, config: CloudAuthConfig | null, jobIds: string[]) {
+  const idsKey = JSON.stringify([...new Set(jobIds)].sort())
+  const key = JSON.stringify([companyId, session?.userId, config?.url, idsKey])
+  const [result, setResult] = useState<{ key: string; notices: Record<string, PhaseNotice[]>; error: string }>()
+  const generation = useRef(0)
+
+  useEffect(() => {
+    const ids = JSON.parse(idsKey) as string[]
+    if (!session || !config || !companyId || !ids.length) return
+    let stopped = false
+    let request: AbortController | undefined
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      if (stopped || document.hidden || request) return
+      const controller = new AbortController()
+      request = controller
+      const started = generation.current
+      try {
+        const notices = await productionRpc<Record<string, PhaseNotice[]>>('production_phase_notices_batch',
+          { p_company_id: companyId, p_job_ids: ids }, session, config, undefined, controller.signal)
+        if (!controller.signal.aborted && started === generation.current) setResult({ key, notices, error: '' })
+      } catch (problem) {
+        if (!controller.signal.aborted && started === generation.current) {
+          const error = problem instanceof Error ? problem.message : 'Avvisi non disponibili.'
+          setResult(previous => ({ key, notices: previous?.key === key ? previous.notices : {}, error }))
+        }
+      } finally {
+        request = undefined
+        if (!stopped && !document.hidden) timer = setTimeout(poll, 5000)
+      }
+    }
+    const visibilityChanged = () => {
+      clearTimeout(timer)
+      if (document.hidden) request?.abort()
+      else void poll()
+    }
+    document.addEventListener('visibilitychange', visibilityChanged)
+    void poll()
+    return () => {
+      stopped = true
+      request?.abort()
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+    }
+  }, [companyId, session, config, idsKey, key])
+
+  return {
+    forJob: (jobId: string) => ({
+      notices: result?.key === key ? result.notices[jobId] ?? [] : [],
+      loaded: result?.key === key,
+      error: result?.key === key ? result.error : '',
+      update: (notices: PhaseNotice[]) => {
+        generation.current++
+        setResult(previous => ({ key, notices: { ...(previous?.key === key ? previous.notices : {}), [jobId]: notices }, error: '' }))
+      },
+    }),
+  }
+}
+
+export function PhaseNotices({ connection, jobId, phases, office = false, closed = false, shared }: {
+  connection: NoticesConnection; jobId: string; phases: { id: string; name: string; notRequired?: boolean }[]; office?: boolean; closed?: boolean; shared?: { notices: PhaseNotice[]; loaded: boolean; error: string; update: (notices: PhaseNotice[]) => void }
 }) {
-  const [notices, setNotices] = useState<PhaseNotice[]>([])
+  const [localNotices, setNotices] = useState<PhaseNotice[]>([])
   const [phaseId, setPhaseId] = useState('')
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  const [localLoaded, setLoaded] = useState(false)
   const [pending, setPending] = useState<{ id: string; body: string; phaseId: string } | null>(null)
   const lock = useRef(false)
   const generation = useRef(0)
   const { companyId, session, config } = connection
+  const notices = shared?.notices ?? localNotices
+  const loaded = shared?.loaded ?? localLoaded
+  const usesSharedNotices = Boolean(shared)
   const available = phases.filter(phase => !phase.notRequired)
   const selected = available.some(phase => phase.id === phaseId) ? phaseId : available[0]?.id ?? ''
   useEffect(() => { setNotices([]); setLoaded(false); setBody(''); setPending(null); setError('') }, [companyId, jobId])
   useEffect(() => {
+    if (usesSharedNotices) return
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
@@ -38,7 +101,7 @@ export function PhaseNotices({ connection, jobId, phases, office = false, closed
     }
     void poll()
     return () => { stopped = true; clearTimeout(timer); generation.current++ }
-  }, [companyId, jobId, session.accessToken, config.url, config.anonKey])
+  }, [companyId, jobId, session.accessToken, config.url, config.anonKey, usesSharedNotices])
   async function act(action: 'add' | 'review', id?: string) {
     if (lock.current) return
     const draft = action === 'add' ? pending ?? { id: crypto.randomUUID(), body: body.trim(), phaseId: selected } : null
@@ -48,7 +111,8 @@ export function PhaseNotices({ connection, jobId, phases, office = false, closed
     try {
       const result = await productionRpc<PhaseNotice[]>('production_phase_notices_action', { p_company_id: companyId, p_job_id: jobId, p_action: action,
         p_notice_id: draft?.id ?? id, ...(draft ? { p_phase_id: draft.phaseId, p_body: draft.body } : {}) }, session, config)
-      setNotices(result); setLoaded(true)
+      if (shared) shared.update(result)
+      else { setNotices(result); setLoaded(true) }
       if (draft) { setBody(''); setPending(null) }
     } catch (e) { setError(e instanceof Error ? e.message : 'Invio non riuscito. Il testo resta disponibile: riprova.') }
     finally { lock.current = false; setBusy(false) }
@@ -56,7 +120,7 @@ export function PhaseNotices({ connection, jobId, phases, office = false, closed
   return <section className="phase-notices" aria-label="Avvisi per fase">
     <h3>{office ? 'Avvisi e verifica prima della chiusura' : 'Avvisi per fase'}</h3>
     <p>{office ? `${notices.filter(note => !note.reviewedAt).length} avvisi da verificare. Il visto indica che l’ufficio ha controllato l’avviso.` : 'Leggi le indicazioni dell’ufficio e lascia un messaggio ai colleghi.'}</p>
-    {error && <p role="alert">{error}</p>}
+    {(error || shared?.error) && <p role="alert">{error || shared?.error}</p>}
     {!loaded && <p>Caricamento avvisi…</p>}
     {loaded && !notices.length && <p>Nessun avviso registrato.</p>}
     <ul>{notices.map(note => <li key={note.id} className={note.reviewedAt ? 'notice-reviewed' : 'notice-open'}>

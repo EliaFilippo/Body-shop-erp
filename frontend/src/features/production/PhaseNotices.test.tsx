@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { PhaseNotices } from './PhaseNotices'
+import { PhaseNotices, useTabletNotices } from './PhaseNotices'
 const mocked = vi.hoisted(() => ({ rpc: vi.fn() }))
 vi.mock('../../services/liveProduction', () => ({ productionRpc: mocked.rpc }))
 const connection = { companyId: 'company', session: { accessToken: 'token', refreshToken: 'refresh', userId: 'u', email: 'u@example.test', expiresIn: 3600 }, config: { url: 'https://example.test', anonKey: 'key' } }
@@ -33,4 +33,27 @@ it('keeps a failed draft and reuses its identifier on retry; operators cannot re
   await waitFor(() => expect(screen.getByLabelText('Scrivi un avviso')).toHaveValue(''))
   expect(mocked.rpc.mock.calls[2][1]).toEqual(first)
   expect(first).toMatchObject({ p_company_id: 'company', p_job_id: 'j', p_phase_id: 'p2', p_body: 'Controllare gli agganci' })
+})
+
+
+it('loads avvisi for two vehicles in one request and refreshes when the tablet becomes visible', async () => {
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+  const second = { ...note, id: 'n2', body: 'Seconda vettura' }
+  mocked.rpc.mockResolvedValue({ j: [note], k: [second] })
+  function Tablet() {
+    const shared = useTabletNotices(connection.companyId, connection.session, connection.config, ['j', 'k'])
+    return <>{['j', 'k'].map(id => <PhaseNotices key={id} connection={connection} jobId={id} phases={phases} shared={shared.forJob(id)} />)}</>
+  }
+  try {
+    render(<Tablet />)
+    expect(mocked.rpc).not.toHaveBeenCalled()
+    hidden.mockReturnValue(false)
+    fireEvent(document, new Event('visibilitychange'))
+    expect(await screen.findByText(note.body)).toBeInTheDocument()
+    expect(await screen.findByText(second.body)).toBeInTheDocument()
+    expect(mocked.rpc).toHaveBeenCalledTimes(1)
+    expect(mocked.rpc.mock.calls[0].slice(0, 2)).toEqual([
+      'production_phase_notices_batch', { p_company_id: 'company', p_job_ids: ['j', 'k'] },
+    ])
+  } finally { hidden.mockRestore() }
 })

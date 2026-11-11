@@ -5,7 +5,7 @@ import { OperatorActivities } from './OperatorActivities'
 import { phaseDisplayName } from '../../services/workCycle'
 import { panelTaskDescription } from '../../services/eliasPriceList'
 import { ProductionControlPanel } from './ProductionControlPanel'
-import { PhaseNotices } from './PhaseNotices'
+import { PhaseNotices, useTabletNotices } from './PhaseNotices'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CloudAuthSession } from '../../services/cloudAuth'
 import { getCloudAuthConfig, signInWithPassword, signOutCloud } from '../../services/cloudAuth'
@@ -39,6 +39,7 @@ export function LiveProductionPage() {
   const [vehicleSearch,setVehicleSearch]=useState('')
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [tick, setTick] = useState(0)
+  const tabletNotices = useTabletNotices(companyId, session, config, feed?.jobs.map(job => job.jobId) ?? [])
   useCloudSessionRenewal(session,config,next=>setSession(current=>current?.userId===next.userId?next:current),()=>{setSession(null);setFeed(null);setCompanyId('');setSnapshot(null)})
   const lastSample = useRef(-Infinity)
   const actionLock = useRef(false)
@@ -274,7 +275,7 @@ export function LiveProductionPage() {
                   onClick={() => void act('production_complete_phase', { p_job_id: job.jobId, p_phase_id: phase.id })}>✓ Completa {phaseDisplayName(phase.name)}</button>}
               </li>)}</ol><p>Il visto registra chi ha completato la fase e ferma il suo timer su quella fase. Gli altri operatori devono prima mettere in pausa o terminare il lavoro sulla stessa fase.</p>
             </section>}
-            <PhaseNotices connection={{ companyId, session, config: config! }} jobId={job.jobId} phases={job.phases ?? []} office={['owner', 'office'].includes(feed.role)} />
+            <PhaseNotices connection={{ companyId, session, config: config! }} jobId={job.jobId} phases={job.phases ?? []} shared={tabletNotices.forJob(job.jobId)} office={['owner', 'office'].includes(feed.role)} />
           </article>
         })}
         {!feed.jobs.length && <p>Le commesse confermate compariranno automaticamente dopo la sincronizzazione.</p>}
