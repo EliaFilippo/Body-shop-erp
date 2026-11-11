@@ -880,6 +880,28 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const { jobIds } = closedPlanningWork(data);
   const openJobs = (data.jobs ?? []).filter((job) => job.vehicleId && !jobIds.has(job.id));
+  const manualAssignments = /* @__PURE__ */ new Map();
+  for (const day of (data.plannerSettings.manualOperatorDays ?? []).filter((item) => item.date >= effectiveDate).sort((a, b) => a.date.localeCompare(b.date))) {
+    for (const [rank, assignment] of day.assignments.entries()) {
+      const key2 = assignment.jobId + "|" + assignment.phaseId;
+      if (manualAssignments.has(key2)) continue;
+      const start = day.date + (day.period === "afternoon" ? "T13:00:00.000Z" : "T00:00:00.000Z");
+      const end = day.period === "morning" ? day.date + "T13:00:00.000Z" : addDays2(day.date, 1) + "T00:00:00.000Z";
+      manualAssignments.set(key2, { operatorId: assignment.operatorId, start, end, rank });
+    }
+  }
+  const manualPhase = (job, phase, readyAt) => {
+    const assignment = manualAssignments.get(job.id + "|" + phase.id);
+    if (!assignment || phase.status === "In lavorazione") return { phase, readyAt, manualRank: Infinity, manualEnd: "" };
+    const operator = operators.find((item) => item.id === assignment.operatorId);
+    if (!operator || !operatorCompatible(operator, phase)) return { phase, readyAt, manualRank: Infinity, manualEnd: "" };
+    return {
+      phase: { ...phase, preferredOperatorId: operator.id, supportOperatorId: void 0 },
+      readyAt: assignment.start > readyAt ? assignment.start : readyAt,
+      manualRank: assignment.rank,
+      manualEnd: assignment.end
+    };
+  };
   const hasPrecedence = openJobs.some((job) => job.planningPrecedence);
   const precedenceRank = ({ job, phase }) => {
     if (!hasPrecedence) return 0;
@@ -906,8 +928,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     const dueToday = Boolean(job.expectedDeliveryDate && job.expectedDeliveryDate <= effectiveDate);
     return {
       job,
-      phase: selectedPhase.phase,
-      readyAt: [selectedPhase.readyAt, availability?.jobs[job.id] ?? ""].sort().at(-1),
+      ...manualPhase(job, selectedPhase.phase, [selectedPhase.readyAt, availability?.jobs[job.id] ?? ""].sort().at(-1)),
       vehicle,
       blocked,
       dueToday,
@@ -971,7 +992,10 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
       const a = candidates[index], b = candidates[nextIndex];
       const ageA = Math.max(0, betweenDays(a.job.createdAt.slice(0, 10), effectiveDate));
       const ageB = Math.max(0, betweenDays(b.job.createdAt.slice(0, 10), effectiveDate));
-      const priorityOrder = precedenceRank(a) - precedenceRank(b) || paintPriority(a).rank - paintPriority(b).rank || a.score.dueDate.localeCompare(b.score.dueDate) || (martinCanStart(a, slot) && martinCanStart(b, earliest) ? phaseResidualMinutes(b.phase, now, b.job) - phaseResidualMinutes(a.phase, now, a.job) : 0) || b.score.totalMargin - a.score.totalMargin || Number(ageB > 4) - Number(ageA > 4) || (ageA > 4 && ageB > 4 ? ageB - ageA : 0) || a.arrivalIndex - b.arrivalIndex;
+      const rankA = slot < a.manualEnd ? a.manualRank : Infinity;
+      const rankB = earliest < b.manualEnd ? b.manualRank : Infinity;
+      const manualOrder = rankA === rankB ? 0 : a.phase.status === "In lavorazione" || b.phase.status === "In lavorazione" ? Number(b.phase.status === "In lavorazione") - Number(a.phase.status === "In lavorazione") : rankA - rankB;
+      const priorityOrder = manualOrder || precedenceRank(a) - precedenceRank(b) || paintPriority(a).rank - paintPriority(b).rank || a.score.dueDate.localeCompare(b.score.dueDate) || (martinCanStart(a, slot) && martinCanStart(b, earliest) ? phaseResidualMinutes(b.phase, now, b.job) - phaseResidualMinutes(a.phase, now, a.job) : 0) || b.score.totalMargin - a.score.totalMargin || Number(ageB > 4) - Number(ageA > 4) || (ageA > 4 && ageB > 4 ? ageB - ageA : 0) || a.arrivalIndex - b.arrivalIndex;
       if (slot < earliest || slot === earliest && priorityOrder < 0) {
         earliest = slot;
         nextIndex = index;
@@ -1063,7 +1087,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
         endAt: workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${item.job.planningPrecedence ? "Precedenza consegna \xB7 " : ""}${paintPriority(item).reason ? paintPriority(item).reason + " \xB7 " : ""}${ranking.reason} \xB7 ${reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)} \xB7 Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
+        reason: `${Number.isFinite(item.manualRank) ? "Programma manuale \xB7 " : ""}${item.job.planningPrecedence ? "Precedenza consegna \xB7 " : ""}${paintPriority(item).reason ? paintPriority(item).reason + " \xB7 " : ""}${ranking.reason} \xB7 ${reasonForAssignment(item.job, item.dueToday, activeNames.includes(operatorName), selected.length > 1, isAdvancedFromFuture)} \xB7 Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
@@ -1089,7 +1113,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
         endedAt: remaining > 0 ? void 0 : endAt
       }) };
       const selectedNext = remaining > 0 ? { phase: virtualJob.phases.find((phase) => phase.id === item.phase.id), readyAt: endAt } : selectSchedulablePhase(virtualJob);
-      if (selectedNext && endAt.slice(0, 10) <= horizonEndDate) candidates.push({ ...item, job: virtualJob, phase: selectedNext.phase, readyAt: [selectedNext.readyAt, endAt].sort().at(-1) });
+      if (selectedNext && endAt.slice(0, 10) <= horizonEndDate) candidates.push({ ...item, job: virtualJob, ...manualPhase(virtualJob, selectedNext.phase, [selectedNext.readyAt, endAt].sort().at(-1)) });
     }
   }
   const grouped = /* @__PURE__ */ new Map();
