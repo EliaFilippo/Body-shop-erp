@@ -4,7 +4,8 @@ import { reportDuration } from '../../services/deliveredJobReport'
 import { normalizePlate } from '../../services/erp'
 import { recordedJobVehicleCosts } from '../../services/jobMaterialCosts'
 import { resolveInternalHourlyRate } from '../../services/workflow'
-import type { ErpData } from '../../types'
+import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
+import type { ErpData, RepairJob, Vehicle } from '../../types'
 
 const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -20,14 +21,22 @@ export function DeliveryMarginSummary({ data, jobId, vehicleId, onClose }: {
   const vehicle = data.vehicles.find(item => item.id === (vehicleId ?? job?.vehicleId))
     ?? (job && !job.vehicleId ? data.vehicles.find(item => normalizePlate(item.plate) === normalizePlate(job.plate)) : undefined)
   const plate = job?.plate ?? vehicle?.plate
-  const deliveredAt = job?.deliveredAt ? Date.parse(job.deliveredAt) : NaN
+  return <Modal title={plate ? `Guadagno alla consegna · ${plate}` : 'Guadagno alla consegna'} onClose={onClose}>
+    <DeliveryMarginDetails data={data} job={job} vehicle={vehicle} />
+    <div className="form-actions"><button type="button" className="primary" onClick={onClose}>Chiudi</button></div>
+  </Modal>
+}
+
+export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; job?: RepairJob; vehicle?: Vehicle }) {
+  const vehicleDelivery = vehicle && isVehicleDeliveredStatus(data.plannerSettings, vehicle.status) ? vehicle.deliveredAt : undefined
+  const deliveredAt = Date.parse(job?.deliveredAt ?? vehicleDelivery ?? '')
   const costs = job && vehicle && Number.isFinite(deliveredAt)
     ? recordedJobVehicleCosts(vehicle, job, data.jobs ?? [], romeDate.format(new Date(deliveredAt))) : undefined
   const result = job ? closedJobMargin(job, resolveInternalHourlyRate(data.plannerSettings).effectiveHourlyRate,
     data.plannerSettings.operators, costs?.materials, costs?.parts) : undefined
   const provisional = result?.materialsToConfirm || result?.partsEstimated
 
-  return <Modal title={plate ? `Guadagno alla consegna · ${plate}` : 'Guadagno alla consegna'} onClose={onClose}>
+  return <>
     {job && result ? <>
       <p>{job.number} · Importi IVA esclusa</p>
       <div className="summary-grid">
@@ -46,6 +55,5 @@ export function DeliveryMarginSummary({ data, jobId, vehicleId, onClose }: {
       {result.materialCents === null && <p>Registra il totale dei materiali nella scheda commessa, anche se è zero.</p>}
       {result.partsCents === null && <p>Registra il costo d’acquisto dei ricambi nella scheda vettura.</p>}
     </> : <p>Il guadagno è da calcolare. Per questa consegna manca una commessa collegata.</p>}
-    <div className="form-actions"><button type="button" className="primary" onClick={onClose}>Chiudi</button></div>
-  </Modal>
+  </>
 }

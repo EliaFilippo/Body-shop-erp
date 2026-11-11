@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { DeliveryMarginSummary } from '../workflow/DeliveryMarginSummary'
 import { closedJobMargin } from '../../services/closedJobMargin'
 import { reportDuration } from '../../services/deliveredJobReport'
 import { resolveInternalHourlyRate } from '../../services/workflow'
@@ -59,6 +60,7 @@ export function VehicleMarginsPanel({ data, monthKey, marginHourlyRate }: { data
 }
 
 function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData; monthKey: string; marginHourlyRate?: number | null }) {
+  const [summaryJobId, setSummaryJobId] = useState<string | null>(null)
   const { jobs, vehicles, plannerSettings, nightlyPlanning, coneHistory } = data
   const hourlyCost = resolveInternalHourlyRate(plannerSettings).effectiveHourlyRate
   const rows = useMemo(() => {
@@ -97,7 +99,8 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
     return byVehicle
   }, [coneHistory])
 
-  return <details className="panel">
+  return <>
+  <details className="panel">
     <summary><strong>Margini a consuntivo per vettura</strong> · {rows.length} commesse consegnate</summary>
     <p>Importi IVA esclusa. Il margine usa l’importo concordato in commessa, i materiali registrati a consuntivo, i costi diretti da commessa e le ore lavorate valorizzate al costo orario interno. Per i collaboratori esterni si aggiunge il loro costo orario sulle ore registrate.</p>
     {calculated.length > 0 && <p>Margine complessivo su {calculated.length} commesse con dati completi · <strong>{money(totalCents / 100)}</strong></p>}
@@ -117,7 +120,8 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
             ? coneAssignments.get(job.vehicleId)?.find(event => event.timestamp <= deliveredAt && event.timestamp >= job.entryDate)?.coneNumber
             : undefined
           return <tr key={job.id}>
-            <th scope="row">{job.plate}</th><td>{cone ?? '—'}</td><td>{job.number}</td><td>{row.deliveryDate?.split('-').reverse().join('/') ?? '—'}</td>
+            <th scope="row"><button type="button" className="planner-link-button plate"
+              aria-label={`Guadagno alla consegna ${job.plate}`} onClick={() => setSummaryJobId(job.id)}>{job.plate}</button></th><td>{cone ?? '—'}</td><td>{job.number}</td><td>{row.deliveryDate?.split('-').reverse().join('/') ?? '—'}</td>
             <td>{row.revenueCents === null ? '—' : money(row.revenueCents / 100)}</td>
             <td>{row.complete ? reportDuration(row.workedSeconds) : row.workedSeconds > 0 ? `${reportDuration(row.workedSeconds)} (parziale)` : 'Da registrare'}</td>
             <td>{row.externalLabor.length ? row.externalLabor.map(worker => <div key={worker.name}>
@@ -131,4 +135,6 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
       </table>
     </div>}
   </details>
+  {summaryJobId && <DeliveryMarginSummary data={data} jobId={summaryJobId} onClose={() => setSummaryJobId(null)} />}
+  </>
 }

@@ -255,6 +255,9 @@ it('includes a vehicle delivered from its vehicle record and shows the margin on
   expect(table.getByText(/374,16/)).toBeVisible()
   expect(table.getByText(/Materiali da confermare/)).toBeVisible()
   expect(screen.queryByText(/Margine complessivo su/)).not.toBeInTheDocument()
+  fireEvent.click(table.getByRole('button', { name: 'Guadagno alla consegna AB123CD' }))
+  const summary = within(screen.getByRole('heading', { name: 'Guadagno alla consegna · AB123CD' }).closest('.modal')!)
+  expect(summary.getByText(/374,16/)).toBeVisible()
 })
 
 it('shows recorded work and the ready vehicle status after the last production phase', () => {
@@ -280,4 +283,25 @@ it('shows recorded work and the ready vehicle status after the last production p
   expect(detail.getByText('Avanzamento lavorazioni').nextElementSibling).toHaveTextContent('100%')
   expect(detail.getByText('Martin · 90 min')).toBeInTheDocument()
   expect(detail.getByText('Filippo · 30 min')).toBeInTheDocument()
+})
+
+
+it('shows the margin in the open planner detail after the vehicle and job are delivered', () => {
+  const data = makeData()
+  const vehicle = data.vehicles[0]
+  const job = data.jobs![0]
+  const page = (snapshot: ErpData) => <PlannerPage data={snapshot} customerById={() => undefined}
+    onMove={() => {}} onOpenSettings={() => {}} onUpdateVehicleStatus={() => {}} statusOptions={[]} statusLabel={status => status}/>
+  const { rerender } = render(page(data))
+  const planned = within(screen.getByRole('heading', { name: 'Vetture pianificate' }).closest('section')!)
+  fireEvent.click(planned.getByRole('button', { name: 'Dettaglio pianificazione AB123CD' }))
+  const deliveredAt = '2026-11-11T10:00:00Z'
+  rerender(page({ ...data,
+    vehicles: [{ ...vehicle, status: 'consegnata', deliveredAt }],
+    jobs: [{ ...job, status: 'Consegnata', deliveredAt }],
+  }))
+  const detail = within(screen.getByRole('heading', { name: 'Dettaglio pianificazione vettura' }).closest('.modal')!)
+  expect(detail.getByText('COMM-00001', { exact: true })).toBeVisible()
+  expect(detail.getByRole('heading', { name: 'Guadagno alla consegna' })).toBeVisible()
+  expect(detail.getByText('Margine a consuntivo')).toBeVisible()
 })
