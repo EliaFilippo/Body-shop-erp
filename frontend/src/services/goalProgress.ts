@@ -1,11 +1,10 @@
 import type { ErpData } from '../types'
-import { closedJobDirectCosts, closedJobMargin, recordedPhaseWork } from './closedJobMargin'
+import { closedJobPartsCost, closedJobMargin, recordedPhaseLabor } from './closedJobMargin'
 import { deliveredWorkPhases } from './deliveredJobReport'
 import { historicalRevenues, isRealizedInvoice } from './historicalActuals'
 import { calculateJobMaterialMargin, recordedJobVehicleCosts } from './jobMaterialCosts'
 import { isVehicleStatusSemantic } from './vehicleStatuses'
 import { addDays, isWorkingDate, workingMinutesForDate } from './workCalendar'
-import { resolveInternalHourlyRate } from './workflow'
 
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
 const dayOf = (timestamp?: string) => timestamp && Number.isFinite(Date.parse(timestamp))
@@ -19,8 +18,6 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
   const monday = addDays(today, -((new Date(today + 'T12:00:00Z').getUTCDay() + 6) % 7))
   const week = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
   const operators = settings.operators.filter(operator => operator.active)
-  const externalOperators = settings.operators.filter(operator => operator.costMode === 'external-extra')
-  const hourlyCost = resolveInternalHourlyRate(settings).effectiveHourlyRate
   const capacity = (date: string) => operators.length
     ? operators.reduce((sum, operator) => sum + workingMinutesForDate(date, settings, operator), 0)
     : Number(isWorkingDate(date, settings))
@@ -56,10 +53,10 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const materials = calculateJobMaterialMargin(job)
     const costs = deliveryDate && vehicle ? recordedJobVehicleCosts(vehicle, job, data.jobs ?? [], deliveryDate) : undefined
     const materialCost = materials.actualMaterials ?? costs?.materials ?? materials.estimatedMaterials
-    const provisional = materials.actualMaterials === null || (costs?.parts === undefined && job.lines.some(line => line.category === 'ricambi' && line.quantity > 0))
-    const directCostCents = closedJobDirectCosts(job, costs?.parts)
-    const netBeforeLabor = Number.isFinite(job.taxableAmount) && directCostCents !== null && Number.isFinite(materialCost)
-      ? cents(job.taxableAmount) - directCostCents - cents(materialCost) : null
+    const { partsCents, partsEstimated } = closedJobPartsCost(job, costs?.parts)
+    const provisional = materials.actualMaterials === null || partsEstimated
+    const netBeforeLabor = Number.isFinite(job.taxableAmount) && partsCents !== null && Number.isFinite(materialCost)
+      ? cents(job.taxableAmount) - partsCents - cents(materialCost) : null
     const phases = deliveredWorkPhases(job)
     const sharedCounts = new Map<string, number>()
     for (const phase of phases) {
@@ -72,9 +69,9 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     phases.forEach((phase, index) => {
       const date = phase.status === 'Completata' ? dayOf(phase.completedAt || phase.endedAt) : undefined
       if (!date || date > today || (deliveryDate && date > deliveryDate)) return
-      const work = recordedPhaseWork(phase, externalOperators)
-      const laborCents = work.seconds !== null && work.externalHoursComplete && hourlyCost > 0
-        ? cents(work.seconds / 3600 * hourlyCost + work.external.reduce((sum, row) => sum + row.seconds / 3600 * row.rate, 0))
+      const labor = recordedPhaseLabor(phase, settings.operators)
+      const laborCents = labor.complete
+        ? cents(labor.workers.reduce((sum, worker) => sum + worker.seconds / 3600 * (worker.rate ?? 0), 0))
         : null
       const marginCents = netBeforeLabor !== null && laborCents !== null
         ? Math.round(totalWeight > 0 ? netBeforeLabor * weights[index] / totalWeight : 0) - laborCents
@@ -83,7 +80,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       production.push({ date, marginCents, provisional: provisional || !deliveryDate })
     })
     if (deliveryDate && deliveryDate <= today) {
-      const closed = closedJobMargin(job, hourlyCost, settings.operators, materialCost, costs?.parts)
+      const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts)
       const marginCents = closed.marginCents === null ? null : closed.marginCents - creditedMargin
       production.push({ date: deliveryDate, marginCents, provisional })
     }

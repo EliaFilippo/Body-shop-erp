@@ -234,6 +234,7 @@ it('includes a vehicle delivered from its vehicle record and shows the margin on
     useManualHourlyRate: true,
     manualHourlyRate: 55,
   }
+  data.plannerSettings.operators[0].hourlyCost = 55
   const vehicle = data.vehicles[0]
   vehicle.status = 'Consegnata'
   vehicle.deliveredAt = '2026-11-10T14:49:02Z'

@@ -3,7 +3,7 @@ import { deliveredJobReport } from './deliveredJobReport'
 import { closedJobMargin } from './closedJobMargin'
 import { emptyData } from './erp'
 import { createEstimate,approveEstimateAndCreateJob } from './workflow'
-import type { JobPhase } from '../types'
+import type { JobPhase, PlannerOperator } from '../types'
 const phase=(id:string,overrides:Partial<JobPhase>={}):JobPhase=>({id,name:id,status:'Completata',estimatedMinutes:30,actualMinutes:999,notes:'',blockedReason:'',operatorAssignments:[],...overrides})
 export const makeReportJob=()=>{
  let data=createEstimate(structuredClone(emptyData),{customerId:'c',plate:'TEST123',companyName:'',contactName:'',date:'2026-10-26',notes:'',selectedPhases:[],lines:[{description:'Riparazione',category:'carrozzeria',quantity:1,unitPrice:500,discount:0,vatRate:22,estimatedMinutes:120,internalHourlyRateUsed:30,budgetMaterialsCost:100}]})
@@ -42,55 +42,61 @@ describe('delivered report',()=>{
  })
 })
 
+const internal = (hourlyCost: number): PlannerOperator => ({ id: 'a', name: 'A', active: true, dailyHours: 8, hourlyCost })
+const tabletWork = (id: string, operatorName: string, workedMinutes: number) => ({
+ id: 'tablet:' + id, operatorName, workedMinutes, activityStatus: 'Concluso' as const,
+ startedAt: '2026-10-26T08:00:00Z', endedAt: '2026-10-26T10:00:00Z',
+})
+const paidPhase = (seconds: number) => phase('a', { tabletWorkedSeconds: seconds, operatorAssignments: [tabletWork('a', 'A', seconds / 60)] })
+
 describe('closed job margin', () => {
- it('values recorded seconds at the internal hourly cost and returns integer cents', () => {
+ it('values recorded seconds at the operator’s hourly cost and returns integer cents', () => {
   const job = makeReportJob()
   job.taxableAmount = 500.09
   job.materialActualCost = { amount: 100.02, at: '', note: '' }
-  job.phases = [phase('a', { tabletWorkedSeconds: 3661 })]
-  const result = closedJobMargin(job, 28.36)
+  job.phases = [paidPhase(3661)]
+  const result = closedJobMargin(job, [internal(28.36)])
   expect(result).toMatchObject({ revenueCents: 50009, workedSeconds: 3661, marginCents: 37123 })
   expect(result.hourlyRevenue).toBeCloseTo(491.76, 2)
  })
 
- it('charges Martin for his own share of a signed phase shared with another operator', () => {
+ it('charges the employee and Martin at their own rates without adding a flat rate', () => {
   const job = makeReportJob()
-  const martin = { id: 'martin', name: 'Martin', dailyHours: 8, active: true, costMode: 'external-extra' as const, externalHourlyCost: 40 }
-  const assignment = { startedAt: '2026-10-26T08:00:00Z', endedAt: '2026-10-26T10:00:00Z', activityStatus: 'Concluso' as const }
-  const martinWork = { ...assignment, id: 'tablet:martin', operatorName: 'MARTIN', workedMinutes: 90 }
+  const martin: PlannerOperator = { id: 'martin', name: 'Martin', dailyHours: 8, active: true, costMode: 'external-extra', externalHourlyCost: 40 }
+  const martinWork = tabletWork('martin', 'MARTIN', 90)
   job.materialActualCost = { amount: 0, at: '', note: '' }
   job.phases = [phase('a', { tabletWorkedSeconds: 7200, operatorAssignments: [
-   martinWork, { ...assignment, id: 'tablet:a', operatorName: 'A', workedMinutes: 30 },
-   { ...martinWork, id: 'office-duplicate' },
+   martinWork, tabletWork('a', 'A', 30), { ...martinWork, id: 'office-duplicate' },
   ] })]
-  expect(closedJobMargin(job, 30, [martin])).toMatchObject({
-   workedSeconds: 7200, marginCents: 38000, externalHoursComplete: true,
-   externalLabor: [{ name: 'Martin', seconds: 5400, costCents: 6000 }],
+  expect(closedJobMargin(job, [internal(30), martin])).toMatchObject({
+   workedSeconds: 7200, marginCents: 42500, laborCents: 7500, laborComplete: true,
+   operatorLabor: [{ name: 'Martin', seconds: 5400, costCents: 6000 }, { name: 'A', seconds: 1800, costCents: 1500 }],
   })
+  expect(closedJobMargin(job, [martin])).toMatchObject({ marginCents: null, laborComplete: false })
   job.phases[0].operatorAssignments = []
-  expect(closedJobMargin(job, 30, [martin])).toMatchObject({
-   workedSeconds: 7200, marginCents: null, externalHoursComplete: false,
+  expect(closedJobMargin(job, [internal(30), martin])).toMatchObject({
+   workedSeconds: 7200, marginCents: null, laborComplete: false,
   })
  })
 
  it('subtracts recorded parts once and labels the quoted purchase cost as estimated when no receipt is recorded', () => {
   const job = makeReportJob()
-  job.phases = [phase('a', { tabletWorkedSeconds: 3600 })]
+  job.phases = [paidPhase(3600)]
   job.materialActualCost = { amount: 20, at: '', note: '' }
   job.lines.push({ ...job.lines[0], id: 'parts', category: 'ricambi', budgetDirectUnitCost: 90 })
-  expect(closedJobMargin(job, 30, [], undefined, 60)).toMatchObject({
+  expect(closedJobMargin(job, [internal(30)], undefined, 60)).toMatchObject({
    materialCents: 2000, partsCents: 6000, laborCents: 3000, marginCents: 39000, partsEstimated: false,
   })
-  expect(closedJobMargin(job, 30)).toMatchObject({ partsCents: 9000, marginCents: 36000, partsEstimated: true })
+  expect(closedJobMargin(job, [internal(30)])).toMatchObject({ partsCents: 9000, marginCents: 36000, partsEstimated: true })
  })
 
- it('keeps margins unavailable until actual material cost and work time are recorded', () => {
+ it('uses estimated materials until confirmed and never guesses missing hours', () => {
   const job = makeReportJob()
-  job.phases = [phase('a', { tabletWorkedSeconds: 3600 }), phase('b')]
-  expect(closedJobMargin(job, 30)).toMatchObject({ marginCents: null, hourlyRevenue: null })
+  job.phases = [paidPhase(3600), phase('b')]
+  expect(closedJobMargin(job, [internal(30)])).toMatchObject({ marginCents: null, hourlyRevenue: null })
   job.phases.pop()
-  expect(closedJobMargin(job, 30)).toMatchObject({ marginCents: null, hourlyRevenue: 500 })
+  expect(closedJobMargin(job, [internal(30)])).toMatchObject({ marginCents: 37000, hourlyRevenue: 500, materialsToConfirm: true })
   job.materialActualCost = { amount: 0, at: '', note: '' }
-  expect(closedJobMargin(job, 30).marginCents).toBe(47000)
+  expect(closedJobMargin(job, [internal(30)]).marginCents).toBe(47000)
  })
 })
