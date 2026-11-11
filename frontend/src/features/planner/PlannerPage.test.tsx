@@ -229,7 +229,8 @@ it('mostra la tariffa obiettivo con fatturato mensile e capacità produttiva',()
 it('includes a vehicle delivered from its vehicle record and shows the margin on recorded materials', () => {
   const data = makeData()
   data.plannerSettings.internalCostSettings = {
-    ...data.plannerSettings.internalCostSettings,
+    internalHourlyRate: 0,
+    minimumMarginPercent: 0,
     useManualHourlyRate: true,
     manualHourlyRate: 55,
   }
