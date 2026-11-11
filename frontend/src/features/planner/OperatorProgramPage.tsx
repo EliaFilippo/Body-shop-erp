@@ -1,3 +1,5 @@
+import { ManualOperatorDayEditor } from './ManualOperatorDayEditor'
+import { toRomePlanningClock } from '../../services/romePlanningClock'
 import { closedPlanningWork, waitingPartsPlanningWork } from '../../services/closedPlanningWork'
 import { RemoteTimers } from '../production/RemoteTimers'
 import { DailyEmployeeHours } from '../production/DailyEmployeeHours'
@@ -17,6 +19,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
   const [showHours,setShowHours]=useState(false)
   const [showTimers,setShowTimers]=useState(false)
   const {running,message}=useOperatorStatus(showHours||showTimers?undefined:connection)
+  const [editingDay, setEditingDay] = useState(false)
   const [date, setDate] = useState(todayKey)
   const [selectedPhases, setSelectedPhases] = useState<Record<string, string>>({})
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
@@ -127,6 +130,14 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
 
     <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni. Le fasi successive sono previsioni: sui tablet diventano avviabili solo dopo il completamento reale delle precedenti. Le quote dei tempi condivisi servono a organizzare il piano; il totale del timer resta unico.</p>
+      <button type="button" disabled={date < todayKey()} onClick={() => setEditingDay(value => !value)}>{editingDay ? 'Chiudi modifica programma' : 'Modifica programma del giorno'}</button>
+      {editingDay && date >= todayKey() && <ManualOperatorDayEditor key={date} date={date} data={data} onSave={plan => {
+        const remaining = (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date !== date)
+        const manualOperatorDays = plan.assignments.length ? [...remaining, plan] : remaining
+        const next = { ...data, plannerSettings: { ...data.plannerSettings, manualOperatorDays } }
+        onChange(recalculateOperatorPrograms(next, todayKey(), 'Programma del giorno modificato dall’ufficio', toRomePlanningClock(new Date().toISOString())))
+        setEditingDay(false)
+      }} />}
       <p>Timer attivi: verde = nei tempi; rosso = fuori tempo. Aggiornamento ogni 5 secondi. Le schede programmate restano neutre.</p>
       {message&&<p role="status">{message}</p>}
       <div className="week-grid">
