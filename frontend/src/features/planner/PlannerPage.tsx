@@ -1,3 +1,5 @@
+import { DeliveryMarginDetails } from '../workflow/DeliveryMarginSummary'
+import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
 import { deliveredWorkPhases, reportDuration } from '../../services/deliveredJobReport'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { MarginTargetRatePanel } from '../dashboard/MarginTargetRatePanel'
@@ -10,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Modal } from '../../components/Modal'
 import { CapacityBar } from '../../components/CapacityBar'
 import { TrafficLight } from '../../components/TrafficLight'
-import { isVehicleWaitingForCone } from '../../services/erp'
+import { isVehicleWaitingForCone, normalizePlate } from '../../services/erp'
 import { addDays, buildPlannerQueue, calculatePlanner, capacityWithAssignments, parseDate, phaseResidualMinutes, todayKey } from '../../services/planner'
 import { workflowOperationalSnapshot } from '../../services/workflow'
 import type { Customer, ErpData, JobPhase, RepairJob, Vehicle } from '../../types'
@@ -92,6 +94,7 @@ function sortByPhaseOrder(a: JobPhase, b: JobPhase, indexA: number, indexB: numb
 
 function PlannerVehicleDetailModal({
   detail,
+  data,
   liveClock,
   onClose,
   onOpenJob,
@@ -102,6 +105,7 @@ function PlannerVehicleDetailModal({
   statusLabel,
 }: {
   detail: PlannerVehicleDetail
+  data: ErpData
   liveClock?:boolean
   onClose: () => void
   onOpenJob: (query: string) => void
@@ -178,6 +182,12 @@ function PlannerVehicleDetailModal({
         <button className="secondary" onClick={() => { onClose(); onOpenOperatorProgram() }}>Apri programma operatori</button>
         <button className="secondary" onClick={() => { onClose(); onRecalculatePlanning() }}>Ricalcola pianificazione</button>
       </section>
+
+      {(job?.status === 'Consegnata' || isVehicleDeliveredStatus(data.plannerSettings, vehicle.status)) &&
+        <section className="planner-detail-panel">
+          <h3>Guadagno alla consegna</h3>
+          <DeliveryMarginDetails data={data} job={job} vehicle={vehicle} />
+        </section>}
 
       <section className="planner-detail-panel">
         <div className="panel-head">
@@ -355,7 +365,12 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
     if (!selectedVehicleId) return null
     const vehicle = data.vehicles.find((item) => item.id === selectedVehicleId)
     if (!vehicle) return null
-    const job = linkedJobByVehicle(vehicle.id)
+    const activeJob = linkedJobByVehicle(vehicle.id)
+    const delivered = isVehicleDeliveredStatus(data.plannerSettings, vehicle.status)
+    const deliveredJobs = delivered ? (data.jobs ?? []).filter(item => item.status === 'Consegnata'
+      && (item.vehicleId ? item.vehicleId === vehicle.id : normalizePlate(item.plate) === normalizePlate(vehicle.plate))) : []
+    const job = deliveredJobs.find(item => vehicle.deliveredAt && item.deliveredAt === vehicle.deliveredAt)
+      ?? activeJob ?? deliveredJobs.sort((a, b) => (b.deliveredAt ?? b.updatedAt).localeCompare(a.deliveredAt ?? a.updatedAt))[0]
     const customer = customerById(vehicle.customerId)
     const plan = vehicleResult(vehicle.id)
     const queueEntry = job ? queue.find((item) => item.jobId === job.id) : queue.find((item) => item.vehicleId === vehicle.id)
@@ -456,7 +471,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       deliveryReason,
       firstRealisticDate,
     }
-  }, [customerById, data.operatorPrograms, data.vehicles, linkedJobByVehicle, queue, selectedVehicleId, vehicleResult])
+  }, [customerById, data.jobs, data.operatorPrograms, data.plannerSettings, data.vehicles, linkedJobByVehicle, queue, selectedVehicleId, vehicleResult])
 
   const handleDrop = (date: string) => {
     if (!draggedVehicleId) return
@@ -691,6 +706,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
 
       {selectedVehicleDetail && <PlannerVehicleDetailModal liveClock={Boolean(liveForecasts)}
         detail={selectedVehicleDetail}
+        data={data}
         onClose={() => setSelectedVehicleId(null)}
         onOpenJob={(query) => {
           onOpenJob?.(query)
