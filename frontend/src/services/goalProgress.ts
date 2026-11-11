@@ -10,6 +10,7 @@ import { addDays, isWorkingDate, workingMinutesForDate } from './workCalendar'
 const romeDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
 const dayOf = (timestamp?: string) => timestamp && Number.isFinite(Date.parse(timestamp))
   ? romeDate.format(new Date(timestamp)) : undefined
+const federicaOfficeMinutes = 4 * 60
 const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 
 export function calculateGoalProgress(data: ErpData, today = romeDate.format(new Date()), vehicleWork?: readonly VehicleWork[]) {
@@ -98,19 +99,15 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       vehicleSeconds.set(`${entry.operatorId}/${entry.date}`, entry.seconds)
     }
   }
-  const regularCalendar = { ...settings, absences: [], closures: [], companyClosures: [], holidays: [], operatorDayExtensions: [] }
   const currentCalendar = { ...settings, operatorDayExtensions: [] }
   const outsideCosts: Array<{ date: string; seconds: number | null; costCents: number | null }> = []
   for (let date = monday < month + '-01' ? monday : month + '-01'; date <= today; date = addDays(date, 1)) {
     for (const operator of federica) {
-      const available = workingMinutesForDate(date, currentCalendar, operator)
-      if (available <= 0) continue
-      const usual = workingMinutesForDate(date, regularCalendar, operator)
-      const dailyMinutes = Math.max(0, Math.round(operator.dailyHours * 60) - Math.max(0, usual - available))
-      if (!(dailyMinutes > 0)) continue
+      const productionMinutes = workingMinutesForDate(date, currentCalendar, operator)
+      if (productionMinutes <= 0) continue
       const recorded = vehicleSeconds.get(`${operator.id}/${date}`)
       const seconds = vehicleWork === undefined && recorded === undefined
-        ? null : Math.max(0, dailyMinutes * 60 - (recorded ?? 0))
+        ? null : federicaOfficeMinutes * 60 + Math.max(0, productionMinutes * 60 - (recorded ?? 0))
       const rate = operatorHourlyCost(operator)
       const costCents = seconds === null || (seconds > 0 && rate === null)
         ? null : cents(seconds / 3600 * (rate ?? 0))
