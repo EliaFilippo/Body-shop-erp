@@ -1,15 +1,17 @@
 import type { AcceptanceQuote, EstimateLine, NightlyEconomicSnapshot, PlannerSettings } from '../types'
 import { damageQuoteError, damageLineForSave } from './damageQuote'
 import { calculateQuoteHourBudget } from './quoteHourBudget'
+import type { marginTargetRate } from './marginTargetRate'
 import { monthlyTargetRate } from './monthlyTargetRate'
 
 type QuoteEconomicStatus = 'unknown' | 'loss' | 'break-even' | 'below-target' | 'on-target' | 'no-target'
 const round = (value:number) => Math.round(value * 100) / 100
 
 /** Office preview only: never changes prices, phase allowances or customer documents. */
-export function quoteEconomics(quote:AcceptanceQuote, settings:PlannerSettings, nightly?:NightlyEconomicSnapshot) {
+export function quoteEconomics(quote:AcceptanceQuote, settings:PlannerSettings, nightly?:NightlyEconomicSnapshot, marginTarget?: ReturnType<typeof marginTargetRate>) {
  const budget = calculateQuoteHourBudget(quote,settings)
- const target = monthlyTargetRate(settings,quote.monthKey,nightly)
+ const revenueTarget = monthlyTargetRate(settings,quote.monthKey,nightly)
+ const target = marginTarget ? { ...revenueTarget, hourlyRate: marginTarget.hourlyRate } : revenueTarget
  // Pricing uses entered technical durations even while a manual phase is being assigned.
  // Shared panel allowances are counted once, and a blank extra phase contributes nothing.
  const positive = (value: number | undefined) => Number.isFinite(value) ? Math.max(0, value ?? 0) : 0

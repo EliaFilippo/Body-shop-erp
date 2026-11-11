@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CapacityBar } from '../../components/CapacityBar'
+import { marginTargetRate } from '../../services/marginTargetRate'
+import { MarginTargetRatePanel } from './MarginTargetRatePanel'
 import { calculateGoalProgress } from '../../services/goalProgress'
 import type { ErpData } from '../../types'
 
@@ -14,7 +16,10 @@ export function GoalProgressPanel({ data }: { data: ErpData }) {
   }, [])
   const periods = useMemo(() => calculateGoalProgress(data, today), [data, today])
 
-  return <section className="panel" aria-label="Avanzamento obiettivi di margine">
+  const target = useMemo(() => marginTargetRate(data, today.slice(0, 7), today, periods[2]), [data, today, periods])
+
+  return <>
+  <section className="panel" aria-label="Avanzamento obiettivi di margine">
     <div className="panel-head"><div><span className="eyebrow">MARGINE · IVA ESCLUSA</span><h3>Avanzamento obiettivi</h3></div></div>
     <div className="owner-kpi-grid">
       {periods.map(period => <article className="owner-kpi-card" key={period.label}>
@@ -28,4 +33,6 @@ export function GoalProgressPanel({ data }: { data: ErpData }) {
     </div>
     <p>Il margine delle fasi completate sottrae manodopera, collaboratori esterni, materiali e altri costi diretti. Si attribuisce alla data di completamento della fase e si conguaglia alla consegna. I materiali restano stimati fino alla conferma del costo effettivo.</p>
   </section>
+  {target && <MarginTargetRatePanel target={target} />}
+  </>
 }

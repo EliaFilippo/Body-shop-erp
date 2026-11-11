@@ -1,3 +1,5 @@
+import { marginTargetRate } from '../../services/marginTargetRate'
+import { MarginTargetRatePanel } from '../dashboard/MarginTargetRatePanel'
 import { VehicleMarginsPanel } from './VehicleMarginsPanel'
 import type {CompletionForecast} from '../../services/completionPlanning'
 import {NightlyEconomicsPanel} from '../dashboard/NightlyEconomicsPanel'
@@ -259,6 +261,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
 
   const targetMonth=todayKey().slice(0,7)
+  const marginRate = useMemo(() => marginTargetRate(data, targetMonth), [data, targetMonth])
   const targetRate=useMemo(()=>monthlyTargetRate(data.plannerSettings,targetMonth),[data.plannerSettings,targetMonth])
   const targetMonthLabel=new Intl.DateTimeFormat('it-IT',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(`${targetMonth}-01T12:00:00Z`))
   const money=(amount:number)=>amount.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
@@ -430,6 +433,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       </div>
     </section>
 
+    {marginRate && <MarginTargetRatePanel target={marginRate} />}
     {data.nightlyPlanning?.economics?.monthKey===targetMonth?<NightlyEconomicsPanel snapshot={data.nightlyPlanning.economics}/>:<section className="panel" aria-label="Tariffa oraria obiettivo mensile">
       <div className="panel-head"><div><span className="eyebrow">{targetMonthLabel}</span><h3>Tariffa oraria per raggiungere l’obiettivo mensile</h3></div></div>
       <div className="planner-detail-summary-grid">
@@ -443,7 +447,7 @@ export function PlannerPage({ data, liveForecasts, customerById, onMove, onOpenS
       <button type="button" className="secondary" onClick={onOpenSettings}>Modifica obiettivo e ore</button>
     </section>}
 
-    <VehicleMarginsPanel data={data} monthKey={targetMonth} />
+    <VehicleMarginsPanel data={data} monthKey={targetMonth} marginHourlyRate={marginRate?.hourlyRate} />
 
     {!data.plannerSettings.operators.length && <div className="toast warning">Configura almeno un operatore: senza ore lavorabili non e possibile calcolare una consegna.</div>}
 
