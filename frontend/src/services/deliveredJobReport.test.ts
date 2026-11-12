@@ -102,7 +102,10 @@ describe('closed job margin', () => {
  it('uses estimated materials until confirmed and never guesses missing hours', () => {
   const job = makeReportJob()
   job.phases = [paidPhase(3600), phase('b')]
-  expect(closedJobMargin(job, [internal(30)])).toMatchObject({ marginCents: null, hourlyRevenue: null })
+  expect(closedJobMargin(job, [internal(30)])).toMatchObject({
+   marginCents: null, hourlyRevenue: null, availableLaborCents: 3000, availableMarginCents: 37000,
+   phasesWithoutTime: ['b'],
+  })
   job.phases.pop()
   expect(closedJobMargin(job, [internal(30)])).toMatchObject({ marginCents: 37000, hourlyRevenue: 500, materialsToConfirm: true })
   job.materialActualCost = { amount: 0, at: '', note: '' }

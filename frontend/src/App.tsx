@@ -32,7 +32,7 @@ import { MoneyInput } from './components/MoneyInput'
 import { Modal } from './components/Modal'
 import { DocumentCapturePanel, queueDocumentCaptureFile } from './components/DocumentCapturePanel'
 import { parseMoneyDraft } from './components/money'
-import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, isVehicleWaitingForCone, TOTAL_CONES, emptyData, normalizePlate, updateCustomer } from './services/erp'
+import { addVehicleCostEntry, createCustomer, deleteCustomer, deleteVehicle, moveVehicleCone, changeVehicleStatus, closeDeliveredJobPhases, isVehicleWaitingForCone, TOTAL_CONES, emptyData, normalizePlate, updateCustomer } from './services/erp'
 import { normalizeData, createDatabaseCheckpoint, loadDatabase, restoreCloudDatabase, REVISION_PING_KEY, saveDatabase } from './services/database'
 import { analyzeDatabaseIntegrity, prepareDuplicateResolution, resolveDuplicatePlate, type DatabaseIntegrityReport, type DuplicateResolutionResult } from './services/database'
 import { removePriceListItem, setPriceListItemActive, upsertPriceListItem } from './services/priceList'
@@ -1040,6 +1040,10 @@ function App() {
     if (!databaseLoaded || !databaseReady || (cloudConfig && !cloudReady)) return
     if (skipNextHeavySyncRef.current) {
       skipNextHeavySyncRef.current = false
+      setData(current => {
+        const jobs = current.jobs?.map(job => job.status === 'Consegnata' ? closeDeliveredJobPhases(job) : job)
+        return jobs?.some((job, index) => job !== current.jobs?.[index]) ? { ...current, jobs } : current
+      })
       return
     }
     const syncedFromJobs = syncOperationalStateFromJobs(data)

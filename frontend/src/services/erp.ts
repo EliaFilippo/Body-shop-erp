@@ -434,15 +434,17 @@ const statusHistoryEvent = (
   source,
 })
 
-export function completeJobDelivery(job: RepairJob, deliveredAt: string): RepairJob {
+export function closeDeliveredJobPhases(job: RepairJob, deliveredAt = job.deliveredAt): RepairJob {
+  const deliveryTime = Date.parse(deliveredAt ?? '')
+  const closedAt = Number.isFinite(deliveryTime) ? deliveredAt : undefined
   const phases = job.phases.map(phase => {
     const operatorAssignments = (phase.operatorAssignments ?? []).map(assignment => {
       // The cloud supplies the final total for tablet timers after it saves the delivery.
-      if (assignment.endedAt || assignment.activityStatus !== 'Attivo' || assignment.id.startsWith('tablet:')) return assignment
-      const elapsed = (Date.parse(deliveredAt) - Date.parse(assignment.startedAt)) / 60_000
+      if (!closedAt || assignment.endedAt || assignment.activityStatus !== 'Attivo' || assignment.id.startsWith('tablet:')) return assignment
+      const elapsed = (deliveryTime - Date.parse(assignment.startedAt)) / 60_000
       return {
         ...assignment,
-        endedAt: deliveredAt,
+        endedAt: closedAt,
         activityStatus: 'Concluso' as const,
         workedMinutes: Math.max(assignment.workedMinutes, Number.isFinite(elapsed) ? Math.round(elapsed) : 0),
       }
@@ -453,17 +455,22 @@ export function completeJobDelivery(job: RepairJob, deliveredAt: string): Repair
       ...phase,
       operatorAssignments,
       status: 'Completata' as const,
-      completedAt: phase.completedAt ?? deliveredAt,
+      completedAt: phase.completedAt ?? closedAt,
       completedByName: phase.completedByName ?? 'Ufficio · Consegna',
-      endedAt: phase.endedAt ?? deliveredAt,
+      endedAt: phase.endedAt ?? closedAt,
       remainingTimeUnknown: false,
       actualMinutes: workChanged
         ? operatorAssignments.reduce((minutes, assignment) => minutes + (assignment.endedAt ? assignment.workedMinutes : 0), 0)
         : phase.actualMinutes,
     }
   })
+  return job.progressPercent === 100 && phases.every((phase, index) => phase === job.phases[index])
+    ? job : { ...job, phases, progressPercent: 100 }
+}
+
+export function completeJobDelivery(job: RepairJob, deliveredAt: string): RepairJob {
   return {
-    ...job, phases, progressPercent: 100, status: 'Consegnata', deliveredAt, updatedAt: deliveredAt,
+    ...closeDeliveredJobPhases(job, deliveredAt), status: 'Consegnata', deliveredAt, updatedAt: deliveredAt,
     history: [{ id: id(), at: deliveredAt, actor: 'Ufficio', message: 'Consegna registrata e fasi residue chiuse.' }, ...(job.history ?? [])],
   }
 }
