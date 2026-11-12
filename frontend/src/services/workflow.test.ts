@@ -2221,4 +2221,19 @@ it('closes unfinished phases when the office delivers a vehicle', () => {
   expect(delivered.jobs![1]).toBe(cancelled)
   expect(delivered.jobs![2]).toBe(older)
   expect(changeVehicleStatus(delivered, 'v1', 'consegnata').jobs).toBe(delivered.jobs)
+
+  const historicalJob = {
+    ...delivered.jobs![0],
+    progressPercent: 50,
+    phases: [{
+      ...productionPhase, status: 'Da fare' as const, operatorName: 'Stefania', operatorAssignments: [],
+    }, delivered.jobs![0].phases[1]],
+  }
+  const historical = { ...delivered, jobs: [historicalJob] }
+  const repaired = syncOperationalStateFromJobs(historical)
+  expect(repaired.jobs![0]).toMatchObject({ progressPercent: 100, deliveredAt: date, history: historicalJob.history })
+  expect(repaired.jobs![0].phases[0]).toMatchObject({
+    status: 'Completata', completedAt: date, operatorAssignments: [], actualMinutes: productionPhase.actualMinutes,
+  })
+  expect(syncOperationalStateFromJobs(repaired).jobs).toEqual(repaired.jobs)
 })

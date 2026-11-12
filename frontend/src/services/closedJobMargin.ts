@@ -26,16 +26,20 @@ export function recordedPhaseLabor(phase: JobPhase, operators: PlannerOperator[]
 }
 
 export function closedJobPartsCost(job: RepairJob, recordedParts?: number) {
-  if (knownAmount(recordedParts)) return { partsCents: cents(recordedParts), partsEstimated: false }
+  if (knownAmount(recordedParts)) return { partsCents: cents(recordedParts), availablePartsCents: cents(recordedParts), partsEstimated: false }
   let parts = 0
   let partsEstimated = false
+  let missingPartsCost = false
   for (const line of job.lines) {
     if (line.category !== 'ricambi' || line.quantity <= 0) continue
-    if (!knownAmount(line.budgetDirectUnitCost)) return { partsCents: null, partsEstimated }
-    parts += line.quantity * line.budgetDirectUnitCost
-    partsEstimated = true
+    if (knownAmount(line.budgetDirectUnitCost)) {
+      parts += line.quantity * line.budgetDirectUnitCost
+      partsEstimated = true
+    } else {
+      missingPartsCost = true
+    }
   }
-  return { partsCents: cents(parts), partsEstimated }
+  return { partsCents: missingPartsCost ? null : cents(parts), availablePartsCents: cents(parts), partsEstimated }
 }
 
 export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], recordedMaterials?: number, recordedParts?: number) {
@@ -44,11 +48,13 @@ export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], re
   const hourlyRevenue = complete && workedSeconds > 0 && revenueCents !== null
     ? revenueCents / 100 * 3600 / workedSeconds
     : null
-  const { partsCents, partsEstimated } = closedJobPartsCost(job, recordedParts)
+  const { partsCents, availablePartsCents, partsEstimated } = closedJobPartsCost(job, recordedParts)
 
   const workers = new Map<string, ReturnType<typeof recordedPhaseLabor>['workers'][number]>()
   let laborComplete = complete
+  const phasesWithoutTime = new Set<string>()
   for (const phase of deliveredWorkPhases(job)) {
+    if (!deliveredPhaseTime(phase).timeComplete) phasesWithoutTime.add(phase.name)
     const labor = recordedPhaseLabor(phase, operators)
     if (!labor.complete) laborComplete = false
     for (const worker of labor.workers) {
@@ -60,7 +66,8 @@ export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], re
   const operatorLabor = [...workers.values()].map(({ id, name, seconds, rate }) => ({
     id, name, seconds, costCents: rate === null ? null : cents(seconds / 3600 * rate),
   }))
-  const laborCents = laborComplete ? operatorLabor.reduce((sum, worker) => sum + (worker.costCents ?? 0), 0) : null
+  const availableLaborCents = operatorLabor.reduce((sum, worker) => sum + (worker.costCents ?? 0), 0)
+  const laborCents = laborComplete ? availableLaborCents : null
   const materialCost = materials.actualMaterials ?? recordedMaterials
     ?? (job.lines.length > 0 ? materials.estimatedMaterials : undefined)
   const materialCents = knownAmount(materialCost) ? cents(materialCost) : null
@@ -69,6 +76,10 @@ export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], re
     ? revenueCents - materialCents - partsCents - laborCents
     : null
 
+  const availableMarginCents = revenueCents === null ? null
+    : revenueCents - (materialCents ?? 0) - availablePartsCents - availableLaborCents
+
   return { complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, laborComplete, operatorLabor,
-    materialsToConfirm, materialCents, laborCents, partsCents, partsEstimated }
+    materialsToConfirm, materialCents, laborCents, partsCents, partsEstimated, phasesWithoutTime: [...phasesWithoutTime],
+    availableMarginCents, availableLaborCents, availablePartsCents }
 }

@@ -127,7 +127,7 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
             </div>) : '—'}{!row.laborComplete && <small>Controlla ore e tariffe</small>}</td>
             <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
             <td>{row.hourlyRevenue === null || target === null ? '—' : row.hourlyRevenue < target ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
-            <td>{row.marginCents === null ? 'Dati da completare' : <strong>{money(row.marginCents / 100)}</strong>}{row.marginCents !== null && row.materialsToConfirm && <small> · Materiali da confermare</small>}{row.marginCents !== null && row.partsEstimated && <small> · Ricambi stimati</small>}</td>
+            <td>{row.availableMarginCents === null ? 'Ricavo da registrare' : <strong>{money(row.availableMarginCents / 100)}</strong>}{row.marginCents === null && row.availableMarginCents !== null && <small> · Parziale</small>}{row.marginCents !== null && row.materialsToConfirm && <small> · Materiali da confermare</small>}{row.marginCents !== null && row.partsEstimated && <small> · Ricambi stimati</small>}</td>
           </tr>
         })}</tbody>
       </table>

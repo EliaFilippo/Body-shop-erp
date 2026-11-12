@@ -22,7 +22,7 @@ import type {
 	StandardWorkPriceListItem,
 	StandardWorkTimePreset,
 } from '../types'
-import { addVehicle, changeVehicleStatus, completeJobDelivery, normalizePlate, reconcileVehicleCones } from './erp'
+import { addVehicle, changeVehicleStatus, closeDeliveredJobPhases, completeJobDelivery, normalizePlate, reconcileVehicleCones } from './erp'
 import { isVehicleDeliveredStatus, suggestVehicleStatus } from './vehicleStatuses'
 
 const id = () => crypto.randomUUID()
@@ -857,7 +857,8 @@ function phaseDurationMinutes(phase: JobPhase, at: string) {
 }
 
 function synchronizePhase(phase: JobPhase, at: string, awaitingDeliveryTimers = false): JobPhase {
-	let assignments = normalizePhaseAssignments(phase, at)
+	const closedWithoutAssignments = awaitingDeliveryTimers && phase.completedByName === 'Ufficio · Consegna' && !phase.operatorAssignments?.length
+	let assignments = closedWithoutAssignments ? [] : normalizePhaseAssignments(phase, at)
 	if (phase.status === 'Completata') {
 		assignments = assignments.map((item) => {
 			if (item.endedAt || item.activityStatus !== 'Attivo' || (awaitingDeliveryTimers && item.id.startsWith('tablet:'))) return item
@@ -873,7 +874,8 @@ function synchronizePhase(phase: JobPhase, at: string, awaitingDeliveryTimers = 
 	const starts = assignments.map((item) => item.startedAt).filter(Boolean).sort()
 	const startedAt = phase.serverWorkTracked ? phase.startedAt : starts[0] || phase.startedAt
 	const closedEnds = assignments.map((item) => item.endedAt).filter((value): value is string => Boolean(value)).sort()
-	const endedAt = phase.status === 'Completata' ? (phase.endedAt || closedEnds[closedEnds.length - 1] || at) : phase.endedAt
+	const endedAt = phase.status === 'Completata' && !closedWithoutAssignments
+		? (phase.endedAt || closedEnds[closedEnds.length - 1] || at) : phase.endedAt
 	const current: JobPhase = {
 		...phase,
 		startedAt,
@@ -885,7 +887,7 @@ function synchronizePhase(phase: JobPhase, at: string, awaitingDeliveryTimers = 
 		...current,
 		actualMinutes: Number.isFinite(phase.tabletWorkedSeconds) && phase.tabletWorkedSeconds! >= 0
 			? phase.tabletWorkedSeconds! / 60
-			: phase.serverWorkTracked ? phase.actualMinutes : phase.status === 'Completata'
+			: phase.serverWorkTracked || closedWithoutAssignments ? phase.actualMinutes : phase.status === 'Completata'
 			? phaseDurationMinutes(current, endedAt || at)
 			: phase.actualMinutes,
 	}
@@ -934,7 +936,7 @@ function activeWorkflowPhases(job: RepairJob) {
 }
 
 function deriveJobProgress(job: RepairJob) {
-	return statusFromProgress(job.phases)
+	return job.status === 'Consegnata' ? 100 : statusFromProgress(job.phases)
 }
 
 function latestCompletedPhase(job: RepairJob) {
@@ -1786,7 +1788,8 @@ export function syncOperationalStateFromJobs(data: ErpData): ErpData {
 		})
 	}
 
-	const normalizedJobs = (withSuggestedStatuses.jobs ?? []).map((job) => {
+	const normalizedJobs = (withSuggestedStatuses.jobs ?? []).map((storedJob) => {
+		const job = storedJob.status === 'Consegnata' ? closeDeliveredJobPhases(storedJob) : storedJob
 		const at = now()
 		const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata'))
 		const syncedJob = { ...job, phases: syncedPhases }
