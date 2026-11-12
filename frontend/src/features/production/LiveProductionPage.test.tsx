@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { LiveProductionPage } from './LiveProductionPage'
 
 const mocked = vi.hoisted(() => ({ rpc: vi.fn() }))
@@ -412,4 +412,25 @@ it('lets the manual worker explicitly complete an activated extra phase to updat
  await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_complete_phase',{p_company_id:'c1',p_job_id:'extra-sign',p_phase_id:'wash'},expect.anything(),expect.anything()))
  await screen.findByText(/Visto di Mario/)
  expect(screen.queryByRole('button',{name:'✓ Completa Lavaggio esterno'})).not.toBeInTheDocument()
+})
+
+it('keeps a rejected manual start visible on the vehicle after a successful refresh', async () => {
+  const message = 'La postazione di lavaggio è occupata.'
+  mocked.rpc.mockImplementation(async (name: string) => {
+    if (name === 'production_phase_notices_action') return []
+    if (name === 'production_manual_start') throw new Error(message)
+    return { companyId: 'c1', role: 'production', operatorName: 'Stefania', manualSelection: true, members: [],
+      jobs: [{ jobId: 'wash', plate: 'TEST123', number: '1', remainingSeconds: 900, remainingPercent: 100,
+        activeCount: 0, operators: [], phases: [{ id: 'wash', name: 'Lavaggio esterno', status: 'Da fare' },
+          { id: 'polish', name: 'Lucidatura', status: 'Non prevista', notRequired: true }] }] }
+  })
+  render(<LiveProductionPage />)
+  const card = within(await screen.findByRole('article'))
+  fireEvent.click(card.getByRole('button', { name: 'Avvia manualmente' }))
+  expect(await card.findByRole('alert')).toHaveTextContent(message)
+  fireEvent(window, new Event('online'))
+  await waitFor(() => expect(mocked.rpc.mock.calls.filter(([name]) => name === 'production_live_feed')).toHaveLength(2))
+  expect(card.getByRole('alert')).toHaveTextContent(message)
+  fireEvent.change(card.getByLabelText('Fase da lavorare su TEST123'), { target: { value: 'polish' } })
+  expect(card.queryByRole('alert')).not.toBeInTheDocument()
 })

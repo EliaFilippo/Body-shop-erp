@@ -31,6 +31,7 @@ export function LiveProductionPage() {
   const [feed, setFeed] = useState<LiveFeed | null>(null)
   const [snapshot, setSnapshot] = useState<ProductionArchiveSnapshot | null>(null)
   const [error, setError] = useState('')
+  const [jobActionError, setJobActionError] = useState<{jobId:string; message:string} | null>(null)
   const [publicationWarning,setPublicationWarning]=useState('')
   const [busy, setBusy] = useState(false)
   const [email, setEmail] = useState('')
@@ -105,16 +106,19 @@ export function LiveProductionPage() {
   async function act(name: string, body: Record<string, unknown>) {
     if (!session || !config || actionLock.current) return
     actionLock.current = true; setBusy(true); cancelRead()
+    const jobId = typeof body.p_job_id === 'string' ? body.p_job_id : null
+    setJobActionError(null)
     try {
       await productionRpc(name, { p_company_id: companyId, ...body }, session, config)
       // Ignore a feed sampled before the action; then read authoritative state again.
       await refresh()
     } catch (e) {
-      if (e instanceof Error && e.name === 'TimeoutError') {
-        await refresh()
-      } else {
-        setError(e instanceof Error ? e.message : 'Comando non riuscito. Verifica lo stato prima di riprovare.')
-      }
+      const timedOut = e instanceof Error && e.name === 'TimeoutError'
+      if (timedOut) await refresh()
+      const message = timedOut ? 'Il server non ha confermato il comando in tempo. Verifica lo stato del timer prima di riprovare.'
+        : e instanceof Error ? e.message : 'Comando non riuscito. Verifica lo stato prima di riprovare.'
+      if (jobId) setJobActionError({jobId, message})
+      else setError(message)
     }
     finally { actionLock.current = false; setBusy(false) }
   }
@@ -123,7 +127,7 @@ export function LiveProductionPage() {
     setBusy(true)
     try { await signOutCloud(session, config); setError('') }
     catch (e) { setError(e instanceof Error ? e.message : 'Disconnessione non riuscita.') }
-    finally { clearCloudSession(session.userId,config); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setSelectionMode('manual'); setPhaseChoices({}) }
+    finally { clearCloudSession(session.userId,config); setSession(null); setFeed(null); setCompanyId(''); setSnapshot(null); setBusy(false); setJobActionError(null); setSelectionMode('manual'); setPhaseChoices({}) }
   }
   useEffect(()=>{
     if(!session||!config||!companyId||!feed||!['owner','office'].includes(feed.role))return
@@ -156,7 +160,7 @@ export function LiveProductionPage() {
       if(!pairing)return
       cancelRead()
       setTabletPairing(pairing)
-      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('');setSelectionMode('manual');setPhaseChoices({})
+      setSession(null);setFeed(null);setCompanyId('');setSnapshot(null);setError('');setJobActionError(null);setSelectionMode('manual');setPhaseChoices({})
     }
     window.addEventListener('hashchange',activate)
     return()=>window.removeEventListener('hashchange',activate)
@@ -255,7 +259,11 @@ export function LiveProductionPage() {
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
             {(!manual || earlyStartBlocked) && feed.manualSelection && <button type="button" disabled={busy} aria-label={`Mostra tutte le fasi su ${job.plate}`} onClick={()=>{setSelectionMode('manual');setOpenedEarlyTaskId(null);setPhaseChoices(current=>({...current,[job.jobId]:earlyStartBlocked?selected:''}))}}>Mostra tutte le fasi</button>}
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy}
-              onChange={e => {setOpenedEarlyTaskId(null);setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}}>
+              onChange={e => {
+                setOpenedEarlyTaskId(null)
+                if (jobActionError?.jobId === job.jobId) setJobActionError(null)
+                setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))
+              }}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
               {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}{manual && (p.notRequired||p.manualExtra) ? ' · non prevista nel preventivo' : manual && p.status === 'Completata' ? ' · intervento aggiuntivo' : ''}</option>)}</select></label>}
             {manual && (selectedPhase?.notRequired||selectedPhase?.manualExtra) && <p>Fase non prevista nel preventivo: le ore effettive vengono registrate sulla vettura e il loro costo entra nel margine a consuntivo.</p>}
@@ -263,6 +271,9 @@ export function LiveProductionPage() {
             {selectedPhase?.remainingTimeUnknown&&<p>Fase extra aperta: l’ufficio deve indicare il tempo residuo prima della pianificazione automatica. Puoi continuarla e completarla manualmente.</p>}
             {selectedPhase?.manualWorkTracked&&selectedPhase.status!=='Completata'&&<p>Premi «✓ Completa {phaseDisplayName(selectedPhase.name)}» per aggiornare anche il processo automatico. Il comando ferma il tuo timer sulla fase; Pausa e Fine fermano solo il conteggio.</p>}
             {startBlockedReason&&<p role="status">Avvio non disponibile: {startBlockedReason}{!manual && feed.manualSelection ? ' Puoi passare alla scelta manuale.' : ''}</p>}
+            {stale && <p role="status">Comandi sospesi. <button type="button" disabled={busy} onClick={() => void refresh()}>Aggiorna collegamento</button></p>}
+            {manual && job.manualStartAllowed === false && <p role="status">Questa commessa non è aperta all’avvio manuale.</p>}
+            {jobActionError?.jobId === job.jobId && <p className="live-alert" role="alert">{jobActionError.message}</p>}
             {feed.activity?.kind&&selected&&<p>Premendo Start termini {feed.activity.kind==='cleaning'?'Pulizie':'Pausa caffè'} e avvii questa vettura. Se l’avvio non riesce, l’attività precedente continua.</p>}
             <div className="live-controls"><button disabled={busy || stale || earlyStartBlocked || !feed.operatorName || (job.ownStatus === 'running' && !switchesWork) || (requiresPhase && !selected) || (manual && job.manualStartAllowed === false)}
               onClick={() => void act(manual ? 'production_manual_start' : switchesWork ? 'production_start_selected_job' : 'production_timer_action', { p_job_id: job.jobId, ...(manual || switchesWork ? {} : {p_action:'start'}), p_phase_id: selected || null })}>{ownRunning && ownRunning.jobId !== job.jobId ? 'Passa a questa vettura' : job.ownStatus === 'paused' ? 'Riprendi' : manual ? 'Avvia manualmente' : 'Start'}</button>
