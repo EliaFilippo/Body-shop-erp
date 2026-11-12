@@ -10,7 +10,7 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
   const estimate = data.estimates?.find(item => item.id === job.estimateId)
   const vehicleDetails = [vehicle?.make, vehicle?.model, vehicle?.color].filter(Boolean).join(' · ')
   const hasPaintingPhase = job.phases.some(phase => phase.name === 'Verniciatura' && !phase.notRequired)
-  const rows = job.lines.map(line => {
+  const printedLines = job.lines.map(line => {
     const wholeVehicleLabel = /vettura intera\s*\/\s*interni/i
     const panel = line.panelId === 'vettura-intera' || wholeVehicleLabel.test(line.panelName ?? '')
       ? '' : line.panelName?.trim()
@@ -28,12 +28,18 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
     const printedWork = painting
       ? `<strong>Verniciatura · ${escapeHtml(panel)}</strong>${detail ? `<br>${escapeHtml(detail)}` : ''}`
       : escapeHtml(work)
-    return `<tr>
+    const html = `<tr>
       <td class="check"><span aria-label="Da spuntare"></span></td>
       <td>${printedWork}${line.quantity > 1 ? ` <small>Quantità ${escapeHtml(line.quantity)}</small>` : ''}
         ${line.panelWorkNote?.trim() ? `<small>Nota operativa · ${escapeHtml(line.panelWorkNote)}</small>` : ''}</td>
     </tr>`
-  }).join('')
+    return { work, html }
+  })
+  const rows = printedLines.map(line => line.html)
+  const exteriorWash = job.phases.some(phase => phase.name === 'Lavaggio esterno' && !phase.notRequired)
+  if (exteriorWash && !printedLines.some(line => /\blavaggio\s+esterno\b/i.test(line.work))) {
+    rows.unshift('<tr><td class="check"><span aria-label="Da spuntare"></span></td><td>Lavaggio esterno</td></tr>')
+  }
   return `<!doctype html>
 <html lang="it"><head><meta charset="utf-8"><title>Scheda lavori · ${escapeHtml(job.plate)}</title>
 <style>
@@ -73,7 +79,7 @@ export function buildWorkSheetHtml(data: ErpData, job: RepairJob) {
  ${job.coneNumber ? `<div class="cone"><span class="cone-label">CONO</span><strong class="cone-number">${escapeHtml(job.coneNumber)}</strong></div>` : ''}
 </header>
 <table><thead><tr><th class="check">Fatto</th><th>Lavorazione</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="2">Nessuna lavorazione indicata nella commessa.</td></tr>'}</tbody></table>
+<tbody>${rows.join('') || '<tr><td colspan="2">Nessuna lavorazione indicata nella commessa.</td></tr>'}</tbody></table>
 <section class="notes"><strong>Note degli operatori</strong><div class="line"></div><div class="line"></div></section>
 </body></html>`
 }

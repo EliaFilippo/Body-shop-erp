@@ -595,7 +595,7 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
 })
 
 
-it('opens the work-sheet print dialog only after saving a confirmed Fast estimate', () => {
+it.each([true, false])('prints the confirmed Fast estimate with exterior wash selected: %s', includeWash => {
   const data = makeData()
   const onChange = vi.fn()
   const print = vi.fn()
@@ -612,12 +612,19 @@ it('opens the work-sheet print dialog only after saving a confirmed Fast estimat
     fireEvent.change(screen.getByLabelText('Targa'), {target:{value:'AB123CD'}})
     fireEvent.change(screen.getByLabelText('Pannello'), {target:{value:'porta-ant-sx'}})
     fireEvent.click(screen.getByRole('button', {name:/^Porta anteriore SX ·/}))
+    if (includeWash) fireEvent.click(screen.getByLabelText(/Includi lavaggio esterno/))
     fireEvent.click(screen.getByLabelText('Il cliente ha già confermato questo preventivo'))
     expect(print).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', {name:'Conferma e crea commessa'}))
     expect(onChange).toHaveBeenCalledOnce()
     rerender(page(onChange.mock.calls[0][0]))
-    fireEvent.load(screen.getByTitle('Anteprima scheda lavori'))
+    const preview = screen.getByTitle('Anteprima scheda lavori')
+    const sheet = new DOMParser().parseFromString(preview.getAttribute('srcdoc')!, 'text/html')
+    const rows = [...sheet.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+    const washRows = rows.filter(row => row.cells[1]?.textContent?.trim() === 'Lavaggio esterno')
+    expect(washRows).toHaveLength(includeWash ? 1 : 0)
+    if (includeWash) expect(rows[0]).toBe(washRows[0])
+    fireEvent.load(preview)
     expect(print).toHaveBeenCalledOnce()
     expect(onChange.mock.calls[0][0].jobs[0].workSheetPrintedAt).toBeUndefined()
   } finally {
