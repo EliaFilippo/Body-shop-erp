@@ -3,6 +3,7 @@ import {emptyData} from './erp'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
 import type {ErpData,RepairJob} from '../types'
 import {syncOperationalStateFromJobs} from './workflow'
+import {closedJobMargin} from './closedJobMargin'
 import {applyLivePhaseChecks} from './liveProduction'
 import {syncProductionJobsFromVehicles,syncVehicleWorkedHoursFromProduction} from '../features/production/production'
 const fixture=()=>({...structuredClone(emptyData),jobs:[{id:'j',number:'COMM-1',customerId:'c',plate:'AA111AA',coneNumber:1,entryDate:'2026-10-27',expectedDeliveryDate:'2026-10-28',priority:'Normale',responsible:'',status:'Pianificata',companyName:'',contactName:'',notes:'',blocks:[],lines:[],qualityChecklist:[],taxableAmount:100,vatAmount:22,total:122,progressPercent:0,createdAt:'',updatedAt:'',history:[],phases:[{id:'p',name:'Lattoneria',status:'Da fare',operatorAssignments:[],estimatedMinutes:60,actualMinutes:0,notes:'',blockedReason:''}]} as RepairJob]})
@@ -36,6 +37,30 @@ describe('canonical operational replanning',()=>{
   expect(updated.jobs![0].status).toBe('Consegnata')
   expect(updated.jobs![0].phases[0]).toMatchObject({status:'Completata',tabletWorkedSeconds:900,completedByName:'Firmato',
    operatorAssignments:[{id:'tablet:a',workedMinutes:15,activityStatus:'Concluso'}]})
+  expect(applyProductionPlanningState(updated,recorded)).toBe(updated)
+ })
+ it.each(['missing','not required'])('includes an unquoted phase (%s) first received after delivery in the actual margin',shape=>{
+  const data=fixture(),job=data.jobs[0]
+  job.status='Consegnata'
+  job.materialActualCost={amount:10,at:'',note:''}
+  Object.assign(job.phases[0],{status:'Completata',tabletWorkedSeconds:600})
+  const extraId=shape==='missing'?'manual-phase:polishing':'legacy-polish'
+  if(shape==='not required') job.phases.push({...job.phases[0],id:extraId,name:'Lucidatura',
+   notRequired:true,estimatedMinutes:0,tabletWorkedSeconds:undefined})
+  const recorded={...state,entries:[
+   {...state.entries[0],runningSince:null,lastEndedAt:state.serverNow},
+   {...state.entries[0],phaseId:extraId,operatorId:'martin',operatorName:'Martin',
+    runningSince:null,closedSeconds:1800,lastEndedAt:state.serverNow},
+  ]}
+  const updated=applyProductionPlanningState(data,recorded)
+  const closed=updated.jobs![0]
+  expect(closed).toMatchObject({status:'Consegnata',total:122,taxableAmount:100})
+  expect(closed.phases[1]).toMatchObject({name:'Lucidatura',manualExtra:true,estimatedMinutes:0,
+   operatorAssignments:[{id:'tablet:martin',workedMinutes:30,activityStatus:'Concluso'}]})
+  expect(closedJobMargin(closed,[
+   {id:'a',name:'Mario',active:true,dailyHours:8,hourlyCost:30},
+   {id:'martin',name:'Martin',active:true,dailyHours:8,costMode:'external-extra',externalHourlyCost:40},
+  ])).toMatchObject({workedSeconds:2400,laborCents:2500,marginCents:6500})
   expect(applyProductionPlanningState(updated,recorded)).toBe(updated)
  })
  it('never overwrites the signed phase',()=>{

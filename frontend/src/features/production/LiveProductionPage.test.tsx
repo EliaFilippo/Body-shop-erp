@@ -372,6 +372,30 @@ it('shows unquoted phases by default and restores them directly from a vehicle i
  expect(mocked.rpc.mock.calls.some(c=>c[0]==='production_complete_phase')).toBe(false)
 })
 
+it('lets an operator select a phase manually before its suggested time',async()=>{
+ const serverNow='2026-10-28T08:00:00Z'
+ mocked.rpc.mockImplementation(async(name:string)=>{
+  if(name==='production_phase_notices_action')return []
+  if(name==='production_manual_start')return null
+  return {companyId:'c1',serverNow,role:'production',operatorName:'Davide',manualSelection:true,members:[],
+   program:[{id:'early-phase:test',jobId:'early',plate:'EARLY',phaseId:'polish',phaseName:'Lucidatura',
+    startAt:'2026-10-28T09:00:00Z',endAt:'2026-10-28T10:00:00Z',ready:true,panels:[]}],
+   jobs:[{jobId:'early',plate:'EARLY',number:'1',manualStartAllowed:true,remainingSeconds:900,
+    remainingPercent:100,activeCount:0,ownStatus:null,operators:[],
+    phases:[{id:'polish',name:'Lucidatura',status:'Da fare',automaticAllowed:false,canComplete:false}]}]}
+ })
+ render(<LiveProductionPage/>)
+ const start=await screen.findByRole('button',{name:'Avvia manualmente'})
+ expect(start).toBeEnabled()
+ fireEvent.click(screen.getByRole('link',{name:'Apri vettura e fase'}))
+ expect(start).toBeDisabled()
+ fireEvent.click(screen.getByRole('button',{name:'Mostra tutte le fasi su EARLY'}))
+ expect(start).toBeEnabled()
+ fireEvent.click(start)
+ await waitFor(()=>expect(mocked.rpc).toHaveBeenCalledWith('production_manual_start',
+  {p_company_id:'c1',p_job_id:'early',p_phase_id:'polish'},expect.anything(),expect.anything()))
+})
+
 it('lets the manual worker explicitly complete an activated extra phase to update automatic work',async()=>{
  let done=false
  mocked.rpc.mockImplementation(async(name:string)=>{

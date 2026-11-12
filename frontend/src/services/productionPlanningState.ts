@@ -1,6 +1,12 @@
 import type { ErpData, JobPhase, JobPhaseOperatorAssignment } from '../types'
 import type {PhaseCheckUpdate} from './liveProduction'
 import {WORK_CYCLE} from './workCycle'
+
+// Canonical IDs used by production_manual_phases for phases absent from older jobs.
+const manualPhaseCodes = ['wash-exterior','disassembly','hail','bodywork','filler','masking','painting',
+ 'unmasking','assembly','mechanical','polishing','wash-interior','touchups','transport']
+const manualPhaseNames = new Map(manualPhaseCodes.map((code, index) => [`manual-phase:${code}`, WORK_CYCLE[index]]))
+
 export interface PlanningEntry {
  jobId:string;phaseId:string;operatorId:string;operatorName:string;closedSeconds:number;
  runningSince:string|null;firstStartedAt:string;lastEndedAt:string|null
@@ -62,6 +68,18 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
     jobChanged=true;changed=true
    }
   }
+  // A delivery can reach the cloud before the office imports a newly started extra phase.
+  // The server still returns the closed segments, even for jobs no longer in the planner.
+  if(delivered){
+   for(const [id,entries] of entriesByJob.get(job.id)??[]){
+    const name=manualPhaseNames.get(id)
+    if(!name||phases.some(phase=>phase.id===id)||!entries.some(entry=>!entry.runningSince&&entry.lastEndedAt))continue
+    phases.push({id,name,requiredSkill:name,status:'In lavorazione',estimatedMinutes:0,
+     actualMinutes:entries.reduce((total,entry)=>total+entry.closedSeconds/60,0),notes:'',blockedReason:'',
+     operatorAssignments:[],manualExtra:true,manualWorkTracked:true,serverWorkTracked:true})
+    changed=true;jobChanged=true
+   }
+  }
   if(phases.length!==job.phases.length){
    const order=(p:JobPhase)=>p.cycleOrder??(WORK_CYCLE as readonly string[]).indexOf(p.name)+1
    phases.sort((a,b)=>order(a)-order(b))
@@ -76,7 +94,11 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
     workedMinutes:e.closedSeconds/60,activityStatus:e.runningSince?'Attivo':'Concluso',
    }))
    const operatorAssignments=[...(phase.operatorAssignments??[]).filter(a=>!a.id.startsWith('tablet:')), ...assignments]
-   const next={...phase,operatorAssignments,status:!delivered&&phase.status==='Da fare'?'In lavorazione' as const:phase.status}
+   const deliveredExtra=delivered&&phase.notRequired&&assignments.some(a=>a.endedAt&&a.workedMinutes>0)
+   const next={...phase,operatorAssignments,
+    ...(deliveredExtra?{notRequired:false,manualExtra:true,manualWorkTracked:true,serverWorkTracked:true,
+     actualMinutes:entries.reduce((total,entry)=>total+entry.closedSeconds/60,0)}:{}),
+    status:(!delivered&&phase.status==='Da fare')||(deliveredExtra&&!phase.completedAt)?'In lavorazione' as const:phase.status}
    if(sameJson(next,phase))return phase
    changed=true;jobChanged=true;return next
   })
