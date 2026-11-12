@@ -435,15 +435,36 @@ const statusHistoryEvent = (
 })
 
 export function completeJobDelivery(job: RepairJob, deliveredAt: string): RepairJob {
-  const phases = job.phases.map(phase => phase.name === 'Consegna' && phase.status !== 'Completata'
-    ? { ...phase, status: 'Completata' as const, completedAt: deliveredAt, endedAt: deliveredAt } : phase)
-  const required = phases.filter(phase => !phase.notRequired)
-  const progressPercent = required.length
-    ? Math.round(required.filter(phase => phase.status === 'Completata').length / required.length * 100)
-    : job.progressPercent
+  const phases = job.phases.map(phase => {
+    const operatorAssignments = (phase.operatorAssignments ?? []).map(assignment => {
+      // The cloud supplies the final total for tablet timers after it saves the delivery.
+      if (assignment.endedAt || assignment.activityStatus !== 'Attivo' || assignment.id.startsWith('tablet:')) return assignment
+      const elapsed = (Date.parse(deliveredAt) - Date.parse(assignment.startedAt)) / 60_000
+      return {
+        ...assignment,
+        endedAt: deliveredAt,
+        activityStatus: 'Concluso' as const,
+        workedMinutes: Math.max(assignment.workedMinutes, Number.isFinite(elapsed) ? Math.round(elapsed) : 0),
+      }
+    })
+    const workChanged = operatorAssignments.some((assignment, index) => assignment !== phase.operatorAssignments[index])
+    if (phase.status === 'Completata' && !workChanged) return phase
+    return {
+      ...phase,
+      operatorAssignments,
+      status: 'Completata' as const,
+      completedAt: phase.completedAt ?? deliveredAt,
+      completedByName: phase.completedByName ?? 'Ufficio · Consegna',
+      endedAt: phase.endedAt ?? deliveredAt,
+      remainingTimeUnknown: false,
+      actualMinutes: workChanged
+        ? operatorAssignments.reduce((minutes, assignment) => minutes + (assignment.endedAt ? assignment.workedMinutes : 0), 0)
+        : phase.actualMinutes,
+    }
+  })
   return {
-    ...job, phases, progressPercent, status: 'Consegnata', deliveredAt, updatedAt: now(),
-    history: [{ id: id(), at: deliveredAt, actor: 'Operatore ERP', message: 'Stato aggiornato a Consegnata.' }, ...(job.history ?? [])],
+    ...job, phases, progressPercent: 100, status: 'Consegnata', deliveredAt, updatedAt: deliveredAt,
+    history: [{ id: id(), at: deliveredAt, actor: 'Ufficio', message: 'Consegna registrata e fasi residue chiuse.' }, ...(job.history ?? [])],
   }
 }
 
@@ -502,9 +523,23 @@ export function changeVehicleStatus(
   const deliveredAt = previousDelivery && (!deliveryJob?.createdAt || Date.parse(deliveryJob.createdAt) <= Date.parse(previousDelivery))
     ? previousDelivery : now()
 
+  const production = data.production
+  const workLogs = delivered && source === 'manual' && production
+    ? production.workLogs.map(log => {
+      if (log.vehicleId !== vehicle.id || log.status === 'completed') return log
+      const elapsed = (Date.parse(deliveredAt) - Date.parse(log.lastResumedAt ?? log.startedAt)) / 60_000
+      const addedMinutes = log.status === 'running' && Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0
+      return {
+        ...log, status: 'completed' as const, endedAt: deliveredAt, lastResumedAt: undefined,
+        totalMinutes: log.totalMinutes + addedMinutes,
+      }
+    })
+    : undefined
+
   return reconcileVehicleCones({
     ...data,
     coneHistory: history,
+    ...(production && workLogs ? { production: { ...production, workLogs } } : {}),
     ...(deliveryJob ? { jobs: data.jobs?.map(job => job.id === deliveryJob.id
       ? completeJobDelivery(job, deliveredAt) : job) } : {}),
     vehicles: data.vehicles.map((item) =>

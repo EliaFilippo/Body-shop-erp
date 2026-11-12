@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest'
-import {emptyData} from './erp'
+import {completeJobDelivery,emptyData} from './erp'
 import {applyProductionPlanningState,type ProductionPlanningState} from './productionPlanningState'
 import type {ErpData,RepairJob} from '../types'
 import {syncOperationalStateFromJobs} from './workflow'
@@ -55,13 +55,27 @@ describe('canonical operational replanning',()=>{
   const updated=applyProductionPlanningState(data,recorded)
   const closed=updated.jobs![0]
   expect(closed).toMatchObject({status:'Consegnata',total:122,taxableAmount:100})
-  expect(closed.phases[1]).toMatchObject({name:'Lucidatura',manualExtra:true,estimatedMinutes:0,
+  expect(closed.phases[1]).toMatchObject({name:'Lucidatura',status:'Completata',manualExtra:true,estimatedMinutes:0,
    operatorAssignments:[{id:'tablet:martin',workedMinutes:30,activityStatus:'Concluso'}]})
   expect(closedJobMargin(closed,[
    {id:'a',name:'Mario',active:true,dailyHours:8,hourlyCost:30},
    {id:'martin',name:'Martin',active:true,dailyHours:8,costMode:'external-extra',externalHourlyCost:40},
   ])).toMatchObject({workedSeconds:2400,laborCents:2500,marginCents:6500})
   expect(applyProductionPlanningState(updated,recorded)).toBe(updated)
+ })
+ it('waits for the cloud to stop a tablet timer before counting its final operator time',()=>{
+  const data=applyProductionPlanningState(fixture(),state)
+  const deliveryAt='2026-10-27T08:20:00Z'
+  const delivered=syncOperationalStateFromJobs({...data,jobs:[completeJobDelivery(data.jobs![0],deliveryAt)]})
+  expect(delivered.jobs![0].phases[0].operatorAssignments[0]).toMatchObject({activityStatus:'Attivo',workedMinutes:10})
+  const closed=applyProductionPlanningState(delivered,{...state,serverNow:deliveryAt,entries:[
+   {...state.entries[0],runningSince:null,lastEndedAt:deliveryAt,closedSeconds:1200},
+  ]})
+  expect(closed.jobs![0].phases[0]).toMatchObject({
+   status:'Completata',actualMinutes:20,operatorAssignments:[{workedMinutes:20,activityStatus:'Concluso'}],
+  })
+  const lateRunning={...state,serverNow:'2026-10-27T08:21:00Z'}
+  expect(applyProductionPlanningState(closed,lateRunning).jobs).toEqual(closed.jobs)
  })
  it('never overwrites the signed phase',()=>{
   const data=fixture();data.jobs[0].phases[0].status='Completata';data.jobs[0].phases[0].completedByName='Firmato'

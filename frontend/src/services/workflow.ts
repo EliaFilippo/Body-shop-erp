@@ -856,11 +856,11 @@ function phaseDurationMinutes(phase: JobPhase, at: string) {
 	return minutesBetween(phaseStart, phaseEnd)
 }
 
-function synchronizePhase(phase: JobPhase, at: string): JobPhase {
+function synchronizePhase(phase: JobPhase, at: string, awaitingDeliveryTimers = false): JobPhase {
 	let assignments = normalizePhaseAssignments(phase, at)
 	if (phase.status === 'Completata') {
 		assignments = assignments.map((item) => {
-			if (item.endedAt || item.activityStatus !== 'Attivo') return item
+			if (item.endedAt || item.activityStatus !== 'Attivo' || (awaitingDeliveryTimers && item.id.startsWith('tablet:'))) return item
 			const endedAt = phase.endedAt || phase.completedAt || at
 			return {
 				...item,
@@ -1025,7 +1025,7 @@ export function workflowOperationalSnapshot(job: RepairJob): {
 	operatorCount: number
 } {
 	const at = now()
-	const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at))
+	const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata'))
 	const syncedJob = { ...job, phases: syncedPhases }
 	const lastCompleted = latestCompletedPhase(syncedJob)
 	const nextPhase = nextTodoPhase(syncedJob)
@@ -1788,7 +1788,7 @@ export function syncOperationalStateFromJobs(data: ErpData): ErpData {
 
 	const normalizedJobs = (withSuggestedStatuses.jobs ?? []).map((job) => {
 		const at = now()
-		const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at))
+		const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata'))
 		const syncedJob = { ...job, phases: syncedPhases }
 		const progressPercent = deriveJobProgress(syncedJob)
 		const currentStatus = stabilizeJobStatusFromPhases(syncedJob)

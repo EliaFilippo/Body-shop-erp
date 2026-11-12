@@ -73,8 +73,9 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
   if(delivered){
    for(const [id,entries] of entriesByJob.get(job.id)??[]){
     const name=manualPhaseNames.get(id)
-    if(!name||phases.some(phase=>phase.id===id)||!entries.some(entry=>!entry.runningSince&&entry.lastEndedAt))continue
-    phases.push({id,name,requiredSkill:name,status:'In lavorazione',estimatedMinutes:0,
+    if(!name||phases.some(phase=>phase.id===id)||entries.some(entry=>entry.runningSince)||!entries.some(entry=>entry.lastEndedAt))continue
+    phases.push({id,name,requiredSkill:name,status:'Completata',estimatedMinutes:0,
+     completedAt:job.deliveredAt,endedAt:job.deliveredAt,completedByName:'Ufficio · Consegna',
      actualMinutes:entries.reduce((total,entry)=>total+entry.closedSeconds/60,0),notes:'',blockedReason:'',
      operatorAssignments:[],manualExtra:true,manualWorkTracked:true,serverWorkTracked:true})
     changed=true;jobChanged=true
@@ -87,7 +88,7 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
   phases=phases.map(phase=>{
    if(!delivered&&phase.status==='Completata'&&!phase.serverWorkTracked)return phase
    const entries=entriesByJob.get(job.id)?.get(phase.id)
-   if(!entries)return phase
+   if(!entries||(delivered&&entries.some(entry=>entry.runningSince)))return phase
    const assignments:JobPhaseOperatorAssignment[]=entries.map(e=>({
     id:'tablet:'+e.operatorId,operatorName:e.operatorName,startedAt:e.runningSince||e.firstStartedAt,
     ...(e.runningSince?{}:{endedAt:e.lastEndedAt||state.serverNow}),
@@ -95,10 +96,17 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
    }))
    const operatorAssignments=[...(phase.operatorAssignments??[]).filter(a=>!a.id.startsWith('tablet:')), ...assignments]
    const deliveredExtra=delivered&&phase.notRequired&&assignments.some(a=>a.endedAt&&a.workedMinutes>0)
-   const next={...phase,operatorAssignments,
-    ...(deliveredExtra?{notRequired:false,manualExtra:true,manualWorkTracked:true,serverWorkTracked:true,
-     actualMinutes:entries.reduce((total,entry)=>total+entry.closedSeconds/60,0)}:{}),
-    status:(!delivered&&phase.status==='Da fare')||(deliveredExtra&&!phase.completedAt)?'In lavorazione' as const:phase.status}
+   const next:JobPhase={...phase,operatorAssignments}
+   if(delivered){
+    next.actualMinutes=Number.isFinite(phase.tabletWorkedSeconds)&&phase.tabletWorkedSeconds!>=0
+     ?phase.tabletWorkedSeconds!/60:operatorAssignments.reduce((total,assignment)=>total+(assignment.endedAt?assignment.workedMinutes:0),0)
+    next.serverWorkTracked=true
+    if(deliveredExtra)Object.assign(next,{
+     notRequired:false,manualExtra:true,manualWorkTracked:true,status:'Completata',
+     remainingTimeUnknown:false,completedAt:phase.completedAt??job.deliveredAt,
+     endedAt:phase.endedAt??job.deliveredAt,completedByName:phase.completedByName??'Ufficio · Consegna',
+    })
+   }else if(phase.status==='Da fare')next.status='In lavorazione'
    if(sameJson(next,phase))return phase
    changed=true;jobChanged=true;return next
   })
