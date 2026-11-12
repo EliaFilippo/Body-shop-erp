@@ -79,6 +79,15 @@ describe('closed job margin', () => {
   })
  })
 
+ it('counts added tablet work after signing once, including its labor cost', () => {
+  const job = makeReportJob()
+  job.materialActualCost = { amount: 0, at: '', note: '' }
+  job.phases = [phase('a', { tabletWorkedSeconds: 1800, operatorAssignments: [tabletWork('a', 'A', 45)] })]
+  expect(closedJobMargin(job, [internal(30)])).toMatchObject({
+   workedSeconds: 2700, laborCents: 2250, marginCents: 47750, laborComplete: true,
+  })
+  expect(job.phases[0].tabletWorkedSeconds).toBe(1800)
+ })
  it('subtracts recorded parts once and labels the quoted purchase cost as estimated when no receipt is recorded', () => {
   const job = makeReportJob()
   job.phases = [paidPhase(3600)]

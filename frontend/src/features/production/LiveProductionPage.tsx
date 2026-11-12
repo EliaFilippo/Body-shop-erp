@@ -38,6 +38,7 @@ export function LiveProductionPage() {
   const [selectionMode,setSelectionMode] = useState<'automatic'|'manual'>('manual')
   const [vehicleSearch,setVehicleSearch]=useState('')
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
+  const [openedEarlyTaskId, setOpenedEarlyTaskId] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const tabletNotices = useTabletNotices(companyId, session, config, feed?.jobs.map(job => job.jobId) ?? [])
   useCloudSessionRenewal(session,config,next=>setSession(current=>current?.userId===next.userId?next:current),()=>{setSession(null);setFeed(null);setCompanyId('');setSnapshot(null)})
@@ -197,14 +198,14 @@ export function LiveProductionPage() {
         {feed.program?.length ? <ol>{feed.program.map(task => <li key={task.id}><strong>{task.coneNumber!=null&&<span className="live-program-cone">CONO {task.coneNumber}</span>}{task.plate} · {phaseDisplayName(task.phaseName)}</strong>
           {task.id.startsWith('early-phase:') ? <p>Fase indipendente anticipata</p> : task.updatedFromManual && <p>Fase aggiornata dalle lavorazioni manuali.</p>}<p>Previsto: {new Date(task.startAt).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })}</p>
           {!!task.panels?.length && <p>{task.panels.join(', ')}</p>}
-          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => {setSelectionMode(task.id.startsWith('early-phase:') ? 'manual' : 'automatic');setVehicleSearch('');setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}}>Apri vettura e fase</a>
+          {task.ready ? <a href={`#vettura-${encodeURIComponent(task.jobId)}`} onClick={() => {setOpenedEarlyTaskId(task.id.startsWith('early-phase:') ? task.id : null);setSelectionMode(task.id.startsWith('early-phase:') ? 'manual' : 'automatic');setVehicleSearch('');setPhaseChoices(current => ({ ...current, [task.jobId]: task.phaseId }))}}>Apri vettura e fase</a>
             : <p>Pubblicazione automatica in corso. Se il lavoro non compare, l’ufficio può verificare i dati mancanti in Produzione.</p>}</li>)}</ol>
           : <p>Nessun lavoro assegnato nel Programma operatori. Puoi consultare le vetture disponibili qui sotto.</p>}
       </section>}
       {publicationWarning&&['owner','office'].includes(feed.role)&&<p role="status">Pubblicazione automatica: {publicationWarning}</p>}
       {['owner', 'office'].includes(feed.role) && <ProductionControlPanel connection={{ companyId, session, config: config! }} />}
       <p>Ogni fase ha una quota del budget della vettura. I colleghi sulla stessa fase consumano la stessa quota. Pausa e Fine fermano soltanto il tuo timer.</p>
-      <section className="live-day-hours"><h2>Scegli una vettura · anche fuori programma</h2><label>Cerca targa o cono<input type="search" value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} /></label><p>Tutti vedono le vetture aperte. In manuale scegli qualsiasi fase di lavorazione, anche non prevista nel preventivo, fuori mansione o già completata per un intervento aggiuntivo. Passando a un altro lavoro, il tuo timer precedente va in pausa. Il programma automatico mantiene le priorità e il ricalcolo a ogni fase completata e quello notturno.</p>{feed.manualSelection && <label>Scelta del lavoro<select aria-label="Modalità scelta lavoro" value={selectionMode} disabled={busy} onChange={e=>{setSelectionMode(e.target.value as 'automatic'|'manual');setPhaseChoices({})}}>
+      <section className="live-day-hours"><h2>Scegli una vettura · anche fuori programma</h2><label>Cerca targa o cono<input type="search" value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} /></label><p>Tutti vedono le vetture aperte. In manuale scegli qualsiasi fase di lavorazione, anche non prevista nel preventivo, fuori mansione o già completata per un intervento aggiuntivo. Passando a un altro lavoro, il tuo timer precedente va in pausa. Il programma automatico mantiene le priorità e il ricalcolo a ogni fase completata e quello notturno.</p>{feed.manualSelection && <label>Scelta del lavoro<select aria-label="Modalità scelta lavoro" value={selectionMode} disabled={busy} onChange={e=>{setSelectionMode(e.target.value as 'automatic'|'manual');setPhaseChoices({});setOpenedEarlyTaskId(null)}}>
         <option value="automatic">Automatica · fasi abilitate e programma</option><option value="manual">Manuale · scegli vettura e fase</option>
       </select></label>}</section>
       <section className="live-job-grid" aria-label="Vetture disponibili">
@@ -216,7 +217,7 @@ export function LiveProductionPage() {
           const requiresPhase = job.dutiesFiltered || (manual ? (job.phases ?? []).length > 0 : (job.phases ?? []).some(p => !p.notRequired))
           const selectedPhase = availablePhases.find(p => p.id === selected)
           const switchesWork=Boolean(feed.activity?.kind || ownRunning && (ownRunning.jobId!==job.jobId || (ownRunning.ownPhaseId??'')!==selected))
-          const earlyTask = manual ? feed.program?.find(task => task.id.startsWith('early-phase:')
+          const earlyTask = manual && openedEarlyTaskId ? feed.program?.find(task => task.id === openedEarlyTaskId
             && task.jobId === job.jobId && task.phaseId === selected) : undefined
           const requiredPaint = job.phases?.find(phase => phase.name === 'Verniciatura' && !phase.notRequired)
           const earlyStartBlocked = !!earlyTask && ((requiredPaint && requiredPaint.status !== 'Completata')
@@ -252,12 +253,12 @@ export function LiveProductionPage() {
             </details>
             {!stale && clock.warning && <p role="status">{clock.exhausted ? 'Budget esaurito: lavoro oltre il tempo disponibile' : 'Attenzione: rimane meno del 20% del budget di lavoro'}</p>}
             <p>{job.operators.map(o => `${o.name}: ${o.status === 'running' ? 'al lavoro' : o.status === 'paused' ? 'in pausa' : 'terminato'}`).join(' · ') || 'Nessun operatore avviato'}</p>
-            {!manual && feed.manualSelection && <button type="button" disabled={busy} aria-label={`Mostra tutte le fasi su ${job.plate}`} onClick={()=>{setSelectionMode('manual');setPhaseChoices(current=>({...current,[job.jobId]:''}))}}>Mostra tutte le fasi</button>}
+            {(!manual || earlyStartBlocked) && feed.manualSelection && <button type="button" disabled={busy} aria-label={`Mostra tutte le fasi su ${job.plate}`} onClick={()=>{setSelectionMode('manual');setOpenedEarlyTaskId(null);setPhaseChoices(current=>({...current,[job.jobId]:earlyStartBlocked?selected:''}))}}>Mostra tutte le fasi</button>}
             {requiresPhase && <label>Fase da lavorare<select aria-label={`Fase da lavorare su ${job.plate}`} value={selected} disabled={busy}
-              onChange={e => setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}>
+              onChange={e => {setOpenedEarlyTaskId(null);setPhaseChoices(current => ({ ...current, [job.jobId]: e.target.value }))}}>
               {!availablePhases.length && <option value="">Nessuna fase disponibile</option>}
               {availablePhases.map(p => <option value={p.id} key={p.id}>{phaseDisplayName(p.name)}{manual && (p.notRequired||p.manualExtra) ? ' · non prevista nel preventivo' : manual && p.status === 'Completata' ? ' · intervento aggiuntivo' : ''}</option>)}</select></label>}
-            {manual && (selectedPhase?.notRequired||selectedPhase?.manualExtra) && <p>Fase non prevista nel preventivo: le ore effettive vengono registrate sulla vettura. Non viene aggiunto un tempo preventivato.</p>}
+            {manual && (selectedPhase?.notRequired||selectedPhase?.manualExtra) && <p>Fase non prevista nel preventivo: le ore effettive vengono registrate sulla vettura e il loro costo entra nel margine a consuntivo.</p>}
             {manual && !(selectedPhase?.notRequired||selectedPhase?.manualExtra) && selectedPhase?.status === 'Completata' && <p>Intervento aggiuntivo: il visto precedente resta nello storico; il nuovo tempo si aggiunge alle ore lavorate.</p>}
             {selectedPhase?.remainingTimeUnknown&&<p>Fase extra aperta: l’ufficio deve indicare il tempo residuo prima della pianificazione automatica. Puoi continuarla e completarla manualmente.</p>}
             {selectedPhase?.manualWorkTracked&&selectedPhase.status!=='Completata'&&<p>Premi «✓ Completa {phaseDisplayName(selectedPhase.name)}» per aggiornare anche il processo automatico. Il comando ferma il tuo timer sulla fase; Pausa e Fine fermano solo il conteggio.</p>}

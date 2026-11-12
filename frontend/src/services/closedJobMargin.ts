@@ -1,5 +1,5 @@
 import type { JobPhase, PlannerOperator, RepairJob } from '../types'
-import { deliveredJobReport, deliveredWorkPhases } from './deliveredJobReport'
+import { deliveredJobReport, deliveredPhaseTime, deliveredWorkPhases } from './deliveredJobReport'
 
 const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 const knownAmount = (amount: number | undefined): amount is number =>
@@ -11,15 +11,8 @@ export function operatorHourlyCost(operator: PlannerOperator) {
 }
 
 export function recordedPhaseLabor(phase: JobPhase, operators: PlannerOperator[]) {
-  const signedSeconds = phase.tabletWorkedSeconds
-  const signed = knownAmount(signedSeconds)
-  const allAssignments = phase.operatorAssignments ?? []
-  const assignments = allAssignments.filter(assignment => assignment.endedAt && knownAmount(assignment.workedMinutes)
-    && (!signed || assignment.id.startsWith('tablet:')))
-  const recordedSeconds = assignments.reduce((sum, assignment) => sum + assignment.workedMinutes * 60, 0)
-  const complete = signed ? Math.abs(recordedSeconds - signedSeconds) <= 0.5
-    : assignments.length > 0 && assignments.length === allAssignments.length
-  const workers = assignments.filter(assignment => assignment.workedMinutes > 0).map(assignment => {
+  const { closed, assignmentsComplete } = deliveredPhaseTime(phase)
+  const workers = closed.filter(assignment => assignment.workedMinutes > 0).map(assignment => {
     const name = assignment.operatorName.trim()
     const byId = operators.find(operator => assignment.id === 'tablet:' + operator.id)
     const byName = operators.filter(operator => operator.name.trim().toLowerCase() === name.toLowerCase())
@@ -29,7 +22,7 @@ export function recordedPhaseLabor(phase: JobPhase, operators: PlannerOperator[]
       seconds: assignment.workedMinutes * 60, rate: operator ? operatorHourlyCost(operator) : null,
     }
   })
-  return { workers, complete: complete && workers.every(worker => worker.rate !== null) }
+  return { workers, complete: assignmentsComplete && workers.every(worker => worker.rate !== null) }
 }
 
 export function closedJobPartsCost(job: RepairJob, recordedParts?: number) {
