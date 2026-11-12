@@ -2191,15 +2191,20 @@ describe('avanzamento sulle sole fasi richieste',()=>{
 })
 
 
-it('synchronizes delivery from the vehicle without completing unfinished production phases', () => {
+it('closes unfinished phases when the office delivers a vehicle', () => {
   const data = createDirectJob(makeData(), {
     customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD', companyName: '', contactName: '',
     entryDate: '2026-11-11', expectedDeliveryDate: '2026-11-11', priority: 'Normale', responsible: '',
     notes: '', lines: [{ description: 'Riparazione', category: 'carrozzeria', quantity: 1, unitPrice: 120, discount: 0, vatRate: 22 }],
   })
   const job = data.jobs![0]
-  const productionPhase = { ...job.phases[0], id: 'work', name: 'Stuccatura', status: 'In lavorazione' as const }
-  job.phases = [productionPhase, { ...productionPhase, id: 'delivery', name: 'Consegna', status: 'Da fare' }]
+  const productionPhase = { ...job.phases[0], id: 'work', name: 'Stuccatura', status: 'In lavorazione' as const,
+    operatorAssignments: [
+      { id: 'manual', operatorName: 'Stefania', startedAt: new Date(Date.now() - 30 * 60_000).toISOString(), activityStatus: 'Attivo' as const, workedMinutes: 0 },
+      { id: 'tablet:davide', operatorName: 'Davide', startedAt: new Date().toISOString(), activityStatus: 'Attivo' as const, workedMinutes: 10 },
+    ],
+  }
+  job.phases = [productionPhase, { ...productionPhase, id: 'delivery', name: 'Consegna', status: 'Da fare', operatorAssignments: [] }]
   const cancelled = { ...job, id: 'cancelled', status: 'Annullata' as const }
   const older = { ...job, id: 'older', createdAt: '2026-11-01T07:00:00Z' }
   data.jobs!.push(cancelled, older)
@@ -2207,8 +2212,11 @@ it('synchronizes delivery from the vehicle without completing unfinished product
   const delivered = changeVehicleStatus(ready, 'v1', 'consegnata')
   const date = delivered.vehicles[0].deliveredAt
   expect(date).toBeTruthy()
-  expect(delivered.jobs![0]).toMatchObject({ status: 'Consegnata', deliveredAt: date })
-  expect(delivered.jobs![0].phases[0]).toEqual(productionPhase)
+  expect(delivered.jobs![0]).toMatchObject({ status: 'Consegnata', deliveredAt: date, progressPercent: 100 })
+  expect(delivered.jobs![0].phases[0]).toMatchObject({
+    status: 'Completata', completedAt: date, endedAt: date, actualMinutes: 30,
+    operatorAssignments: [{ workedMinutes: 30, activityStatus: 'Concluso', endedAt: date }, productionPhase.operatorAssignments[1]],
+  })
   expect(delivered.jobs![0].phases[1]).toMatchObject({ status: 'Completata', completedAt: date, endedAt: date })
   expect(delivered.jobs![1]).toBe(cancelled)
   expect(delivered.jobs![2]).toBe(older)
