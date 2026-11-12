@@ -291,6 +291,13 @@ it('shows the margin in the open planner detail after the vehicle and job are de
   const data = makeData()
   const vehicle = data.vehicles[0]
   const job = data.jobs![0]
+  data.plannerSettings.operators[0].hourlyCost = 20
+  job.taxableAmount = 500
+  job.materialActualCost = { amount: 100, at: '', note: '' }
+  job.phases[0].operatorAssignments = [{
+    id: 'tablet:op-1', operatorName: 'Operatore Uno', startedAt: '2026-11-11T08:00:00Z',
+    endedAt: '2026-11-11T09:00:00Z', workedMinutes: 60, activityStatus: 'Concluso',
+  }]
   const page = (snapshot: ErpData) => <PlannerPage data={snapshot} customerById={() => undefined}
     onMove={() => {}} onOpenSettings={() => {}} onUpdateVehicleStatus={() => {}} statusOptions={[]} statusLabel={status => status}/>
   const { rerender } = render(page(data))
@@ -304,5 +311,7 @@ it('shows the margin in the open planner detail after the vehicle and job are de
   const detail = within(screen.getByRole('heading', { name: 'Dettaglio pianificazione vettura' }).closest('.modal')!)
   expect(detail.getByText('COMM-00001', { exact: true })).toBeVisible()
   expect(detail.getByRole('heading', { name: 'Guadagno alla consegna' })).toBeVisible()
-  expect(detail.getByText('Margine a consuntivo')).toBeVisible()
+  expect(detail.getByText('Margine provvisorio').nextElementSibling).toHaveTextContent('380,00')
+  expect(detail.getByText('Costo operatori registrato').nextElementSibling).toHaveTextContent('20,00')
+  expect(detail.getByText(/Ore mancanti o parziali per Verniciatura/)).toBeVisible()
 })
