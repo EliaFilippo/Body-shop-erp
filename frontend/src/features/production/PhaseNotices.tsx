@@ -9,7 +9,7 @@ const noticesRefreshMs = 15_000
 const noticesRetryMs = 60_000
 const stamp = (value: string) => new Date(value).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })
 
-export function useTabletNotices(companyId: string, session: CloudAuthSession | null, config: CloudAuthConfig | null, jobIds: string[]) {
+export function useTabletNotices(companyId: string, session: CloudAuthSession | null, config: CloudAuthConfig | null, jobIds: string[], refreshMs = noticesRefreshMs) {
   const idsKey = JSON.stringify([...new Set(jobIds)].sort())
   const key = JSON.stringify([companyId, session?.userId, config?.url, idsKey])
   const [result, setResult] = useState<{ key: string; notices: Record<string, PhaseNotice[]>; error: string }>()
@@ -26,7 +26,7 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
       const controller = new AbortController()
       request = controller
       const started = generation.current
-      let nextDelay = noticesRefreshMs
+      let nextDelay = refreshMs
       try {
         const notices = await productionRpc<Record<string, PhaseNotice[]>>('production_phase_notices_batch',
           { p_company_id: companyId, p_job_ids: ids }, session, config, undefined, controller.signal)
@@ -55,7 +55,7 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', visibilityChanged)
     }
-  }, [companyId, session, config, idsKey, key])
+  }, [companyId, session, config, idsKey, key, refreshMs])
 
   return {
     forJob: (jobId: string) => ({
@@ -73,82 +73,28 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
 export function PhaseNotices({ connection, jobId, phases, office = false, closed = false, shared }: {
   connection: NoticesConnection; jobId: string; phases: { id: string; name: string; notRequired?: boolean }[]; office?: boolean; closed?: boolean; shared?: { notices: PhaseNotice[]; loaded: boolean; error: string; update: (notices: PhaseNotice[]) => void }
 }) {
-  const [localNotices, setNotices] = useState<PhaseNotice[]>([])
   const [phaseId, setPhaseId] = useState('')
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
-  const [readError, setReadError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [localLoaded, setLoaded] = useState(false)
   const [pending, setPending] = useState<{ id: string; body: string; phaseId: string } | null>(null)
   const lock = useRef(false)
-  const generation = useRef(0)
   const { companyId, session, config } = connection
-  const notices = shared?.notices ?? localNotices
-  const loaded = shared?.loaded ?? localLoaded
-  const usesSharedNotices = Boolean(shared)
+  const local = useTabletNotices(companyId, session, config, shared ? [] : [jobId], office ? 30_000 : noticesRefreshMs)
+  const { notices, loaded, error: readError, update } = shared ?? local.forJob(jobId)
   const available = phases.filter(phase => !phase.notRequired)
   const selected = available.some(phase => phase.id === phaseId) ? phaseId : available[0]?.id ?? ''
-  useEffect(() => { setNotices([]); setLoaded(false); setBody(''); setPending(null); setError(''); setReadError('') }, [companyId, jobId])
-  useEffect(() => {
-    if (usesSharedNotices) return
-    let stopped = false
-    let pendingRead: AbortController | undefined
-    let timer: ReturnType<typeof setTimeout>
-    const poll = async () => {
-      if (stopped || document.hidden || pendingRead) return
-      if (lock.current) {
-        timer = setTimeout(poll, noticesRefreshMs)
-        return
-      }
-      const controller = new AbortController()
-      pendingRead = controller
-      const request = ++generation.current
-      let nextDelay = noticesRefreshMs
-      try {
-        const result = await productionRpc<PhaseNotice[]>('production_phase_notices_action',
-          { p_company_id: companyId, p_job_id: jobId }, session, config, undefined, controller.signal)
-        if (!stopped && !controller.signal.aborted && request === generation.current) {
-          setNotices(result)
-          setLoaded(true)
-          setReadError('')
-        }
-      } catch (problem) {
-        nextDelay = controller.signal.aborted ? 0 : noticesRetryMs
-        if (!stopped && !controller.signal.aborted && request === generation.current) {
-          setReadError(problem instanceof Error ? problem.message : 'Avvisi non disponibili.')
-        }
-      } finally {
-        pendingRead = undefined
-        if (!stopped && !document.hidden) timer = setTimeout(poll, nextDelay)
-      }
-    }
-    const visibilityChanged = () => {
-      clearTimeout(timer)
-      if (document.hidden) pendingRead?.abort()
-      else void poll()
-    }
-    document.addEventListener('visibilitychange', visibilityChanged)
-    void poll()
-    return () => {
-      stopped = true
-      pendingRead?.abort()
-      clearTimeout(timer)
-      document.removeEventListener('visibilitychange', visibilityChanged)
-      generation.current++
-    }
-  }, [companyId, jobId, session.accessToken, config.url, config.anonKey, usesSharedNotices])
+  useEffect(() => { setBody(''); setPending(null); setError('') }, [companyId, jobId])
   async function act(action: 'add' | 'review', id?: string) {
     if (lock.current) return
     const draft = action === 'add' ? pending ?? { id: crypto.randomUUID(), body: body.trim(), phaseId: selected } : null
     if (draft && (!draft.body || !draft.phaseId)) return
-    lock.current = true; setBusy(true); generation.current++; setError('')
+    lock.current = true; setBusy(true); setError('')
     if (draft) setPending(draft)
     try {
       const result = await productionRpc<PhaseNotice[]>('production_phase_notices_action', { p_company_id: companyId, p_job_id: jobId, p_action: action,
         p_notice_id: draft?.id ?? id, ...(draft ? { p_phase_id: draft.phaseId, p_body: draft.body } : {}) }, session, config)
-      if (shared) shared.update(result)
-      else { setNotices(result); setLoaded(true) }
+      update(result)
       if (draft) { setBody(''); setPending(null) }
     } catch (e) { setError(e instanceof Error ? e.message : 'Invio non riuscito. Il testo resta disponibile: riprova.') }
     finally { lock.current = false; setBusy(false) }
@@ -156,7 +102,7 @@ export function PhaseNotices({ connection, jobId, phases, office = false, closed
   return <section className="phase-notices" aria-label="Avvisi per fase">
     <h3>{office ? 'Avvisi e verifica prima della chiusura' : 'Avvisi per fase'}</h3>
     <p>{office ? `${notices.filter(note => !note.reviewedAt).length} avvisi da verificare. Il visto indica che l’ufficio ha controllato l’avviso.` : 'Leggi le indicazioni dell’ufficio e lascia un messaggio ai colleghi.'}</p>
-    {(error || shared?.error || readError) && <p role="alert">{error || shared?.error || readError}</p>}
+    {(error || readError) && <p role="alert">{error || readError}</p>}
     {!loaded && <p>Caricamento avvisi…</p>}
     {loaded && !notices.length && <p>Nessun avviso registrato.</p>}
     <ul>{notices.map(note => <li key={note.id} className={note.reviewedAt ? 'notice-reviewed' : 'notice-open'}>
