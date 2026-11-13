@@ -153,7 +153,7 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
   return payload as T
 }
 
-// A confirmed budget survives feed visibility changes (for example while waiting for parts).
+// Remember budgets the server has locked because work is already recorded.
 const confirmedBudgets = new WeakMap<CloudAuthSession, Map<string, Set<string>>>()
 
 /** Runs only after a successful cloud save; timers still require the employee's Start. */
@@ -175,7 +175,6 @@ export async function publishProductionJobs(data: Pick<ErpData,'plannerSettings'
       if (!job.phases.some(phase => !phase.notRequired && phase.name !== 'Consegna' && phase.estimatedMinutes > 0)) throw new Error('Inserisci i tempi delle fasi prima di pubblicare il lavoro.')
       const budget = prepareLiveJob(data, job)
       await productionRpc('production_prepare_job', { p_company_id: companyId, p_job_id: job.id, p_revision: revision, p_budget: budget.budget, p_rates: budget.operators }, session, config)
-      confirmed.add(job.id)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Pubblicazione sul tablet non riuscita.'
       if (message === 'Il budget è già in uso: conservato per evitare di modificare il lavoro registrato') {
