@@ -142,7 +142,6 @@ export function LiveProductionPage() {
           if(result.snapshot)setSnapshot(result.snapshot)
           if(result.warnings.length)setPublicationWarning(result.warnings.join(' · '))
           else setPublicationWarning('')
-          await refresh()
         }
       }catch(problem){if(!stopped)setPublicationWarning(problem instanceof Error?problem.message:'Pubblicazione automatica da riprovare.')}
       finally{publishing=false}
@@ -150,7 +149,7 @@ export function LiveProductionPage() {
     void publish()
     const timer=setInterval(()=>void publish(),15000)
     return()=>{stopped=true;clearInterval(timer)}
-  },[session,companyId,feed?.role,refresh])
+  },[session,companyId,feed?.role])
 
   useEffect(()=>{
     const activate=()=>{
