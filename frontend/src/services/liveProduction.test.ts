@@ -109,6 +109,19 @@ describe('pubblicazione automatica dopo conferma', () => {
       expect(JSON.stringify(data)).toBe(before)
     } finally { fetchMock.mockRestore() }
   })
+  it('salta il budget già in uso anche se la commessa manca dal feed', async () => {
+    const feed = () => new Response(JSON.stringify({ role: 'owner', jobs: [] }))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(feed())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Il budget è già in uso: conservato per evitare di modificare il lavoro registrato' }), { status: 400 }))
+      .mockResolvedValueOnce(feed())
+    try {
+      const data = dataForPublish()
+      const connection = { ...session }
+      expect(await publishProductionJobs(data, 'company', 12, connection, config)).toEqual([])
+      expect(await publishProductionJobs(data, 'company', 13, connection, config)).toEqual([])
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    } finally { fetchMock.mockRestore() }
+  })
   it('non ripubblica i lavori già disponibili e segnala dati mancanti', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [{ jobId: 'auto-job' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] })))
     try {
