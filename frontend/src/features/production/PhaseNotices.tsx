@@ -6,6 +6,7 @@ import './phaseNotices.css'
 export interface NoticesConnection { companyId: string; session: CloudAuthSession; config: CloudAuthConfig }
 interface PhaseNotice { id: string; phaseId: string; phaseName: string; body: string; authorName: string; authorRole: string; createdAt: string; reviewedName: string | null; reviewedAt: string | null }
 const noticesRefreshMs = 15_000
+const officeNoticesRefreshMs = 60 * 60_000
 const noticesRetryMs = 60_000
 const stamp = (value: string) => new Date(value).toLocaleString('it-IT', { timeZone: 'Europe/Rome' })
 
@@ -80,7 +81,7 @@ export function PhaseNotices({ connection, jobId, phases, office = false, closed
   const [pending, setPending] = useState<{ id: string; body: string; phaseId: string } | null>(null)
   const lock = useRef(false)
   const { companyId, session, config } = connection
-  const local = useTabletNotices(companyId, session, config, shared ? [] : [jobId], office ? 30_000 : noticesRefreshMs)
+  const local = useTabletNotices(companyId, session, config, shared ? [] : [jobId], office ? officeNoticesRefreshMs : noticesRefreshMs)
   const { notices, loaded, error: readError, update } = shared ?? local.forJob(jobId)
   const available = phases.filter(phase => !phase.notRequired)
   const selected = available.some(phase => phase.id === phaseId) ? phaseId : available[0]?.id ?? ''
