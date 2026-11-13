@@ -9,7 +9,7 @@ const note = { id: 'n1', phaseId: 'p1', phaseName: 'Lattoneria', body: 'Attenzio
 beforeEach(() => mocked.rpc.mockReset())
 afterEach(cleanup)
 it('shows author, phase and office review while preserving messages in closed jobs', async () => {
-  mocked.rpc.mockResolvedValue([note])
+  mocked.rpc.mockResolvedValue({ j: [note] })
   render(<PhaseNotices connection={connection} jobId="j" phases={phases} office closed />)
   expect(await screen.findByText(note.body)).toBeInTheDocument()
   expect(screen.getByText(/Stefania · Operatore/)).toBeInTheDocument()
@@ -19,7 +19,7 @@ it('shows author, phase and office review while preserving messages in closed jo
   expect(await screen.findByText(/✓ Verificato da Filippo/)).toBeInTheDocument()
 })
 it('keeps a failed draft and reuses its identifier on retry; operators cannot review', async () => {
-  mocked.rpc.mockResolvedValueOnce([note]).mockRejectedValueOnce(new Error('Connessione interrotta')).mockResolvedValueOnce([note])
+  mocked.rpc.mockResolvedValueOnce({ j: [note] }).mockRejectedValueOnce(new Error('Connessione interrotta')).mockResolvedValueOnce([note])
   render(<PhaseNotices connection={connection} jobId="j" phases={phases} />)
   await screen.findByText(note.body)
   expect(screen.queryByText('✓ Verificato dall’ufficio')).not.toBeInTheDocument()
@@ -61,7 +61,7 @@ it('loads avvisi for two vehicles in one request and refreshes when the tablet b
 
 it('skips office notice reads in a hidden tab and refreshes when it is visible', async () => {
   const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
-  mocked.rpc.mockResolvedValue([note])
+  mocked.rpc.mockResolvedValue({ j: [note] })
   try {
     render(<PhaseNotices connection={connection} jobId="j" phases={phases} office />)
     expect(mocked.rpc).not.toHaveBeenCalled()
@@ -69,5 +69,8 @@ it('skips office notice reads in a hidden tab and refreshes when it is visible',
     fireEvent(document, new Event('visibilitychange'))
     expect(await screen.findByText(note.body)).toBeInTheDocument()
     expect(mocked.rpc).toHaveBeenCalledTimes(1)
+    expect(mocked.rpc.mock.calls[0].slice(0, 2)).toEqual([
+      'production_phase_notices_batch', { p_company_id: 'company', p_job_ids: ['j'] },
+    ])
   } finally { hidden.mockRestore() }
 })
