@@ -5,6 +5,8 @@ import './phaseNotices.css'
 
 export interface NoticesConnection { companyId: string; session: CloudAuthSession; config: CloudAuthConfig }
 interface PhaseNotice { id: string; phaseId: string; phaseName: string; body: string; authorName: string; authorRole: string; createdAt: string; reviewedName: string | null; reviewedAt: string | null }
+const buildVersion: string | undefined = import.meta.env.VITE_BUILD_VERSION
+const versionCheckInterval = 5 * 60_000
 const noticesRefreshMs = 15_000
 const officeNoticesRefreshMs = 60 * 60_000
 const noticesRetryMs = 60_000
@@ -15,20 +17,35 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
   const key = JSON.stringify([companyId, session?.userId, config?.url, idsKey])
   const [result, setResult] = useState<{ key: string; notices: Record<string, PhaseNotice[]>; error: string }>()
   const generation = useRef(0)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
 
   useEffect(() => {
     const ids = JSON.parse(idsKey) as string[]
     if (!session || !config || !companyId || !ids.length) return
     let stopped = false
+    let nextVersionCheck = 0
     let request: AbortController | undefined
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
-      if (stopped || document.hidden || request) return
+      if (stopped || updateAvailable || document.hidden || request) return
       const controller = new AbortController()
       request = controller
       const started = generation.current
       let nextDelay = refreshMs
       try {
+        if (buildVersion && Date.now() >= nextVersionCheck) {
+          nextVersionCheck = Date.now() + versionCheckInterval
+          const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(3000)])
+          const version = await fetch(`${import.meta.env.BASE_URL}version.txt`, { cache: 'no-store', signal })
+            .then(async response => response.ok ? (await response.text()).trim() : '')
+            .catch(() => '')
+          if (controller.signal.aborted) return
+          if (/^[a-f0-9]{40}$/.test(version) && version !== buildVersion) {
+            stopped = true
+            setUpdateAvailable(true)
+            return
+          }
+        }
         const notices = await productionRpc<Record<string, PhaseNotice[]>>('production_phase_notices_batch',
           { p_company_id: companyId, p_job_ids: ids }, session, config, undefined, controller.signal)
         if (!controller.signal.aborted && started === generation.current) setResult({ key, notices, error: '' })
@@ -46,7 +63,7 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
     const visibilityChanged = () => {
       clearTimeout(timer)
       if (document.hidden) request?.abort()
-      else void poll()
+      else { nextVersionCheck = 0; void poll() }
     }
     document.addEventListener('visibilitychange', visibilityChanged)
     void poll()
@@ -56,13 +73,13 @@ export function useTabletNotices(companyId: string, session: CloudAuthSession | 
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', visibilityChanged)
     }
-  }, [companyId, session, config, idsKey, key, refreshMs])
+  }, [companyId, session, config, idsKey, key, refreshMs, updateAvailable])
 
   return {
     forJob: (jobId: string) => ({
       notices: result?.key === key ? result.notices[jobId] ?? [] : [],
       loaded: result?.key === key,
-      error: result?.key === key ? result.error : '',
+      error: updateAvailable ? 'Nuova versione disponibile. Salva le modifiche e ricarica il gestionale per riprendere gli aggiornamenti degli avvisi.' : result?.key === key ? result.error : '',
       update: (notices: PhaseNotice[]) => {
         generation.current++
         setResult(previous => ({ key, notices: { ...(previous?.key === key ? previous.notices : {}), [jobId]: notices }, error: '' }))
