@@ -157,10 +157,10 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
 const confirmedBudgets = new WeakMap<CloudAuthSession, Map<string, Set<string>>>()
 
 /** Runs only after a successful cloud save; timers still require the employee's Start. */
-export async function publishProductionJobs(data: Pick<ErpData,'plannerSettings'|'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
+async function publishProductionRevision(data: Pick<ErpData,'plannerSettings'|'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
   const warnings: string[] = []
   const feed = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config)
-  if (!['owner', 'office'].includes(feed.role)) return warnings
+  if (!['owner', 'office'].includes(feed.role)) return { warnings }
   const published = new Set(feed.jobs.map(job => job.jobId))
   const jobs = data.jobs ?? []
   const companies = confirmedBudgets.get(session) ?? new Map<string, Set<string>>()
@@ -177,6 +177,9 @@ export async function publishProductionJobs(data: Pick<ErpData,'plannerSettings'
       await productionRpc('production_prepare_job', { p_company_id: companyId, p_job_id: job.id, p_revision: revision, p_budget: budget.budget, p_rates: budget.operators }, session, config)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Pubblicazione sul tablet non riuscita.'
+      if (message === 'I dati sono cambiati: aggiorna prima di confermare il budget') {
+        return { warnings, stale: `${job.number}: ${message}` }
+      }
       if (message === 'Il budget è già in uso: conservato per evitare di modificare il lavoro registrato') {
         confirmed.add(job.id)
       } else {
@@ -184,7 +187,16 @@ export async function publishProductionJobs(data: Pick<ErpData,'plannerSettings'
       }
     }
   }
-  return warnings
+  return { warnings }
+}
+
+export async function publishProductionJobs(data: Pick<ErpData, 'plannerSettings' | 'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
+  const first = await publishProductionRevision(data, companyId, revision, session, config)
+  if (!first.stale) return first.warnings
+  const latest = await loadProductionArchive(companyId, session, config)
+  if (!latest || latest.revision <= revision) return [...first.warnings, first.stale]
+  const retry = await publishProductionRevision(latest.payload, companyId, latest.revision, session, config)
+  return retry.stale ? [...retry.warnings, retry.stale] : retry.warnings
 }
 
 /** Retry saved, confirmed work on load/reconnect without another owner approval. */
