@@ -1,3 +1,4 @@
+import { clearProductionArchiveCache } from './productionArchive'
 import { describe, expect, it, vi } from 'vitest'
 import { syncConfirmedProductionJobs, publishProductionJobs, applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
 import { emptyData } from './erp'
@@ -150,6 +151,21 @@ describe('righe manuali e ripresa automatica delle commesse confermate',()=>{
   expect(JSON.stringify(data)).toBe(before)
   data.jobs![0].lines.push({category:'servizi esterni',description:'Lavoro esterno',quantity:1,unitPrice:50,discount:0} as never)
   expect(()=>prepareLiveJob(data,data.jobs![0])).toThrow('costi diretti')
+ })
+ it('rilegge la revisione dopo un conflitto e riprova una sola volta', async () => {
+  const data = setup()
+  const archive = (revision: number) => new Response(JSON.stringify([{ company_id: 'company', revision, jobs: data.jobs, planner_settings: data.plannerSettings }]))
+  const feed = () => new Response(JSON.stringify({ role: 'owner', jobs: [] }))
+  const stale = () => new Response(JSON.stringify({ message: 'I dati sono cambiati: aggiorna prima di confermare il budget' }), { status: 400 })
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(archive(42))
+    .mockResolvedValueOnce(feed()).mockResolvedValueOnce(stale()).mockResolvedValueOnce(archive(43))
+    .mockResolvedValueOnce(feed()).mockResolvedValueOnce(stale())
+  try {
+   const result = await syncConfirmedProductionJobs('company', { accessToken: 'token' } as never, { url: 'https://example.invalid', anonKey: 'public' })
+   const attempts = fetchMock.mock.calls.filter(call => String(call[0]).includes('production_prepare_job'))
+   expect(attempts.map(call => JSON.parse(String(call[1]?.body)).p_revision)).toEqual([42, 43])
+   expect(result.warnings[0]).toContain('I dati sono cambiati')
+  } finally { fetchMock.mockRestore(); clearProductionArchiveCache() }
  })
  it('all’apertura pubblica le commesse salvate senza chiedere altre conferme o avviare timer',async()=>{
   const data=setup(),before=JSON.stringify(data)
