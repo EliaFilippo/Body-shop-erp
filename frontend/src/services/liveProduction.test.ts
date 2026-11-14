@@ -1,3 +1,4 @@
+import { clearProductionArchiveCache } from './productionArchive'
 import { describe, expect, it, vi } from 'vitest'
 import { syncConfirmedProductionJobs, publishProductionJobs, applyLivePhaseChecks, interpolateHours, liveCountdown, prepareLiveJob, productionRpc, type LiveClock, type HoursReport } from './liveProduction'
 import { emptyData } from './erp'
@@ -164,7 +165,7 @@ describe('righe manuali e ripresa automatica delle commesse confermate',()=>{
    const attempts = fetchMock.mock.calls.filter(call => String(call[0]).includes('production_prepare_job'))
    expect(attempts.map(call => JSON.parse(String(call[1]?.body)).p_revision)).toEqual([42, 43])
    expect(result.warnings[0]).toContain('I dati sono cambiati')
-  } finally { fetchMock.mockRestore() }
+  } finally { fetchMock.mockRestore(); clearProductionArchiveCache() }
  })
  it('all’apertura pubblica le commesse salvate senza chiedere altre conferme o avviare timer',async()=>{
   const data=setup(),before=JSON.stringify(data)
