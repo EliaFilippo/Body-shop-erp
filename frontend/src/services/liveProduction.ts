@@ -193,7 +193,7 @@ async function publishProductionRevision(data: Pick<ErpData,'plannerSettings'|'j
 export async function publishProductionJobs(data: Pick<ErpData, 'plannerSettings' | 'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
   const first = await publishProductionRevision(data, companyId, revision, session, config)
   if (!first.stale) return first.warnings
-  const latest = await loadProductionArchive(companyId, session, config)
+  const latest = await loadProductionArchive(companyId, session, config, true)
   if (!latest || latest.revision <= revision) return [...first.warnings, first.stale]
   const retry = await publishProductionRevision(latest.payload, companyId, latest.revision, session, config)
   return retry.stale ? [...retry.warnings, retry.stale] : retry.warnings
