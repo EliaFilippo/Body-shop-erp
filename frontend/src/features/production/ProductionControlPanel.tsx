@@ -8,7 +8,7 @@ export interface ProductionControlReport {
  serverNow: string;
  phaseReview?: { phase:string; samples:number; pending:number; missing:number; assignedSeconds:number; workedSeconds:number; averageWorkedSeconds:number|null; deviationPercent:number|null; review:string;
   jobs:{jobId:string;plate:string;number:string;assignedSeconds:number;workedSeconds:number;completed:boolean;active:boolean}[] }[];
- alerts: { id: number; jobId: string; plate: string; number: string; phase: string; detectedAt: string; acknowledgedAt: string | null; overrunSeconds: number; active: boolean; operators: { name: string }[] }[];
+ alerts: { id: number; jobId: string; plate: string; number: string; phase: string; detectedAt: string; acknowledgedAt: string | null; overrunSeconds: number; active: boolean; operators: { name: string; overrunSeconds?: number }[] }[];
  operators: { operatorId: string; name: string; assignedSeconds: number; workedSeconds: number; score: number | null; completedGroups: number; unscoredSharedSeconds: number }[];
  teams: { jobId: string; plate: string; phase: string; assignedSeconds: number; workedSeconds: number; score: number; operators: { name: string }[] }[];
 }
@@ -69,7 +69,7 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
   {!!open.length && <div className="production-overruns" role="alert"><h2>{open.length} sforamenti da verificare</h2>
    <p>Il lavoro continua nella stessa fase. Tempo aggiuntivo totale degli operatori:</p>
    {open.map(a => <article key={a.id}><strong>{a.plate} · {a.number} · {a.phase}</strong>
-    <p>+{duration(a.overrunSeconds)} · {a.operators.map(o => o.name).join(', ')} · {a.active ? 'Timer attivo' : 'Timer fermi'}</p>
+    <p>+{duration(a.overrunSeconds)} · {a.operators.filter(o => (o.overrunSeconds ?? 0) > 0).map(o => o.name).join(', ') || 'Attribuzione non disponibile'} · {a.active ? 'Timer attivo' : 'Timer fermi'}</p>
     <button type="button" disabled={busy || !!error} onClick={() => void acknowledge(a.id)}>Preso in carico</button></article>)}
   </div>}
   <details onToggle={event => setReportOpen(event.currentTarget.open)}><summary>Tempi e produttività operatori{open.length ? ` · ${open.length} avvisi` : ''}</summary>
