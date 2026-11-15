@@ -1054,7 +1054,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate)
         ? { ...savedJob, entryDate: effectiveDate } : savedJob
       const normal = selectSchedulablePhase(job)
-      const alternate = vehicle.presentInShop ? independentShopPhase(job, normal?.phase.id) : null
+      const alternate = vehicle.presentInShop && normal?.phase.status !== 'In lavorazione'
+        ? independentShopPhase(job, normal?.phase.id) : null
       const selectedPhase = normal ?? alternate
       if (!selectedPhase || inManualProgram(job.id, selectedPhase.phase.id)) return null
       const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle)
@@ -1149,12 +1150,12 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     }
     const nextUsable = (candidate: typeof candidates[number]) => {
       const normalStart = earliestSlot(candidate)
-      if (!candidate.alternate || normalStart.slice(0, 10) <= effectiveDate) {
+      if (!candidate.alternate) {
         return { candidate, slot: normalStart }
       }
       const alternate = { ...candidate, ...candidate.alternate, independent: true, alternate: null }
       const slot = earliestSlot(alternate)
-      return slot.slice(0, 10) === effectiveDate ? { candidate: alternate, slot } : { candidate, slot: normalStart }
+      return slot < normalStart ? { candidate: alternate, slot } : { candidate, slot: normalStart }
     }
     let nextIndex=candidateIndex
     let { candidate: chosen, slot: earliest } = nextUsable(candidates[nextIndex])
