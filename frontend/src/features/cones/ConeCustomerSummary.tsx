@@ -1,11 +1,18 @@
-import type { ErpData, OperatorProgramTask, RepairJob, Vehicle } from '../../types'
+import type { ErpData, EstimateDocument, OperatorProgramTask, RepairJob, Vehicle } from '../../types'
 import { normalizePlate } from '../../services/erp'
 import { isVehicleStatusSemantic, isVehicleWaitingForParts, resolveVehicleStatusLabel } from '../../services/vehicleStatuses'
+import { estimateFinancialStage } from '../../services/workflow'
 
 const dateLabel = (value?: string) => value?.slice(0, 10).split('-').reverse().join('/') || '—'
 const isClosed = (job: RepairJob) => job.status === 'Consegnata' || job.status === 'Annullata'
+const isInactiveEstimate = (estimate: EstimateDocument) => estimate.status === 'Rifiutato' || estimate.status === 'Scaduto'
+const money = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 
-export function ConeCustomerSummary({ data }: { data: ErpData }) {
+export function ConeCustomerSummary({ data, onOpenVehicle, onOpenWorkflow }: {
+  data: ErpData
+  onOpenVehicle?: (plate: string) => void
+  onOpenWorkflow?: (plate: string) => void
+}) {
   const settings = data.plannerSettings
   const accepted = new Set(data.acceptances?.filter(item => item.status === 'confirmed').map(item => item.vehicleId))
   const jobs = new Map<string, RepairJob>()
@@ -26,6 +33,13 @@ export function ConeCustomerSummary({ data }: { data: ErpData }) {
     groups.set(vehicle.customerId, group)
   }
   const customers = new Map(data.customers.map(customer => [customer.id, customer.name]))
+  const estimates = data.estimates ?? []
+  const estimatesById = new Map(estimates.map(estimate => [estimate.id, estimate]))
+  const estimatesByJob = new Map(estimates.filter(estimate => estimate.convertedJobId).map(estimate => [estimate.convertedJobId, estimate]))
+  const unconvertedEstimates = estimates.filter(estimate => !estimate.convertedJobId).sort((a, b) =>
+    Number(isInactiveEstimate(a)) - Number(isInactiveEstimate(b))
+    || b.date.localeCompare(a.date)
+    || b.createdAt.localeCompare(a.createdAt))
   const tasks = new Map<string, OperatorProgramTask[]>()
   for (const program of data.operatorPrograms ?? []) for (const task of program.tasks) {
     const list = tasks.get(task.jobId) ?? []
@@ -64,6 +78,11 @@ export function ConeCustomerSummary({ data }: { data: ErpData }) {
           const vehicleLabel = resolveVehicleStatusLabel(settings, vehicle.status)
           const ready = isVehicleStatusSemantic(settings, vehicle.status, 'ready')
           const status = waiting ? 'In attesa ricambi' : ready ? vehicleLabel : job?.status || vehicleLabel
+          const estimate = job
+            ? estimatesById.get(job.estimateId ?? '') ?? estimatesByJob.get(job.id)
+            : unconvertedEstimates.find(item => item.vehicleId === vehicle.id
+              || (!item.vehicleId && item.customerId === vehicle.customerId && normalizePlate(item.plate) === normalizePlate(vehicle.plate)))
+          const model = [vehicle.make, vehicle.model].filter(Boolean).join(' ')
           return <li key={vehicle.id} className={waiting ? 'waiting-parts' : undefined}>
             <div><strong>{vehicle.plate}</strong><small>{vehicle.coneNumber == null ? 'Senza cono' : `Cono ${vehicle.coneNumber}`}</small></div>
             <div><strong>{status}</strong>
@@ -71,6 +90,37 @@ export function ConeCustomerSummary({ data }: { data: ErpData }) {
             <div><small>{actualStart ? 'Inizio effettivo' : 'Inizio previsto'}</small>{dateLabel(actualStart || plannedStart)}</div>
             <div><small>{actualEnd ? 'Fine effettiva' : 'Fine prevista'}</small>{dateLabel(actualEnd || plannedEnd)}</div>
             <div className={timers.length ? 'cone-timer-active' : undefined}>{timers.length ? <><strong>Timer attivo</strong><small>{timers.join(', ')}</small></> : <small>Timer fermo</small>}</div>
+            <div className="cone-customer-details">
+              <div>
+                <small>Dati vettura</small>
+                {model && <strong>{model}</strong>}
+                <div>{vehicle.year ? `Anno ${vehicle.year}` : 'Anno n/d'} · {vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</div>
+                {vehicle.color && <small>{vehicle.color}</small>}
+              </div>
+              <div>
+                <small>Stato vettura</small>
+                {vehicleLabel !== status && <strong>{vehicleLabel}</strong>}
+                <small>{vehicle.statusMode === 'manual' ? 'Override manuale'
+                  : vehicle.suggestedStatus ? `Suggerito: ${resolveVehicleStatusLabel(settings, vehicle.suggestedStatus)}` : 'Suggerimento automatico'}</small>
+              </div>
+              <div>
+                <small>Preventivo / Commessa</small>
+                <strong>{[estimate?.number, job?.number].filter(Boolean).join(' · ') || '—'}</strong>
+                {estimate && <small>{dateLabel(estimate.date)} · {estimate.status}</small>}
+              </div>
+              <div>
+                <small>Totale preventivo</small>
+                <strong>{estimate ? money.format(estimate.total) : '—'}</strong>
+              </div>
+              <div>
+                <small>Stadio economico</small>
+                <strong>{estimate ? estimateFinancialStage(data, estimate) : '—'}</strong>
+              </div>
+              {(onOpenVehicle || onOpenWorkflow) && <div className="row-actions cone-customer-actions">
+                {onOpenVehicle && <button type="button" onClick={() => onOpenVehicle(vehicle.plate)}>Apri vettura</button>}
+                {onOpenWorkflow && <button type="button" onClick={() => onOpenWorkflow(vehicle.plate)}>Preventivi / Commesse</button>}
+              </div>}
+            </div>
           </li>
         })}</ul></td>
       </tr>)}</tbody>

@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
-import { expect, it } from 'vitest'
-import type { RepairJob, Vehicle } from '../../types'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { expect, it, vi } from 'vitest'
+import type { EstimateDocument, RepairJob, Vehicle } from '../../types'
 import { addVehicle, emptyData } from '../../services/erp'
 import { ConeCustomerSummary } from './ConeCustomerSummary'
 
@@ -49,4 +49,30 @@ it('shows the ready vehicle status when its job still says in progress', () => {
   expect(vehicle.getByText('Pronta')).toBeInTheDocument()
   expect(vehicle.getByText('Cono 20')).toBeInTheDocument()
   expect(vehicle.queryByText('In lavorazione')).not.toBeInTheDocument()
+})
+
+it('shows the estimate linked to the displayed job, even when a newer estimate exists for the vehicle', () => {
+  const data = structuredClone(emptyData)
+  data.vehicles = [{ id: 'v4', customerId: 'c1', plate: 'ZA493HH', coneNumber: 4, status: 'in-lavorazione',
+    partsStatus: 'Disponibili', year: '2021', mileage: '56000' } as Vehicle]
+  data.jobs = [{ id: 'j4', number: 'COMM-00004', vehicleId: 'v4', estimateId: 'e4', status: 'In lavorazione',
+    phases: [] } as unknown as RepairJob]
+  data.estimates = [
+    { id: 'e5', number: 'PREV-00005', date: '2026-11-15', vehicleId: 'v4', status: 'Bozza', total: 450 },
+    { id: 'e4', number: 'PREV-00004', date: '2026-11-14', vehicleId: 'v4', convertedJobId: 'j4', status: 'Approvato', total: 610.27 },
+  ] as EstimateDocument[]
+  const openVehicle = vi.fn()
+  const openWorkflow = vi.fn()
+  render(<ConeCustomerSummary data={data} onOpenVehicle={openVehicle} onOpenWorkflow={openWorkflow} />)
+  const vehicle = within(screen.getByText('ZA493HH').closest('li')!)
+  expect(vehicle.getByText('PREV-00004 · COMM-00004')).toBeInTheDocument()
+  expect(vehicle.getByText('14/11/2026 · Approvato')).toBeInTheDocument()
+  expect(vehicle.getByText(/610,27/)).toBeInTheDocument()
+  expect(vehicle.getByText('Lavorato')).toBeInTheDocument()
+  expect(vehicle.getByText('Anno 2021 · 56000 km')).toBeInTheDocument()
+  expect(vehicle.queryByText('PREV-00005')).not.toBeInTheDocument()
+  fireEvent.click(vehicle.getByRole('button', { name: 'Apri vettura' }))
+  fireEvent.click(vehicle.getByRole('button', { name: 'Preventivi / Commesse' }))
+  expect(openVehicle).toHaveBeenCalledWith('ZA493HH')
+  expect(openWorkflow).toHaveBeenCalledWith('ZA493HH')
 })
