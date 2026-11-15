@@ -986,7 +986,7 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     if (!vehicle) return null;
     const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate) ? { ...savedJob, entryDate: effectiveDate } : savedJob;
     const normal2 = selectSchedulablePhase(job);
-    const alternate = vehicle.presentInShop ? independentShopPhase(job, normal2?.phase.id) : null;
+    const alternate = vehicle.presentInShop && normal2?.phase.status !== "In lavorazione" ? independentShopPhase(job, normal2?.phase.id) : null;
     const selectedPhase = normal2 ?? alternate;
     if (!selectedPhase || inManualProgram(job.id, selectedPhase.phase.id)) return null;
     const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle);
@@ -1066,12 +1066,12 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     };
     const nextUsable = (candidate) => {
       const normalStart = earliestSlot(candidate);
-      if (!candidate.alternate || normalStart.slice(0, 10) <= effectiveDate) {
+      if (!candidate.alternate) {
         return { candidate, slot: normalStart };
       }
       const alternate = { ...candidate, ...candidate.alternate, independent: true, alternate: null };
       const slot = earliestSlot(alternate);
-      return slot.slice(0, 10) === effectiveDate ? { candidate: alternate, slot } : { candidate, slot: normalStart };
+      return slot < normalStart ? { candidate: alternate, slot } : { candidate, slot: normalStart };
     };
     let nextIndex = candidateIndex;
     let { candidate: chosen, slot: earliest } = nextUsable(candidates[nextIndex]);

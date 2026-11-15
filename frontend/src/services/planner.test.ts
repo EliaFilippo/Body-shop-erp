@@ -1656,12 +1656,16 @@ it('anticipa una vettura presente e propone la scartatura solo dopo la verniciat
     { ...phase, id: 'unmask', name: 'Scartatura', requiredSkill: 'scartatura', estimatedMinutes: 30, status: 'Da fare' },
   ]
   data.jobs = [job]
-  const run = () => generateOperatorPrograms(data, '2026-07-27', 'Test presenza', '2026-07-27T08:30:00.000Z').programs.flatMap(program => program.tasks)
+  const run = (now = '2026-07-27T08:30:00.000Z') =>
+    generateOperatorPrograms(data, now.slice(0, 10), 'Test presenza', now).programs.flatMap(program => program.tasks)
   const [unmask] = run()
   expect(unmask.phaseId).toBe('unmask')
   expect(unmask.startAt).toBe('2026-07-27T09:15:00.000Z')
   expect(unmask.id).toMatch(/^early-phase:/)
   expect(job.phases[0].status).toBe('Da fare')
+  // A Sunday run can use a ready phase to fill Monday's working hours.
+  job.phases[1].completedAt = '2026-07-24T08:15:00.000Z'
+  expect(run('2026-07-26T09:00:00.000Z')[0]?.startAt).toBe('2026-07-27T08:00:00.000Z')
   job.phases[1].status = 'In lavorazione'
   expect(run()).toEqual([])
   job.phases[1].status = 'Completata'
