@@ -44,7 +44,7 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
   // Virtual completion makes the remaining sequence forecastable, not signed.
   return {...calendarPhase(phase),status:'Completata' as const,completedAt:end,endedAt:end,operatorAssignments:[]}
  })}))}
- const generated=generateOperatorPrograms(simulation,day,'Ricalcolo dopo completamento fase · priorità box',clockNow,availability)
+ const generated=generateOperatorPrograms(simulation,day,'Ricalcolo dopo completamento fase · priorità box',clockNow,availability,actual)
  const programs=generated.programs.map(p=>({...p,tasks:[...p.tasks]}))
  for(const task of fixed){
   let program=programs.find(p=>p.operatorId===task.operatorId&&p.date===task.startAt.slice(0,10))

@@ -1511,6 +1511,28 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(next.jobs?.[0].entryDate).toBe('2026-07-30')
     expect(next.vehicles.find(item => item.id === vehicle.id)?.presentInShop).toBe(false)
   })
+  it('mantiene giorno, operatore e ordine manuali anche con assenza e fasi bloccate', () => {
+    const data = setup()
+    const job = data.jobs![0]
+    const first = job.phases[0]
+    first.status = 'Bloccata'
+    const second = { ...first, id: 'manual-second', name: 'Verniciatura', status: 'Da fare' as const }
+    job.phases.push(second)
+    data.plannerSettings.absences = [{
+      id: 'absent', operatorId: 'op-1', startDate: '2026-07-27', endDate: '2026-07-27',
+      hoursPerDay: null, reason: 'Assente',
+    }]
+    data.plannerSettings.manualOperatorDays = [{
+      date: '2026-07-27', period: 'day',
+      assignments: [second, first].map(phase => ({ operatorId: 'op-1', jobId: job.id, phaseId: phase.id })),
+    }]
+    const result = generateOperatorPrograms(data, '2026-07-27')
+    const forced = result.programs.find(program => program.date === '2026-07-27' && program.operatorId === 'op-1')
+    expect(forced?.tasks.map(task => task.phaseId)).toEqual([second.id, first.id])
+    expect(forced?.tasks.every(task => task.id.startsWith('office-manual:'))).toBe(true)
+    expect(result.programs.flatMap(program => program.tasks).filter(task => task.jobId === job.id)).toHaveLength(2)
+    expect(job.phases[0].status).toBe('Bloccata')
+  })
   it('non sostituisce silenziosamente un operatore manuale inattivo', () => {
     const data = setup(); data.jobs![0].phases[0].preferredOperatorId = 'op-1'; data.plannerSettings.operators[0].active = false
     expect(assigned(data)).toEqual([])
