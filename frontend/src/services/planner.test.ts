@@ -1496,6 +1496,21 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(tasks[1].startAt >= tasks[0].endAt).toBe(true)
     expect(first.phases[0].preferredOperatorId).toBeUndefined()
   })
+  it('rispetta il giorno manuale prima dell’ingresso pianificato senza cambiare l’accettazione', () => {
+    const data = setup()
+    const job = data.jobs![0]
+    const vehicle = data.vehicles.find(item => item.id === job.vehicleId)!
+    vehicle.presentInShop = false
+    job.entryDate = '2026-07-30'
+    data.plannerSettings.manualOperatorDays = [{ date: '2026-07-27', period: 'day',
+      assignments: [{ operatorId: 'op-1', jobId: job.id, phaseId: job.phases[0].id }],
+    }]
+    const next = recalculateOperatorPrograms(data, '2026-07-27')
+    const program = next.operatorPrograms?.find(item => item.date === '2026-07-27' && item.operatorId === 'op-1')
+    expect(program?.tasks[0]).toMatchObject({ jobId: job.id, phaseId: job.phases[0].id, reason: expect.stringContaining('Programma manuale') })
+    expect(next.jobs?.[0].entryDate).toBe('2026-07-30')
+    expect(next.vehicles.find(item => item.id === vehicle.id)?.presentInShop).toBe(false)
+  })
   it('non sostituisce silenziosamente un operatore manuale inattivo', () => {
     const data = setup(); data.jobs![0].phases[0].preferredOperatorId = 'op-1'; data.plannerSettings.operators[0].active = false
     expect(assigned(data)).toEqual([])
