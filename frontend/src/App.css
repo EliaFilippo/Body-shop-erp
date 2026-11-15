@@ -572,3 +572,7 @@ button.work-sheet-print-pending {
 
 
 .row-actions .invoice-ready{background:#176b42;border-color:#63c88e;color:#fff;font-weight:700}
+
+.vehicle-history-detail{width:min(95vw,1050px)}
+.vehicle-history-detail > section,.vehicle-history-detail > details{margin-block:16px}
+.vehicle-history-job + .vehicle-history-job{border-top:1px solid var(--line);padding-top:12px}

@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import type { ErpData, RepairJob, Vehicle, VehicleStatus } from '../../types'
+import type { ErpData, Vehicle, VehicleStatus } from '../../types'
 import { normalizePlate } from '../../services/erp'
-import { isVehicleDeliveredStatus, isVehicleStatusSemantic } from '../../services/vehicleStatuses'
+import { isVehicleDeliveredStatus } from '../../services/vehicleStatuses'
+import { indexVehicleJobs, isArchivedVehicle } from '../../services/vehicleArchive'
+import { ArchivedVehicleDetails } from './ArchivedVehicleDetails'
 
 const deliveryDay = new Intl.DateTimeFormat('sv-SE', {
   timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -20,32 +22,27 @@ export function VehicleHistory({ data, query, renderActions, renderStatus }: {
   renderStatus: (vehicle: Vehicle, fallback?: VehicleStatus) => ReactNode
 }) {
   const [month, setMonth] = useState('')
+  const [selectedId, setSelectedId] = useState<string>()
   const customers = new Map(data.customers.map(customer => [customer.id, customer.name]))
-  const jobsByVehicle = new Map<string, RepairJob>()
-  for (const job of data.jobs ?? []) {
-    if (job.status === 'Annullata') continue
-    const key = job.vehicleId ? `id:${job.vehicleId}` : `plate:${job.customerId}:${normalizePlate(job.plate)}`
-    const previous = jobsByVehicle.get(key)
-    if (!previous || (job.createdAt ?? '') > (previous.createdAt ?? '')) jobsByVehicle.set(key, job)
-  }
+  const jobsFor = indexVehicleJobs(data.jobs ?? [])
 
   const search = query.trim().toLocaleLowerCase('it')
   const searchPlate = normalizePlate(search)
   const rows = data.vehicles.flatMap(vehicle => {
-    if (isVehicleStatusSemantic(data.plannerSettings, vehicle.status, 'cancelled')) return []
-    const job = jobsByVehicle.get(`id:${vehicle.id}`) ?? jobsByVehicle.get(`plate:${vehicle.customerId}:${normalizePlate(vehicle.plate)}`)
+    const jobs = jobsFor(vehicle)
+    if (!isArchivedVehicle(data.plannerSettings, vehicle, jobs)) return []
     const markedDelivered = isVehicleDeliveredStatus(data.plannerSettings, vehicle.status)
-    const jobDelivered = job?.status === 'Consegnata'
-    if (!markedDelivered && (!jobDelivered || vehicle.coneNumber != null || vehicle.statusMode === 'manual')) return []
+    const deliveredJobs = jobs.filter(job => job.status === 'Consegnata')
+    const job = deliveredJobs[0] ?? jobs.find(job => job.status !== 'Annullata')
     const customer = customers.get(vehicle.customerId) ?? ''
     if (search && !(searchPlate && normalizePlate(vehicle.plate).includes(searchPlate))
-      && !`${customer} ${vehicle.make} ${vehicle.model} ${job?.number ?? ''}`.toLocaleLowerCase('it').includes(search)) return []
+      && !`${customer} ${vehicle.make} ${vehicle.model} ${jobs.map(job => job.number).join(' ')}`.toLocaleLowerCase('it').includes(search)) return []
     const statusDay = (vehicle.statusHistory ?? [])
       .filter(change => isVehicleDeliveredStatus(data.plannerSettings, change.to))
       .map(change => dateInRome(change.at)).sort().at(-1)
     const day = dateInRome(vehicle.deliveredAt)
-      || (jobDelivered ? dateInRome(job.deliveredAt) : '') || statusDay || ''
-    return [{ vehicle, customer, day, markedDelivered, jobNumber: jobDelivered ? job.number : undefined }]
+      || dateInRome(deliveredJobs[0]?.deliveredAt) || statusDay || ''
+    return [{ vehicle, customer, day, markedDelivered, jobNumber: job?.number, jobs: deliveredJobs.length ? deliveredJobs : job ? [job] : [] }]
   }).sort((a, b) => b.day.localeCompare(a.day) || a.vehicle.plate.localeCompare(b.vehicle.plate, 'it'))
 
   const groups = new Map<string, typeof rows>()
@@ -55,6 +52,7 @@ export function VehicleHistory({ data, query, renderActions, renderStatus }: {
     group.push(row)
     groups.set(key, group)
   }
+  const selected = rows.find(row => row.vehicle.id === selectedId)
   const selectedMonth = groups.has(month) ? month : ''
   const labelForMonth = (key: string) => key === 'undated' ? 'Data di consegna non registrata' : monthName.format(new Date(`${key}-01T12:00:00Z`))
 
@@ -83,12 +81,16 @@ export function VehicleHistory({ data, query, renderActions, renderStatus }: {
                 <td>{day ? <time dateTime={day}>{day.split('-').reverse().join('/')}</time> : '—'}</td>
                 <td>{renderStatus(vehicle, markedDelivered ? undefined : 'Consegnata')}</td>
                 <td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td>
-                <td>{renderActions(vehicle)}</td>
+                <td><div className="row-actions"><button type="button" onClick={() => setSelectedId(vehicle.id)}>Lavorazioni e materiali</button></div>
+                  {renderActions(vehicle)}</td>
               </tr>
             )}</tbody>
           </table>
         </div>
       </section>,
     )}
+    {selected && <ArchivedVehicleDetails vehicle={selected.vehicle} customer={selected.customer} jobs={selected.jobs}
+      logs={(data.production?.workLogs ?? []).filter(log => log.vehicleId === selected.vehicle.id)}
+      onClose={() => setSelectedId(undefined)} />}
   </section>
 }

@@ -3,6 +3,7 @@ import type { ErpData, EstimateDocument, OperatorProgramTask, RepairJob, Vehicle
 import { normalizePlate } from '../../services/erp'
 import { isVehicleStatusSemantic, isVehicleWaitingForParts, resolveVehicleStatusLabel } from '../../services/vehicleStatuses'
 import { estimateFinancialStage } from '../../services/workflow'
+import { indexVehicleJobs, isArchivedVehicle } from '../../services/vehicleArchive'
 
 const dateLabel = (value?: string) => value?.slice(0, 10).split('-').reverse().join('/') || '—'
 const isClosed = (job: RepairJob) => job.status === 'Consegnata' || job.status === 'Annullata'
@@ -16,27 +17,22 @@ export function ConeCustomerSummary({ data, query = '', onAdd, renderActions, re
   renderActions?: (vehicle: Vehicle, estimate?: EstimateDocument, job?: RepairJob) => ReactNode
   renderStatus?: (vehicle: Vehicle) => ReactNode
 }) {
-  const [scope, setScope] = useState<'shop' | 'delivered' | 'all'>('shop')
+  const [scope, setScope] = useState<'shop' | 'all'>('shop')
   const settings = data.plannerSettings
   const customers = new Map(data.customers.map(customer => [customer.id, customer.name]))
   const search = query.trim().toLocaleLowerCase('it')
   const searchPlate = normalizePlate(search)
   const accepted = new Set(data.acceptances?.filter(item => item.status === 'confirmed').map(item => item.vehicleId))
-  const jobs = new Map<string, RepairJob>()
-  for (const job of data.jobs ?? []) {
-    const key = job.vehicleId || normalizePlate(job.plate)
-    const previous = jobs.get(key)
-    if (!previous || (isClosed(previous) && !isClosed(job))
-      || (isClosed(previous) === isClosed(job) && job.createdAt > previous.createdAt)) jobs.set(key, job)
-  }
+  const jobsFor = indexVehicleJobs(data.jobs ?? [])
   const groups = new Map<string, Array<{ vehicle: Vehicle; job?: RepairJob }>>()
   for (const vehicle of data.vehicles) {
-    const job = jobs.get(vehicle.id) ?? jobs.get(normalizePlate(vehicle.plate))
+    const jobs = jobsFor(vehicle)
+    if (isArchivedVehicle(settings, vehicle, jobs)) continue
+    const job = jobs.find(item => !isClosed(item)) ?? jobs[0]
     if (search && !(searchPlate && normalizePlate(vehicle.plate).includes(searchPlate))
       && !`${customers.get(vehicle.customerId) ?? ''} ${vehicle.make} ${vehicle.model}`.toLocaleLowerCase('it').includes(search)) continue
     const delivered = isVehicleStatusSemantic(settings, vehicle.status, 'delivered') || job?.status === 'Consegnata'
     const cancelled = isVehicleStatusSemantic(settings, vehicle.status, 'cancelled') || job?.status === 'Annullata'
-    if (scope === 'delivered' && !delivered) continue
     if (scope === 'shop' && (delivered || cancelled || (!search && vehicle.coneNumber == null && !job && !vehicle.entryDate && !accepted.has(vehicle.id)))) continue
     const group = groups.get(vehicle.customerId) ?? []
     group.push({ vehicle, job })
@@ -64,7 +60,7 @@ export function ConeCustomerSummary({ data, query = '', onAdd, renderActions, re
           title={!data.customers.length ? 'Crea prima un cliente' : undefined}
           onClick={() => { setScope('all'); onAdd() }}>Nuova vettura</button>}
         <select aria-label="Vetture da mostrare" value={scope} onChange={event => setScope(event.target.value as typeof scope)}>
-          <option value="shop">In carrozzeria</option><option value="delivered">Consegnate</option><option value="all">Tutte le vetture</option>
+          <option value="shop">In carrozzeria</option><option value="all">Tutte le vetture non consegnate</option>
         </select>
         <small>{rows.length} clienti · {[...groups.values()].reduce((count, group) => count + group.length, 0)} vetture</small>
       </div>

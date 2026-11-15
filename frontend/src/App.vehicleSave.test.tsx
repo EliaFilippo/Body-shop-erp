@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ErpData } from './types'
+import type { ErpData, RepairJob } from './types'
 import { createCustomer, emptyData, STORAGE_KEY } from './services/erp'
 
 let persistedData: ErpData
@@ -266,11 +266,27 @@ describe('vehicle save UI flow', () => {
 
   it('mostra solo le vetture consegnate nello storico e le raggruppa per mese della consegna in Italia', async () => {
     persistedData.vehicles = [
-      { ...vehicleFixture('1', 'AA111AA'), status: 'consegnata', deliveredAt: '2026-10-31T23:30:00Z' },
+      { ...vehicleFixture('1', 'AA111AA'), status: 'consegnata', deliveredAt: '2026-10-31T23:30:00Z',
+        costEntries: [{ id: 'part', category: 'ricambi', description: 'Fanale posteriore', quantity: 1, unit: 'pz',
+          usedAt: '2026-10-30', unitCost: 125.55, total: 125.55, discount: 0, vatRate: 22, createdAt: '', updatedAt: '' }] },
       { ...vehicleFixture('2', 'BB222BB'), status: 'consegnata', deliveredAt: '2026-10-21T10:30:00Z' },
       { ...vehicleFixture('3', 'CC333CC'), status: 'consegnata', requestedDeliveryDate: '2026-10-28' },
       vehicleFixture('4', 'DD444DD'),
     ]
+    persistedData.jobs = [{
+      id: 'j1', number: 'COMM-00001', vehicleId: '1', customerId: 'c-ui-1', plate: 'AA111AA', status: 'Consegnata',
+      createdAt: '2026-10-30T08:00:00Z', updatedAt: '2026-10-31T23:30:00Z', deliveredAt: '2026-10-31T23:30:00Z',
+      entryDate: '2026-10-30', expectedDeliveryDate: '', coneNumber: null, priority: 'Normale', responsible: '', companyName: '',
+      contactName: '', notes: '', blocks: [], history: [], lines: [], qualityChecklist: [], taxableAmount: 500,
+      vatAmount: 110, total: 610, progressPercent: 100,
+      materialActualCost: { amount: 54.2, at: '2026-10-30T14:00:00Z', note: 'Vernice e trasparente' },
+      phases: [{
+        id: 'p1', name: 'Verniciatura', status: 'Completata', estimatedMinutes: 40, actualMinutes: 30, notes: '', blockedReason: '',
+        startedAt: '2026-10-30T10:00:00Z', endedAt: '2026-10-30T10:30:00Z',
+        operatorAssignments: [{ id: 'a1', operatorName: 'Martin', workedMinutes: 30, activityStatus: 'Concluso',
+          startedAt: '2026-10-30T10:00:00Z', endedAt: '2026-10-30T10:30:00Z' }],
+      }],
+    } satisfies RepairJob]
     render(<App />)
     await screen.findByText('Archivio pronto')
     fireEvent.click(screen.getByRole('button', { name: 'Storico veicoli' }))
@@ -283,5 +299,10 @@ describe('vehicle save UI flow', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Mese di consegna' }), { target: { value: '2026-11' } })
     expect(screen.getByText('AA111AA')).toBeInTheDocument()
     expect(screen.queryByText('BB222BB')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Lavorazioni e materiali' }))
+    expect(screen.getByRole('heading', { name: 'Lavorazioni e materiali · AA111AA' })).toBeInTheDocument()
+    expect(screen.getByText('Martin · 0 h 30 min')).toBeInTheDocument()
+    expect(screen.getByText('Vernice e trasparente')).toBeInTheDocument()
+    expect(screen.getByText('Fanale posteriore')).toBeInTheDocument()
   })
 })

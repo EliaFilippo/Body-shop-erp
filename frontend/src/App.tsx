@@ -1095,7 +1095,7 @@ function App() {
     setData(current=>enableFilippoTransport(current,cloudMembership.companyId))
   },[databaseReady,cloudReady,cloudMembership])
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
-  const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
+  const occupied = data.vehicles.filter(vehicle => vehicle.coneNumber !== null && !isVehicleDeliveredStatus(data.plannerSettings, vehicle.status))
   const filteredCustomers = data.customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.email}`.toLowerCase().includes(query.toLowerCase()))
   const vehicleStatusOptions = listSelectableVehicleStatuses(data.plannerSettings)
   const statusLabel = (status: VehicleStatus) => resolveVehicleStatusLabel(data.plannerSettings, status)
@@ -2099,7 +2099,7 @@ function Cones({ data, customerById, onMove, onAdd, query, renderActions, render
 }) {
   const [selected, setSelected] = useState<number | null>(null)
   const [filter, setFilter] = useState<'Tutti' | 'Liberi' | 'Occupati'>('Tutti')
-  const occupied = data.vehicles.filter((vehicle) => vehicle.coneNumber !== null)
+  const occupied = data.vehicles.filter(vehicle => vehicle.coneNumber !== null && !isVehicleDeliveredStatus(data.plannerSettings, vehicle.status))
   const waitingVehicles = data.vehicles
     .filter((item) => isVehicleWaitingForCone(item))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
