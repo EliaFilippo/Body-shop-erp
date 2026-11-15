@@ -42,6 +42,7 @@ it('salva l’operatore della fase successiva senza modificare la prima fase', (
 
   fireEvent.change(screen.getByLabelText('Assegnazione PROVA01'), { target: { value: 'b' } })
   const savedJob = onChange.mock.calls[0][0].jobs[0] as typeof job
+  expect(onChange.mock.calls[0][0].plannerSettings.operatorProgramEditedAt).toMatch(/Z$/)
   expect(savedJob.phases.find(phase => phase.id === futurePhase.id)?.preferredOperatorId).toBe('b')
   expect(savedJob.phases.find(phase => phase.id === firstPhase.id)?.preferredOperatorId).toBeUndefined()
 })

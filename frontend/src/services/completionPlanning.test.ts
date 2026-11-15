@@ -56,6 +56,17 @@ describe('completion-triggered planning',()=>{
   data.nightlyPlanning={enabled:true,plannedFor:'2026-10-28',generatedAt:'2026-10-28T02:00:00Z',hour:3}
   expect(overlayCompletionPlan(data,plan)).toBe(data)
  })
+ it('keeps an office edit visible until a server plan based on the new revision arrives',()=>{
+  const data=setup()
+  const old=buildCompletionPlan(data,{serverNow:'2026-10-27T09:00:00Z',entries:[]},1)
+  const edited={...data,operatorProgramRevision:(data.operatorProgramRevision??0)+1,
+   plannerSettings:{...data.plannerSettings,operatorProgramEditedAt:'2026-10-27T09:01:00Z'}}
+  expect(overlayCompletionPlan(edited,old)).toBe(edited)
+  const delayed={...old,generatedAt:'2026-10-27T09:01:01Z'}
+  expect(overlayCompletionPlan(edited,delayed)).toBe(edited)
+  const fresh=buildCompletionPlan(edited,{serverNow:'2026-10-27T09:01:02Z',entries:[]},2)
+  expect(overlayCompletionPlan(edited,fresh).operatorPrograms).toBe(fresh.operatorPrograms)
+ })
  it('protects the server worker and retries revision races without changing the phase signature',async()=>{
   const rpc=vi.fn()
   expect((await handleCompletionRequest(new Request('https://test',{method:'POST',body:'{}'}),rpc)).status).toBe(401)
