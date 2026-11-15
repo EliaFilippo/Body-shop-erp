@@ -143,7 +143,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni. Il tablet mostra se la fase programmata è già avviabile. Le quote dei tempi condivisi servono a organizzare il piano; il totale del timer resta unico.</p>
       <button type="button" disabled={date < todayKey()} onClick={() => setEditingDay(value => !value)}>{editingDay ? 'Chiudi modifica programma' : 'Modifica programma del giorno'}</button>
-      {editingDay && date >= todayKey() && <ManualOperatorDayEditor key={date} date={date} data={data} onSave={plan => {
+      {editingDay && date >= todayKey() && <ManualOperatorDayEditor key={date} date={date} data={data} programs={programs} timeLabel={iso => timeLabel(iso, liveClock)} onSave={plan => {
         const selected = new Set(plan.assignments.map(item => item.jobId + '|' + item.phaseId))
         const remaining = (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date !== date).map(item =>
           item.date < todayKey() ? item : { ...item, assignments: item.assignments.filter(row => !selected.has(row.jobId + '|' + row.phaseId)) },
