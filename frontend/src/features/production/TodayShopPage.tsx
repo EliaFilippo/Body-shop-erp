@@ -37,12 +37,12 @@ const coneLabel = (coneNumber: number | null | undefined, status?: string) => {
 
 const REPORT_OPTIONS: ProductionReportType[] = ['ricambio mancante', 'problema tecnico', 'lavorazione aggiuntiva', 'danno non previsto', 'richiesta all\'ufficio', 'altro']
 
-export function TodayShopPage({ connection, data, customerById, onOpenPlanner, onOpenVehicles, onOpenPractice, onChange, setNotice, setError, onUpdateVehicleStatus, statusOptions, statusLabel }: {
+export function TodayShopPage({ connection, data, customerById, onOpenPlanner, onOpenCones, onOpenPractice, onChange, setNotice, setError, onUpdateVehicleStatus, statusOptions, statusLabel }: {
   connection?: NoticesConnection
   data: ErpData
   customerById: (id: string) => Customer | undefined
   onOpenPlanner: () => void
-  onOpenVehicles: () => void
+  onOpenCones: () => void
   onOpenPractice: (plate: string) => void
   onChange: (next: ErpData) => void
   setNotice: (value: string) => void
@@ -153,7 +153,7 @@ export function TodayShopPage({ connection, data, customerById, onOpenPlanner, o
   return <>
     <section className="welcome">
       <div><span className="eyebrow">OGGI IN CARROZZERIA</span><h2>Fasi, tempi e segnalazioni in tempo reale</h2><p>Vista ufficio sincronizzata con i tablet di produzione.</p></div>
-      <div className="planner-actions"><button className="secondary" onClick={onOpenPlanner}>Apri Planner</button><button className="secondary" onClick={onOpenVehicles}>Apri Veicoli</button><a className="primary tablet-link" href="/production.html">Apri Tablet Produzione</a></div>
+      <div className="planner-actions"><button className="secondary" onClick={onOpenPlanner}>Apri Planner</button><button className="secondary" onClick={onOpenCones}>Apri Gestione coni</button><a className="primary tablet-link" href="/production.html">Apri Tablet Produzione</a></div>
     </section>
 
     <section className="owner-kpi-grid">

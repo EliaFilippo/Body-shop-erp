@@ -139,7 +139,7 @@ describe('avvio e salvataggio cloud', () => {
     await screen.findByRole('alert')
     fireEvent.click(screen.getByRole('button',{name:'Apri gestionale e reinserisci le vetture'}))
     expect(await screen.findByText(/Gestionale pronto: puoi reinserire/)).toBeInTheDocument()
-    expect(screen.getByRole('button',{name:'Nuova vettura'})).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Nuova vettura' }, { timeout: 4000 })).toBeInTheDocument()
     const copies=await listLocalCheckpoints()
     const archived=copies.find(copy=>copy.key.includes('prima-riapertura-manuale'))
     expect(archived).toBeDefined()
@@ -235,15 +235,14 @@ describe('avvio e salvataggio cloud', () => {
       expect.objectContaining({ plate: 'CL123UD', model: 'Panda' }),
     ]))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Modifica' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Modifica vettura' }))
     fireEvent.change(screen.getByLabelText('Modello'), { target: { value: 'Panda Hybrid' } })
     fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
     await waitFor(async () => expect((await latestRemote()).vehicles[0].model).toBe('Panda Hybrid'))
 
-    const row = screen.getByText('CL123UD').closest('tr')!
-    fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'da-pianificare' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Stato vettura CL123UD' }), { target: { value: 'da-pianificare' } })
     await waitFor(async () => expect((await latestRemote()).vehicles[0].coneNumber).toBe(1))
-    fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'consegnata' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Stato vettura CL123UD' }), { target: { value: 'consegnata' } })
     expect(screen.getByRole('heading', { name: 'Guadagno alla consegna · CL123UD' })).toBeInTheDocument()
     await waitFor(async () => {
       const remote = await latestRemote()
@@ -265,7 +264,7 @@ describe('avvio e salvataggio cloud', () => {
     localStorage.removeItem('body-shop-erp.pending-cloud-save.v1:company-1')
     render(<App />)
     await screen.findByText('Archivio sincronizzato dal cloud.')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Storico veicoli' }))
     expect(await screen.findByText('CL123UD')).toBeInTheDocument()
     expect((await loadDatabase()).vehicles[0]).toMatchObject({ model: 'Panda Hybrid', status: 'consegnata', coneNumber: null })
   })
@@ -297,7 +296,7 @@ describe('avvio e salvataggio cloud', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
     await screen.findByText('Connessione cloud interrotta.')
     expect((await loadDatabase()).vehicles[0].plate).toBe('RT123RY')
-    fireEvent.click(screen.getByRole('button', { name: 'Modifica' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Modifica vettura' }, { timeout: 4000 }))
     fireEvent.change(screen.getByLabelText('Marca'), { target: { value: 'Fiat' } })
     fireEvent.click(screen.getByRole('button', { name: 'Salva vettura' }))
     await waitFor(async () => {
