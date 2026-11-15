@@ -3,11 +3,12 @@ import type { ErpData, ManualOperatorDay, OperatorDayProgram } from '../../types
 import { closedPlanningWork } from '../../services/closedPlanningWork'
 import { phaseDisplayName } from '../../services/workCycle'
 
-export function ManualOperatorDayEditor({ data, date, programs, timeLabel, onSave }: {
+export function ManualOperatorDayEditor({ data, date, programs, timeLabel, coneLabel, onSave }: {
   data: ErpData
   date: string
   programs: Pick<OperatorDayProgram, 'operatorId' | 'tasks'>[]
   timeLabel: (iso: string) => string
+  coneLabel: (jobId: string, vehicleId?: string) => string
   onSave: (plan: ManualOperatorDay) => void
 }) {
   const saved = data.plannerSettings.manualOperatorDays?.find(plan => plan.date === date)
@@ -68,7 +69,7 @@ export function ManualOperatorDayEditor({ data, date, programs, timeLabel, onSav
         {tasks.length > 0 && <>
           <strong>Programma attuale</strong>
           <ul>{tasks.map(task => <li key={task.id}>
-            {timeLabel(task.startAt)}–{timeLabel(task.endAt)} · {task.plate} · {phaseDisplayName(task.phaseName)}
+            {timeLabel(task.startAt)}–{timeLabel(task.endAt)} · {task.plate} · {coneLabel(task.jobId, task.vehicleId)} · {phaseDisplayName(task.phaseName)}
           </li>)}</ul>
           {importable.length > 0 && <button type="button" onClick={() => setAssignments(current => [...current, ...importable])}>
             Riprendi le fasi pianificate di {operator.name}
@@ -79,7 +80,7 @@ export function ManualOperatorDayEditor({ data, date, programs, timeLabel, onSav
           const job = data.jobs?.find(item => item.id === row.jobId)
           const phase = job?.phases.find(item => item.id === row.phaseId)
           return <li key={JSON.stringify([row.jobId, row.phaseId])}>
-            {job?.plate ?? 'Vettura non disponibile'} · {phaseDisplayName(phase?.name ?? 'Fase non disponibile')}{phase?.status === 'Completata' ? ' · Completata' : ''}
+            {job ? `${job.plate} · ${coneLabel(job.id, job.vehicleId)}` : 'Vettura non disponibile'} · {phaseDisplayName(phase?.name ?? 'Fase non disponibile')}{phase?.status === 'Completata' ? ' · Completata' : ''}
             <button type="button" disabled={position === 0} onClick={() => move(index, -1)}>Su</button>
             <button type="button" disabled={position === rows.length - 1} onClick={() => move(index, 1)}>Giù</button>
             <button type="button" onClick={() => setAssignments(current => current.filter((_, i) => i !== index))}>Rimuovi</button>
@@ -90,7 +91,7 @@ export function ManualOperatorDayEditor({ data, date, programs, timeLabel, onSav
           if (selected) setAssignments(current => [...current, { operatorId: operator.id, jobId: selected.job.id, phaseId: selected.phase.id }])
         }}>
           <option value="">Aggiungi fase…</option>
-          {options.map(({ job, phase, key }) => <option key={key} value={key}>{job.plate} · {phaseDisplayName(phase.name)}</option>)}
+          {options.map(({ job, phase, key }) => <option key={key} value={key}>{job.plate} · {coneLabel(job.id, job.vehicleId)} · {phaseDisplayName(phase.name)}</option>)}
         </select>
       </div>
     })}
