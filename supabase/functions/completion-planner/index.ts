@@ -908,13 +908,18 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
   const { jobIds } = closedPlanningWork(data);
   const openJobs = (data.jobs ?? []).filter((job) => job.vehicleId && !jobIds.has(job.id));
   const manualAssignments = /* @__PURE__ */ new Map();
+  const manualJobDates = /* @__PURE__ */ new Map();
   for (const day of (data.plannerSettings.manualOperatorDays ?? []).filter((item) => item.date >= effectiveDate).sort((a, b) => a.date.localeCompare(b.date))) {
     for (const [rank, assignment] of day.assignments.entries()) {
+      const phase = originalJobs.get(assignment.jobId)?.phases.find((item) => item.id === assignment.phaseId);
+      const operator = operators.find((item) => item.id === assignment.operatorId);
+      if (!phase || phase.notRequired || phase.name === "Consegna" || phase.status === "Completata" || !operator || !operatorCompatible(operator, phase)) continue;
       const key2 = assignment.jobId + "|" + assignment.phaseId;
       if (manualAssignments.has(key2)) continue;
       const start = day.date + (day.period === "afternoon" ? "T13:00:00.000Z" : "T00:00:00.000Z");
       const end = day.period === "morning" ? day.date + "T13:00:00.000Z" : addDays2(day.date, 1) + "T00:00:00.000Z";
       manualAssignments.set(key2, { operatorId: assignment.operatorId, start, end, rank });
+      if (!manualJobDates.has(assignment.jobId)) manualJobDates.set(assignment.jobId, day.date);
     }
   }
   const manualPhase = (job, phase, readyAt) => {
@@ -938,7 +943,8 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
   const candidates = openJobs.map((savedJob, arrivalIndex) => {
     const vehicle = vehiclesById.get(savedJob.vehicleId ?? "");
     if (!vehicle) return null;
-    const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate) ? { ...savedJob, entryDate: effectiveDate } : savedJob;
+    const availableFrom = vehicle.presentInShop ? effectiveDate : manualJobDates.get(savedJob.id);
+    const job = availableFrom && (!savedJob.entryDate || savedJob.entryDate > availableFrom) ? { ...savedJob, entryDate: availableFrom } : savedJob;
     const normal2 = selectSchedulablePhase(job);
     const alternate = vehicle.presentInShop ? independentShopPhase(job, normal2?.phase.id) : null;
     const selectedPhase = normal2 ?? alternate;
