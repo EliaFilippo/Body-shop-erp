@@ -36,9 +36,9 @@ it('raggruppa le vetture presenti e distingue il timer attivo dall’attesa rica
   expect(row.getByText('In attesa ricambi').closest('li')).toHaveClass('waiting-parts')
   expect(row.getByText('Cono 9')).toBeInTheDocument()
   expect(screen.queryByText('CC333CC')).not.toBeInTheDocument()
-  fireEvent.change(screen.getByRole('combobox', { name: 'Vetture da mostrare' }), { target: { value: 'delivered' } })
-  expect(screen.getByText('CC333CC')).toBeInTheDocument()
-  expect(screen.queryByText('AA111AA')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Vetture da mostrare' }), { target: { value: 'all' } })
+  expect(screen.queryByText('CC333CC')).not.toBeInTheDocument()
+  expect(screen.getByText('AA111AA')).toBeInTheDocument()
 })
 
 
