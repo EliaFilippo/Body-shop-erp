@@ -57,7 +57,9 @@ it('mostra il piano visibile e riprende le fasi del solo operatore scelto, mante
   job.coneNumber = 4
   const filling = job.phases.find(phase => phase.name === 'Stuccatura')!
   filling.notRequired = false
+  filling.estimatedMinutes = 60
   const paint = job.phases.find(phase => phase.name === 'Verniciatura')!
+  paint.estimatedMinutes = 90
   const saved = { operatorId: 'b', jobId: job.id, phaseId: paint.id }
   data.plannerSettings.manualOperatorDays = [{ date, period: 'day', assignments: [saved] }]
 
@@ -79,10 +81,12 @@ it('mostra il piano visibile e riprende le fasi del solo operatore scelto, mante
   const editor = within(screen.getByRole('region', { name: 'Modifica programma del giorno' }))
   expect(editor.getByText(/08:00–09:00 · PROVA01 · Cono 4/)).toBeVisible()
   expect(editor.getByText(/PROVA01 · Cono 4 · Verniciatura/, { selector: 'li' })).toBeVisible()
+  expect(editor.getByText('Assegnate a mano 1 h 30 min')).toBeVisible()
   expect(within(editor.getByLabelText('Aggiungi fase per Stefania')).getByRole('option', { name: /PROVA01 · Cono 4 · Stuccatura/ })).toBeInTheDocument()
   expect(onChange).not.toHaveBeenCalled()
 
   fireEvent.click(editor.getByRole('button', { name: 'Riprendi le fasi pianificate di Stefania' }))
+  expect(editor.getByText('Assegnate a mano 1 h 00 min')).toBeVisible()
   fireEvent.click(editor.getByRole('button', { name: 'Salva e calcola orari' }))
   expect(onChange.mock.calls[0][0].plannerSettings.manualOperatorDays).toEqual([{
     date, period: 'day', assignments: [saved, { operatorId: 'a', jobId: job.id, phaseId: filling.id }],

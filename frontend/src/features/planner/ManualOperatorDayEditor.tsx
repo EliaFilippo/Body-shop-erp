@@ -2,6 +2,9 @@ import { useState } from 'react'
 import type { ErpData, ManualOperatorDay, OperatorDayProgram } from '../../types'
 import { closedPlanningWork } from '../../services/closedPlanningWork'
 import { phaseDisplayName } from '../../services/workCycle'
+import { manualOperatorPhaseMinutes, manualOperatorWorkIntervals } from '../../services/planner'
+
+const durationLabel = (minutes: number) => `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`
 
 export function ManualOperatorDayEditor({ data, date, programs, timeLabel, coneLabel, onSave }: {
   data: ErpData
@@ -49,9 +52,21 @@ export function ManualOperatorDayEditor({ data, date, programs, timeLabel, coneL
       <option value="afternoon">Pomeriggio dalle 13:00</option>
     </select></label>
     <p>Il giorno e l’ordine scelti fanno parte del piano manuale. Gli orari sono indicativi e la disponibilità effettiva delle fasi è mostrata sul tablet.</p>
+    <p>Al salvataggio il gestionale completa il turno con le lavorazioni disponibili, anche anticipando quelle dei giorni successivi.</p>
     <p>Per aggiungere una vettura mantenendo le fasi già pianificate, riprendile per l’operatore interessato e poi aggiungi la nuova fase.</p>
     {data.plannerSettings.operators.filter(operator => operator.active).map(operator => {
-      const rows = assignments.map((row, index) => ({ row, index })).filter(({ row }) => row.operatorId === operator.id)
+      const rows = assignments.flatMap((row, index) => {
+        if (row.operatorId !== operator.id) return []
+        const job = data.jobs?.find(item => item.id === row.jobId)
+        const phase = job?.phases.find(item => item.id === row.phaseId)
+        const minutes = job?.vehicleId && !closed.jobIds.has(job.id) && phase ? manualOperatorPhaseMinutes(phase) : 0
+        return [{ row, index, job, phase, minutes }]
+      })
+      const assignedMinutes = rows.reduce((sum, row) => sum + row.minutes, 0)
+      const capacity = (scope: ManualOperatorDay['period']) => manualOperatorWorkIntervals(date, scope, data.plannerSettings, operator)
+        .reduce((sum, interval) => sum + interval.endMinute - interval.startMinute, 0)
+      const dayMinutes = capacity('day')
+      const periodMinutes = period === 'day' ? dayMinutes : capacity(period)
       const tasks = programs.find(program => program.operatorId === operator.id)?.tasks ?? []
       const options = available.filter(({ job, phase }) =>
         !assignments.some(row => row.jobId === job.id && row.phaseId === phase.id))
@@ -66,21 +81,23 @@ export function ManualOperatorDayEditor({ data, date, programs, timeLabel, coneL
       })
       return <div key={operator.id}>
         <h4>{operator.name}</h4>
+        <p><strong>Assegnate a mano {durationLabel(assignedMinutes)}</strong> · Turno {durationLabel(dayMinutes)} · Da completare {durationLabel(Math.max(0, dayMinutes - assignedMinutes))}</p>
+        {period !== 'day' && <p>Disponibili nella fascia {durationLabel(periodMinutes)}</p>}
+        {assignedMinutes > periodMinutes && <p>Oltre la fascia selezionata di {durationLabel(assignedMinutes - periodMinutes)}</p>}
         {tasks.length > 0 && <>
           <strong>Programma attuale</strong>
           <ul>{tasks.map(task => <li key={task.id}>
-            {timeLabel(task.startAt)}–{timeLabel(task.endAt)} · {task.plate} · {coneLabel(task.jobId, task.vehicleId)} · {phaseDisplayName(task.phaseName)}
+            {timeLabel(task.startAt)}–{timeLabel(task.endAt)} · {task.plate} · {coneLabel(task.jobId, task.vehicleId)} · {phaseDisplayName(task.phaseName)} · {durationLabel(task.plannedMinutes)}
           </li>)}</ul>
           {importable.length > 0 && <button type="button" onClick={() => setAssignments(current => [...current, ...importable])}>
             Riprendi le fasi pianificate di {operator.name}
           </button>}
         </>}
         {rows.length > 0 && <strong>Assegnazioni manuali</strong>}
-        <ol>{rows.map(({ row, index }, position) => {
-          const job = data.jobs?.find(item => item.id === row.jobId)
-          const phase = job?.phases.find(item => item.id === row.phaseId)
+        <ol>{rows.map(({ row, index, job, phase, minutes }, position) => {
           return <li key={JSON.stringify([row.jobId, row.phaseId])}>
             {job ? `${job.plate} · ${coneLabel(job.id, job.vehicleId)}` : 'Vettura non disponibile'} · {phaseDisplayName(phase?.name ?? 'Fase non disponibile')}{phase?.status === 'Completata' ? ' · Completata' : ''}
+            {minutes > 0 && ` · ${durationLabel(minutes)}`}
             <button type="button" disabled={position === 0} onClick={() => move(index, -1)}>Su</button>
             <button type="button" disabled={position === rows.length - 1} onClick={() => move(index, 1)}>Giù</button>
             <button type="button" onClick={() => setAssignments(current => current.filter((_, i) => i !== index))}>Rimuovi</button>
@@ -91,7 +108,7 @@ export function ManualOperatorDayEditor({ data, date, programs, timeLabel, coneL
           if (selected) setAssignments(current => [...current, { operatorId: operator.id, jobId: selected.job.id, phaseId: selected.phase.id }])
         }}>
           <option value="">Aggiungi fase…</option>
-          {options.map(({ job, phase, key }) => <option key={key} value={key}>{job.plate} · {coneLabel(job.id, job.vehicleId)} · {phaseDisplayName(phase.name)}</option>)}
+          {options.map(({ job, phase, key }) => <option key={key} value={key}>{job.plate} · {coneLabel(job.id, job.vehicleId)} · {phaseDisplayName(phase.name)} · {durationLabel(manualOperatorPhaseMinutes(phase))}</option>)}
         </select>
       </div>
     })}
