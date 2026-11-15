@@ -1511,6 +1511,27 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(next.jobs?.[0].entryDate).toBe('2026-07-30')
     expect(next.vehicles.find(item => item.id === vehicle.id)?.presentInShop).toBe(false)
   })
+  it.each(['day', 'afternoon'] as const)('completa il turno con una vettura del giorno successivo attorno al piano manuale (%s)', period => {
+    const date = '2026-07-27'
+    const data = setup()
+    data.plannerSettings.operators = [{ ...data.plannerSettings.operators[0], dailyHours: 9 }]
+    const first = data.jobs![0]
+    first.phases[0].estimatedMinutes = 240
+    first.phases[0].actualMinutes = 0
+    const vehicle = data.vehicles.find(item => item.id === first.vehicleId)!
+    const next = { ...structuredClone(first), id: 'next-day-job', vehicleId: 'next-day-car', entryDate: '2026-07-28', expectedDeliveryDate: '2026-07-28', workflowCycle: 'elias-v1' as const }
+    next.phases[0].estimatedMinutes = 360
+    data.jobs!.push(next)
+    data.vehicles.push({ ...vehicle, id: 'next-day-car', plate: 'NEXTDAY', presentInShop: true })
+    data.plannerSettings.manualOperatorDays = [{ date, period, assignments: [{ operatorId: 'op-1', jobId: first.id, phaseId: first.phases[0].id }] }]
+
+    const result = generateOperatorPrograms(data, date, 'Test', `${date}T07:00:00.000Z`)
+    const tasks = result.programs.find(program => program.operatorId === 'op-1' && program.date === date)!.tasks
+    expect(tasks.filter(task => task.jobId === first.id).map(task => task.plannedMinutes)).toEqual([240])
+    expect(tasks.filter(task => task.jobId === next.id).reduce((sum, task) => sum + task.plannedMinutes, 0)).toBe(300)
+    expect(tasks.every((task, index) => !index || task.startAt >= tasks[index - 1].endAt)).toBe(true)
+    expect(result.programs.find(program => program.operatorId === 'op-1' && program.date === '2026-07-28')?.tasks[0].plannedMinutes).toBe(60)
+  })
   it('mantiene giorno, operatore e ordine manuali anche con assenza e fasi bloccate', () => {
     const data = setup()
     const job = data.jobs![0]

@@ -10,6 +10,7 @@ import type {
   EstimateLine,
   EstimateProductionForecast,
   JobPhase,
+  ManualOperatorDay,
   OperatorDayProgram,
   OperatorDayProgramSummary,
   OperatorProgramHistoryEntry,
@@ -30,6 +31,7 @@ import {
   addWorkingMinutes,
   calendarMinutesBetween,
   dateKey as calendarDateKey,
+  formatMinutesToTime,
   getOperatorWorkingIntervals,
   isWorkingDate,
   nextWorkingInstant,
@@ -967,6 +969,19 @@ function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] 
  return reservations
 }
 
+export function manualOperatorWorkIntervals(date: string, period: ManualOperatorDay['period'], settings: PlannerSettings, operator: PlannerOperator) {
+  return getOperatorWorkingIntervals(date, settings, operator)
+    .map(({ startMinute, endMinute }) => ({
+      startMinute: period === 'afternoon' ? Math.max(startMinute, 780) : startMinute,
+      endMinute: period === 'morning' ? Math.min(endMinute, 780) : endMinute,
+    }))
+    .filter(interval => interval.startMinute < interval.endMinute)
+}
+
+export function manualOperatorPhaseMinutes(phase: JobPhase) {
+  return phase.status === 'Completata' ? 0 : Math.max(1, Math.ceil(phase.estimatedMinutes || 15))
+}
+
 function buildManualProgram(data: ErpData, firstDate: string, lastDate: string, revision: number) {
   const jobs = new Map((data.jobs ?? []).map(job => [job.id, job]))
   const operators = new Map(data.plannerSettings.operators.filter(operator => operator.active).map(operator => [operator.id, operator]))
@@ -974,11 +989,10 @@ function buildManualProgram(data: ErpData, firstDate: string, lastDate: string, 
   const phases = new Set<string>()
   const tasks: Array<{ date: string; operator: PlannerOperator; task: OperatorProgramTask }> = []
   const reservations: PlannerAbsence[] = []
+  const startByOperatorDay = new Map<string, number>()
 
   for (const day of (data.plannerSettings.manualOperatorDays ?? []).filter(day => day.date >= firstDate && day.date <= lastDate).sort((a, b) => a.date.localeCompare(b.date))) {
-    const cursors = new Map<string, number>()
-    const startMinute = day.period === 'afternoon' ? 780 : 0
-    const endMinute = day.period === 'morning' ? 780 : 1440
+    const shifts = new Map<string, { start: number; cursor: number; intervals: ReturnType<typeof manualOperatorWorkIntervals> }>()
     const midnight = Date.parse(`${day.date}T00:00:00.000Z`)
     for (const assignment of day.assignments) {
       const job = jobs.get(assignment.jobId)
@@ -987,41 +1001,53 @@ function buildManualProgram(data: ErpData, firstDate: string, lastDate: string, 
       const key = assignment.jobId + '|' + assignment.phaseId
       if (!operator || !job?.vehicleId || closed.jobIds.has(job.id) || !phase || phases.has(key)) continue
 
-      let cursor = cursors.get(operator.id)
-      if (cursor === undefined) {
-        const interval = getOperatorWorkingIntervals(day.date, data.plannerSettings, operator)
-          .find(interval => interval.endMinute > startMinute && interval.startMinute < endMinute)
-        cursor = midnight + Math.max(startMinute, interval?.startMinute ?? (day.period === 'afternoon' ? 780 : 480)) * 60000
-        reservations.push({
-          id: `office-manual:${day.date}:${operator.id}`, operatorId: operator.id,
-          startDate: day.date, endDate: day.date, hoursPerDay: null, reason: 'Programma manuale',
-          ...(day.period === 'morning' ? { startTime: '00:00', endTime: '13:00' }
-            : day.period === 'afternoon' ? { startTime: '13:00', endTime: '23:59' } : {}),
-        })
-        cursors.set(operator.id, cursor)
+      const plannedMinutes = manualOperatorPhaseMinutes(phase)
+      if (!plannedMinutes) continue
+      let shift = shifts.get(operator.id)
+      if (!shift) {
+        const intervals = manualOperatorWorkIntervals(day.date, day.period, data.plannerSettings, operator)
+        const start = intervals[0]?.startMinute ?? (day.period === 'afternoon' ? 780 : 480)
+        shift = { start, cursor: start, intervals }
+        shifts.set(operator.id, shift)
       }
-      if (phase.status === 'Completata') continue
-
-      const plannedMinutes = Math.max(1, Math.ceil(phase.estimatedMinutes || 15))
-      const end = cursor + plannedMinutes * 60000
+      const start = Math.max(shift.cursor, shift.intervals.find(interval => interval.endMinute > shift.cursor)?.startMinute ?? shift.cursor)
+      let end = start
+      let remaining = plannedMinutes
+      for (const interval of shift.intervals) {
+        if (interval.endMinute <= end) continue
+        end = Math.max(end, interval.startMinute)
+        const minutes = Math.min(remaining, interval.endMinute - end)
+        end += minutes
+        remaining -= minutes
+        if (!remaining) break
+      }
+      end += remaining
       const lines = (job.lines ?? []).filter(line => cyclePhasesForLine(line).includes(phase.name)
         || String(line.categoryOrPhase ?? '').trim().toLowerCase() === phase.name.trim().toLowerCase())
       tasks.push({ date: day.date, operator, task: {
         id: `office-manual:${day.date}:${operator.id}:${job.id}:${phase.id}`,
         operatorId: operator.id, operatorName: operator.name, vehicleId: job.vehicleId,
         plate: job.plate, jobId: job.id, jobNumber: job.number, phaseId: phase.id, phaseName: phase.name,
-        startAt: new Date(cursor).toISOString(), endAt: new Date(end).toISOString(), plannedMinutes,
+        startAt: new Date(midnight + start * 60_000).toISOString(), endAt: new Date(midnight + end * 60_000).toISOString(), plannedMinutes,
         priority: job.priority, revision, originalPlannedDate: day.date,
-        reason: end > midnight + endMinute * 60000
+        reason: remaining > 0
           ? 'Programma manuale · Durata oltre la fascia scelta' : 'Programma manuale · Orario indicativo',
         panelNames: [...new Set(lines.map(line => line.panelName?.trim()).filter((name): name is string => Boolean(name)))],
         panelNotes: [...new Set(lines.map(line => line.panelWorkNote?.trim()).filter((note): note is string => Boolean(note)))],
       } })
       phases.add(key)
-      cursors.set(operator.id, end)
+      shift.cursor = end
+    }
+    for (const [operatorId, { start, cursor }] of shifts) {
+      startByOperatorDay.set(`${operatorId}|${day.date}`, start)
+      reservations.push({
+        id: `office-manual:${day.date}:${operatorId}`, operatorId,
+        startDate: day.date, endDate: day.date, hoursPerDay: null, reason: 'Programma manuale',
+        startTime: formatMinutesToTime(start), endTime: formatMinutesToTime(Math.min(cursor, 1439)),
+      })
     }
   }
-  return { tasks, phases, reservations }
+  return { tasks, phases, reservations, startByOperatorDay }
 }
 
 export function generateOperatorPrograms(data: ErpData, date = todayKey(), reason = 'Ricalcolo automatico', nowIso?: string, availability?: {operators:Record<string,string>;jobs:Record<string,string>}, manualSource = data): OperatorProgramResult {
@@ -1033,6 +1059,14 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const manual = buildManualProgram(manualSource, effectiveDate, horizonEndDate, revision)
   if (manual.reservations.length) {
     data = { ...data, plannerSettings: { ...data.plannerSettings, absences: [...data.plannerSettings.absences, ...manual.reservations] } }
+  }
+  const automaticMinutesAvailable = (from: string, operator: PlannerOperator) => {
+    const date = from.slice(0, 10)
+    const minute = minutesFromIso(from)
+    const manualStart = manual.startByOperatorDay.get(`${operator.id}|${date}`)
+    if (manualStart == null || minute >= manualStart) return remainingWorkingMinutesToday(from, data.plannerSettings, operator)
+    return getOperatorWorkingIntervals(date, data.plannerSettings, operator).reduce((sum, interval) =>
+      sum + Math.max(0, Math.min(interval.endMinute, manualStart) - Math.max(interval.startMinute, minute)), 0)
   }
   const inManualProgram = (jobId: string, phaseId: string) => manual.phases.has(jobId + '|' + phaseId)
   const operators = data.plannerSettings.operators.filter((operator) => operator.active)
@@ -1125,6 +1159,15 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   )
   const paintReservations=currentPaintReservations(data,schedulingFloor)
   const washReservations=currentWashReservations(data,schedulingFloor,(job,phase)=>addWorkingMinutes(schedulingFloor,phaseResidualMinutes(phase,now,job),data.plannerSettings))
+  for (const { task } of manual.tasks) {
+    if (isWashingPhase(task.phaseName)) {
+      washReservations.push({ jobId: task.jobId, startAt: task.startAt, endAt: task.endAt })
+    } else {
+      const phase = originalJobs.get(task.jobId)?.phases.find(item => item.id === task.phaseId)
+      const wait = task.phaseName === 'Verniciatura' ? Math.max(0, Number(phase?.technicalWaitMinutes ?? 60)) : 0
+      paintReservations.push({ jobId: task.jobId, startAt: task.startAt, endAt: new Date(Date.parse(task.endAt) + wait * 60_000).toISOString() })
+    }
+  }
   const remainingByPhase = new Map<string,number>()
   for (let candidateIndex=0;candidateIndex<candidates.length;candidateIndex++) {
     // Fill the earliest usable slot first; a future vehicle must not reserve an employee past today's work.
@@ -1141,7 +1184,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       return states.map(state=>{
         const normalize=(at:string)=>nextWorkingInstant(at,data.plannerSettings,state.operator)
         const start=normalize([state.nextAt,candidate.readyAt,schedulingFloor,needsSupport?support.nextAt:''].sort().at(-1)!)
-        const end=(at:string)=>addWorkingMinutes(at,Math.min(minutes,remainingWorkingMinutesToday(at,data.plannerSettings,state.operator)),data.plannerSettings,state.operator)
+        const end=(at:string)=>addWorkingMinutes(at,Math.min(minutes,automaticMinutesAvailable(at,state.operator)),data.plannerSettings,state.operator)
         if(isWashingPhase(candidate.phase.name))return findWashStationStart(start,candidate.job.id,washReservations,end,normalize)
         if(candidate.phase.status==='In lavorazione')return start
         const drying=candidate.phase.name==='Verniciatura'?Math.max(0,Number(candidate.phase.technicalWaitMinutes??60))*60_000:0
@@ -1219,13 +1262,13 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     }
     if(selected.some(state=>nextWorkingInstant(sharedStartAt,data.plannerSettings,state.operator)!==sharedStartAt))continue
     if (sharedStartAt.slice(0, 10) > horizonEndDate) continue
-    const availableToday = selected.map((state) => remainingWorkingMinutesToday(sharedStartAt, data.plannerSettings, state.operator))
+    const availableToday = selected.map((state) => automaticMinutesAvailable(sharedStartAt, state.operator))
     const personMinutes = item.phase.sharedTimeKey || item.job.workflowCycle==='elias-v1' ? Math.ceil(residual / selected.length) : residual
     let duration = Math.min(personMinutes, ...availableToday)
     if (duration <= 0) continue
 
     const workerMinutes=(index:number)=>item.phase.sharedTimeKey||item.job.workflowCycle==='elias-v1'?Math.max(0,Math.min(duration,residual-duration*index)):duration
-    const crewEnd=(start:string)=>selected.map((state,index)=>addWorkingMinutes(start,workerMinutes(index),data.plannerSettings,state.operator)).sort().at(-1)!
+    const crewEnd=(start:string)=>selected.map((state,index)=>addWorkingMinutes(start,Math.min(workerMinutes(index),automaticMinutesAvailable(start,state.operator)),data.plannerSettings,state.operator)).sort().at(-1)!
     const painting=item.phase.name==='Verniciatura'
     const usesBox=!isWashingPhase(item.phase.name)
     const drying=painting?Math.max(0,Number(item.phase.technicalWaitMinutes??60))*60_000:0
@@ -1241,7 +1284,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         return aligned
       })
       : isWashingPhase(item.phase.name)?findWashStationStart(sharedStartAt,item.job.id,washReservations,crewEnd,at=>nextWorkingInstant(at,data.plannerSettings,selected[0]?.operator)):sharedStartAt
-    duration=Math.min(duration,...selected.map(({operator})=>remainingWorkingMinutesToday(startAt,data.plannerSettings,operator)))
+    duration=Math.min(duration,...selected.map(({operator})=>automaticMinutesAvailable(startAt,operator)))
     if(duration<=0)continue
     if(startAt.slice(0,10)>horizonEndDate)continue
     const endAt = crewEnd(startAt)
@@ -1289,8 +1332,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       state.tasks.push(task)
       state.nextAt = nextWorkingInstant(workerEndAt,data.plannerSettings,state.operator)
     }
-    if (item.job.workflowCycle==='elias-v1') {
-      const consumed=Math.min(residual,duration*selected.length)
+    if (item.job.workflowCycle==='elias-v1' || duration < personMinutes) {
+      const consumed=Math.min(residual,selected.reduce((sum, _, index) => sum + workerMinutes(index), 0))
       const remaining=Math.max(0,residual-consumed)
       remainingByPhase.set(phaseKey,remaining)
       const virtualJob={...item.job,phases:item.job.phases.map(phase=>phase.id!==item.phase.id?phase:{
@@ -1298,7 +1341,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         actualMinutes:Math.max(phase.actualMinutes||0,(phase.tabletWorkedSeconds??0)/60,phaseManWorkedMinutes(phase,now))+consumed,operatorAssignments:[],tabletWorkedSeconds:undefined,
         completedAt:remaining>0?undefined:endAt,endedAt:remaining>0?undefined:endAt,
       })}
-      const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}:selectSchedulablePhase(virtualJob)
+      const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}
+        :item.job.workflowCycle==='elias-v1'?selectSchedulablePhase(virtualJob):null
       if (selectedNext && !inManualProgram(virtualJob.id, selectedNext.phase.id) && endAt.slice(0,10) <= horizonEndDate) {
         candidates.push({ ...item, job: virtualJob, phase: selectedNext.phase, readyAt: [selectedNext.readyAt, endAt].sort().at(-1)!, independent: remaining > 0 && item.independent, alternate: null })
       }
