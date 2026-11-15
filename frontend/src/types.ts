@@ -620,6 +620,7 @@ export interface ManualOperatorDay {
 
 export interface PlannerSettings {
   manualOperatorDays?: ManualOperatorDay[]
+  operatorProgramEditedAt?: string
   operatorDayExtensions?: OperatorDayExtension[]
   eliasPriceOverrides?: Record<string, EliasCatalogOverride>
   eliasExteriorWashMinutes?: number

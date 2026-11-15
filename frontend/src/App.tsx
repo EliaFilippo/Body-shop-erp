@@ -43,7 +43,7 @@ const OperatorProgramPage = lazy(() => import('./features/planner/OperatorProgra
 const PlannerSettingsPage = lazy(() => import('./features/planner/PlannerSettingsPage').then(module => ({default:module.PlannerSettingsPage})))
 const MonthlyGoalsSettingsPage = lazy(() => import('./features/planner/MonthlyGoalsSettingsPage').then(module => ({default:module.MonthlyGoalsSettingsPage})))
 const VehicleStatusesSettingsPage = lazy(() => import('./features/planner/VehicleStatusesSettingsPage').then(module => ({default:module.VehicleStatusesSettingsPage})))
-import { localizePlanningTimestamps } from './services/romePlanningClock'
+import { localizePlanningTimestamps, toRomePlanningClock } from './services/romePlanningClock'
 import { todayKey, calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
 import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
@@ -1068,11 +1068,14 @@ function App() {
     )
     const unchangedProduction = JSON.stringify(withDelayControl.production) === JSON.stringify(data.production)
     const unchangedJobs = JSON.stringify(withDelayControl.jobs) === JSON.stringify(data.jobs)
+    const programEditedAt = data.plannerSettings.operatorProgramEditedAt
+    const programFloor = programEditedAt && programEditedAt > (data.productionPlanningSampleAt ?? '')
+      ? toRomePlanningClock(programEditedAt) : data.productionPlanningSampleAt
     const withOperatorProgram = recalculateOperatorPrograms({
       ...withDelayControl,
       vehicles,
       plannerAssignments: result.assignments,
-    }, undefined, 'Ricalcolo automatico per variazione dati', data.productionPlanningSampleAt)
+    }, undefined, 'Ricalcolo automatico per variazione dati', programFloor)
     const unchangedAssignments = JSON.stringify(result.assignments) === JSON.stringify(data.plannerAssignments)
     const unchangedPrograms = JSON.stringify(withOperatorProgram.operatorPrograms) === JSON.stringify(data.operatorPrograms)
     const unchangedProgramHistory = JSON.stringify(withOperatorProgram.operatorProgramHistory) === JSON.stringify(data.operatorProgramHistory)
@@ -1303,7 +1306,7 @@ function App() {
           if (hours > capacity.protected && !window.confirm(`La lavorazione richiede ${hours} ore, mentre il ${date} dispone di ${capacity.protected} ore protette. Eccedenza: ${Math.round((hours - capacity.protected) * 100) / 100} ore. Vuoi comunque fissare questa data di inizio?`)) return
           setData({ ...data, vehicles: data.vehicles.map((item) => item.id === vehicleId ? { ...item, manualPlanningDate: date } : item) })
         }} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
-        {view === 'operator-program' && <OperatorProgramPage liveClock={displayData!==data} data={displayData} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
+        {view === 'operator-program' && <OperatorProgramPage liveClock={displayData!==data} data={data} visiblePrograms={displayData.operatorPrograms} onChange={setData} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
         {view === 'planner-settings' && <PlannerSettingsPage settings={data.plannerSettings}
           tabletConnection={cloudReady && cloudMembership?.role === 'owner' && cloudSession && cloudConfig
             ? {companyId: cloudMembership.companyId, session: cloudSession, config: cloudConfig} : undefined}

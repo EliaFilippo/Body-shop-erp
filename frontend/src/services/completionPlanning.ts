@@ -78,6 +78,9 @@ export function buildCompletionPlan(data:ErpData,state:ProductionPlanningState,g
 }
 export function overlayCompletionPlan(data:ErpData,plan:CompletionPlan|null):ErpData{
  if(!plan||Date.parse(plan.generatedAt)<=Date.parse(data.nightlyPlanning?.generatedAt??'1970-01-01'))return data
+ const manualEdit=Date.parse(data.plannerSettings.operatorProgramEditedAt??'')
+ if(Number.isFinite(manualEdit)&&(Date.parse(plan.generatedAt)<=manualEdit
+   || (plan.operatorPrograms[0]?.revision??0)<=(data.operatorProgramRevision??0)))return data
  const dates=new Map(plan.forecasts.map(f=>[f.vehicleId,f.date??'']))
  return {...data,vehicles:data.vehicles.map(v=>dates.has(v.id)?{...v,calculatedDeliveryDate:dates.get(v.id)!}:v),operatorPrograms:plan.operatorPrograms,plannerAssignments:plan.plannerAssignments}
 }

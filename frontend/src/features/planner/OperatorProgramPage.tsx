@@ -15,22 +15,34 @@ import type { ErpData } from '../../types'
 
 const timeLabel = (iso: string, liveClock = false) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: liveClock ? 'Europe/Rome' : 'UTC' }).format(new Date(iso))
 
-export function OperatorProgramPage({ data, onChange, connection, liveClock = false }: { data: ErpData; liveClock?:boolean; onChange: (next: ErpData) => void; connection?:NoticesConnection }) {
+export function OperatorProgramPage({ data, onChange, connection, liveClock = false, visiblePrograms = data.operatorPrograms }: {
+  data: ErpData
+  onChange: (next: ErpData) => void
+  connection?: NoticesConnection
+  liveClock?: boolean
+  visiblePrograms?: ErpData['operatorPrograms']
+}) {
   const [showHours,setShowHours]=useState(false)
   const [showTimers,setShowTimers]=useState(false)
   const {running,message}=useOperatorStatus(showHours||showTimers?undefined:connection)
   const [editingDay, setEditingDay] = useState(false)
   const [date, setDate] = useState(todayKey)
+  const applyProgramChange = (next: ErpData, reason: string) => {
+    const editedAt = new Date().toISOString()
+    const planningNow = toRomePlanningClock(editedAt)
+    const updated = { ...next, plannerSettings: { ...next.plannerSettings, operatorProgramEditedAt: editedAt } }
+    onChange(recalculateOperatorPrograms(updated, planningNow.slice(0, 10), reason, planningNow))
+  }
   const [selectedPhases, setSelectedPhases] = useState<Record<string, string>>({})
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
   const closed = useMemo(() => closedPlanningWork(data), [data])
   const waiting = useMemo(() => waitingPartsPlanningWork(data), [data])
   const openJobs = (data.jobs ?? []).filter(job => !closed.jobIds.has(job.id))
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => {
-    const program = (data.operatorPrograms ?? []).find(item => item.date === date && item.operatorId === operator.id)
+    const program = (visiblePrograms ?? []).find(item => item.date === date && item.operatorId === operator.id)
     return program ? {...program, tasks: program.tasks.filter(task => !closed.hasTask(task) && !waiting.hasTask(task))}
       : { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }
-  }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [data.operatorPrograms, data.plannerSettings.operators, date, closed, waiting])
+  }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [visiblePrograms, data.plannerSettings.operators, date, closed, waiting])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
   const attendanceMinutes=(id:string)=>workingMinutesForDate(date,data.plannerSettings,data.plannerSettings.operators.find(o=>o.id===id))
   const idleReason=(id:string)=>{
@@ -55,7 +67,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
   if(showHours&&connection)return <DailyEmployeeHours connection={connection} onBack={()=>setShowHours(false)}/>
 
   return <>
-    {data.nightlyPlanning?.enabled&&<p role="status">Piano notturno: preparato per {data.nightlyPlanning.plannedFor} alle {new Date(data.nightlyPlanning.generatedAt).toLocaleString('it-IT',{timeZone:'Europe/Rome'})}. Il calendario resta stabile durante il giorno; i timer e le firme restano operativi. Il server riprogramma alle 03:00.</p>}
+    {data.nightlyPlanning?.enabled&&<p role="status">Piano notturno: preparato per {data.nightlyPlanning.plannedFor} alle {new Date(data.nightlyPlanning.generatedAt).toLocaleString('it-IT',{timeZone:'Europe/Rome'})}. Il server riprogramma alle 03:00. Le modifiche dall’ufficio aggiornano subito il programma.</p>}
     <section className="welcome">
       <div>
         <span className="eyebrow">PROGRAMMA OPERATORI</span>
@@ -65,7 +77,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
       <div className="planner-actions">
         <button className="primary" disabled={!connection} onClick={()=>setShowTimers(true)}>Timer attivi</button>
         <button className="primary" disabled={!connection} onClick={()=>setShowHours(true)}>Monte ore giornaliero</button>
-        <button className="primary" onClick={() => onChange(recalculateOperatorPrograms(data, todayKey(), 'Ricalcolo piano manuale'))}>Ricalcola piano</button>
+        <button className="primary" onClick={() => applyProgramChange(data, 'Ricalcolo piano manuale')}>Ricalcola piano</button>
       </div>
     </section>
 
@@ -99,7 +111,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
               phases: j.phases.map(p => p.id === phase.id ? { ...p, preferredOperatorId: operatorId || undefined, supportOperatorId: p.supportOperatorId === operatorId ? undefined : p.supportOperatorId } : p),
               updatedAt: new Date().toISOString(), history: [{ id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'Ufficio', message: `${phase.name}: ${operator ? `operatore scelto ${operator.name}` : 'assegnazione automatica per margine'}` }, ...j.history],
             }) }
-            onChange(recalculateOperatorPrograms(next, todayKey(), 'Scelta operatore aggiornata'))
+            applyProgramChange(next, 'Scelta operatore aggiornata')
           }}>
             <option value="">Automatico · in base al margine</option>
             {phase.preferredOperatorId && !operators.some(o => o.id === phase.preferredOperatorId) && <option value={phase.preferredOperatorId}>Operatore non disponibile: modifica la scelta</option>}
@@ -114,7 +126,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
                 phases: j.phases.map(p => p.id === phase.id ? { ...p, supportOperatorId } : p), updatedAt: stamp,
                 history: [{ id: crypto.randomUUID(), at: stamp, actor: 'Ufficio', message: `${phase.name}: ${operator ? `affiancamento di ${operator.name}` : 'affiancamento rimosso'}` }, ...j.history],
               }) }
-              onChange(recalculateOperatorPrograms(next, todayKey(), 'Affiancamento aggiornato'))
+              applyProgramChange(next, 'Affiancamento aggiornato')
             }}>
               <option value="">Nessun affiancamento manuale</option>
               {phase.supportOperatorId && !operators.some(o => o.id === phase.supportOperatorId) && <option value={phase.supportOperatorId}>Operatore non disponibile</option>}
@@ -135,7 +147,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
         const remaining = (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date !== date)
         const manualOperatorDays = plan.assignments.length ? [...remaining, plan] : remaining
         const next = { ...data, plannerSettings: { ...data.plannerSettings, manualOperatorDays } }
-        onChange(recalculateOperatorPrograms(next, todayKey(), 'Programma del giorno modificato dall’ufficio', toRomePlanningClock(new Date().toISOString())))
+        applyProgramChange(next, 'Programma del giorno modificato dall’ufficio')
         setEditingDay(false)
       }} />}
       <p>Timer attivi: verde = nei tempi; rosso = fuori tempo. Aggiornamento ogni 5 secondi. Le schede programmate restano neutre.</p>
