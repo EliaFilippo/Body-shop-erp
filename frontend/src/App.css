@@ -563,7 +563,8 @@ button.work-sheet-print-pending {
 .cone-customer-vehicles li.waiting-parts{background:#391c21;color:#ffacac}
 .cone-customer-vehicles small{display:block;color:inherit;opacity:.8}
 .cone-customer-details{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 12px;padding-top:8px;border-top:1px solid var(--line);overflow-wrap:anywhere}
-.cone-customer-actions{grid-column:1/-1;flex-wrap:wrap}
+.cone-customer-actions{grid-column:1/-1;display:grid;gap:6px}
+.cone-customer-actions .row-actions{flex-wrap:wrap}
 .cone-timer-active{color:#8ee0ae}
 
 

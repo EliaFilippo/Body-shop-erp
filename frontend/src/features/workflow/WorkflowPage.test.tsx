@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createEstimate } from '../../services/workflow'
 import { emptyData } from '../../services/erp'
 import { WorkflowPage } from './WorkflowPage'
+import { ConeCustomerSummary } from '../cones/ConeCustomerSummary'
 import type { ErpData } from '../../types'
 
 function makeData(): ErpData {
@@ -531,7 +532,7 @@ describe('WorkflowPage esploso interattivo preventivo', () => {
 })
 
 
-it('prints the confirmed job with panel details and no estimate prices', () => {
+it.each([false, true])('prints the confirmed job with panel details and no estimate prices (cone summary: %s)', (inConeSummary) => {
   const draft = createEstimate(makeData(), {
     customerId: 'c1', vehicleId: 'v1', plate: 'AB123CD', companyName: '', contactName: '',
     date: '2026-11-08', notes: '', selectedPhases: ['Verniciatura'], lines: [{
@@ -552,8 +553,13 @@ it('prints the confirmed job with panel details and no estimate prices', () => {
     data={data} customerById={id => data.customers.find(customer => customer.id === id)}
     query="" onChange={onChange} setError={vi.fn()} setNotice={vi.fn()}
     onUpdateVehicleStatus={vi.fn()} statusOptions={[]} statusLabel={status => status}
+    renderSummary={inConeSummary ? renderActions => <ConeCustomerSummary data={data}
+      renderActions={(_, estimate, job) => renderActions(estimate, job)} /> : undefined}
   />
   const {rerender} = render(page(draft))
+  if (inConeSummary) {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Vetture da mostrare' }), { target: { value: 'all' } })
+  }
   expect(screen.queryByRole('button', {name:'Stampa scheda lavori'})).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', {name:'Approva e crea commessa'}))
   expect(onChange).toHaveBeenCalledOnce()

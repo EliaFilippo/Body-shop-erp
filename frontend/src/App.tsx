@@ -1,3 +1,4 @@
+import type { ComponentProps, ReactNode } from 'react'
 import { DeliveryMarginSummary } from './features/workflow/DeliveryMarginSummary'
 import { ConeCustomerSummary } from './features/cones/ConeCustomerSummary'
 import { createInvoice, payableDueAlerts, vehicleInvoiceTaxableAmount, vehicleWorkFinished } from './services/finance'
@@ -48,6 +49,7 @@ import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot }
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr } from './services/acceptance'
 const FinancePage = lazy(() => import('./features/finance/FinancePage').then(module => ({default:module.FinancePage})))
+const VehicleRibaModal = lazy(() => import('./features/finance/VehicleRibaModal').then(module => ({default:module.VehicleRibaModal})))
 const InvoiceCreateModal = lazy(() => import('./features/finance/FinancePage').then(module => ({ default: module.InvoiceCreateModal })))
 import { createQuoteDocument } from './services/documents'
 const TodayShopPage = lazy(() => import('./features/production/TodayShopPage').then(module => ({default:module.TodayShopPage})))
@@ -1138,16 +1140,43 @@ function App() {
   }
 
   const title = titleOverrides[view] ?? nav.find((item) => item.id === view)?.label
-  const selectedInvoiceVehicle = view === 'vehicles' ? data.vehicles.find(vehicle => vehicle.id === invoiceVehicleId) : undefined
+  const vehicleBillingActions = useMemo(() => view === 'vehicles' || view === 'cones' ? getVehicleBillingActions(data) : null, [data, view])
+  const selectedInvoiceVehicle = view === 'vehicles' || view === 'cones' ? data.vehicles.find(vehicle => vehicle.id === invoiceVehicleId) : undefined
   const invoiceCustomer = selectedInvoiceVehicle && customerById(selectedInvoiceVehicle.customerId)
   const selectedCostVehicle = costModal ? data.vehicles.find((vehicle) => vehicle.id === costModal.vehicleId) : undefined
   const duplicateVehicle = duplicateVehicleId ? data.vehicles.find((vehicle) => vehicle.id === duplicateVehicleId) : undefined
+  const removeVehicle = (id: string) => {
+    if (!window.confirm('Eliminare definitivamente questa vettura?')) return
+    try {
+      allowCountReductionRef.current = true
+      setData(deleteVehicle(data, id))
+      setError('')
+    } catch (problem) {
+      allowCountReductionRef.current = false
+      setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.')
+    }
+  }
+  const renderVehicleActions = (vehicle: Vehicle) => {
+    if (!vehicleBillingActions) return null
+    const { ready, invoiced, ribaPending, ribaLoaded } = vehicleBillingActions(vehicle)
+    return <div className="row-actions">
+      <button type="button" onClick={() => setModal({ type: 'vehicle', item: vehicle })}>{view === 'cones' ? 'Modifica vettura' : 'Modifica'}</button>
+      <button type="button" onClick={() => setCostModal({ vehicleId: vehicle.id })}>Costi</button>
+      <button type="button" className={ready && !invoiced ? 'invoice-ready' : undefined} disabled={!ready || invoiced} onClick={() => setInvoiceVehicleId(vehicle.id)}>{invoiced ? 'Fatturata' : 'Fattura'}</button>
+      <button type="button" className={ribaPending ? 'invoice-ready' : undefined} onClick={() => {
+        setRibaVehicleId(vehicle.id)
+        if (view === 'vehicles') setView('finance')
+      }}>{ribaPending ? 'Ri.Ba. da caricare' : ribaLoaded ? 'Ri.Ba. caricata' : 'Ri.Ba.'}</button>
+      <button type="button" className="danger" onClick={() => removeVehicle(vehicle.id)}>Elimina</button>
+    </div>
+  }
   const openSettings = () => {
     setView('settings')
   }
   const goToView = (nextView: View) => {
     setMenu(false)
     setQuery('')
+    if (view === 'cones') { setInvoiceVehicleId(undefined); setRibaVehicleId(undefined) }
     setView(nextView)
   }
   if (blockedByOrigin) {
@@ -1240,7 +1269,9 @@ function App() {
           setQuery(plate)
         }} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} setNotice={setNotice} setError={setError} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { allowCountReductionRef.current = true; setData(deleteCustomer(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
-        {view === 'vehicles' && <Vehicles billingData={data} onOpenInvoice={setInvoiceVehicleId} onOpenRiba={id=>{setRibaVehicleId(id);setView('finance')}} vehicles={filteredVehicles} customers={data.customers} onAdd={() => { setQuery(''); setModal({ type: 'vehicle' }) }} onEdit={(item) => setModal({ type: 'vehicle', item })} onDelete={(id) => { if (window.confirm('Eliminare definitivamente questa vettura?')) { try { allowCountReductionRef.current = true; setData(deleteVehicle(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } } }} onOpenCosts={(vehicleId) => setCostModal({ vehicleId })} updateStatus={updateStatus} customerById={customerById} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
+        {view === 'vehicles' && <Vehicles vehicles={filteredVehicles} customers={data.customers}
+          onAdd={() => { setQuery(''); setModal({ type: 'vehicle' }) }} renderActions={renderVehicleActions}
+          updateStatus={updateStatus} customerById={customerById} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {selectedInvoiceVehicle && invoiceCustomer && <InvoiceCreateModal
           key={selectedInvoiceVehicle.id}
           customer={invoiceCustomer}
@@ -1259,10 +1290,10 @@ function App() {
             }
           }}
         />}
-        {view === 'cones' && <Cones data={displayData} customerById={customerById}
-          onOpenVehicle={plate => { setQuery(plate); setView('vehicles') }}
-          onOpenWorkflow={plate => { setQuery(plate); setView('estimates-jobs') }}
-          onMove={(vehicleId, cone) => { try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') } catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
+        {view === 'cones' && ribaVehicleId && <VehicleRibaModal key={ribaVehicleId} data={data} vehicleId={ribaVehicleId}
+          onClose={() => setRibaVehicleId(undefined)}
+          onAddBank={bank => setData(current => ({ ...current, bankAccounts: [...current.bankAccounts, bank] }))}
+          onSave={next => { setData(next); setRibaVehicleId(undefined); setNotice('RIBA registrata in R.I.B.A. e anticipi.') }} />}
         {view === 'planner' && <PlannerPage data={displayData} vehicleWork={vehicleWork} liveForecasts={displayData!==data?completion.plan?.forecasts:undefined} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
           setView('estimates-jobs')
           setQuery(query)
@@ -1375,7 +1406,15 @@ function App() {
         }} setNotice={setNotice} setError={setError} /></>}
         {view === 'price-list' && <><EliasCatalogSettings settings={data.plannerSettings} onSave={plannerSettings => { setData({ ...data, plannerSettings }); setNotice('Tempi e prezzi preimpostati salvati.'); setError('') }} /><details className="panel"><summary>Listino avanzato e altre lavorazioni</summary><PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} /></details></>}
         {view === 'finance' && <FinancePage ribaVehicleId={ribaVehicleId} onRibaVehicleHandled={()=>setRibaVehicleId(undefined)} passwordConnection={cloudConfig && cloudSession && cloudMembership ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
-        {view === 'estimates-jobs' && <WorkflowPage vehicleWork={vehicleWork} livePrograms={livePrograms} noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
+        {(view === 'estimates-jobs' || view === 'cones') && <WorkflowPage key={view}
+          renderSummary={view === 'cones' ? renderEstimateActions => <Cones data={displayData} customerById={customerById}
+            query={query}
+            renderActions={(vehicle, estimate, job) => <>{renderVehicleActions(vehicle)}{renderEstimateActions(estimate, job)}</>}
+            onMove={(vehicleId, cone) => {
+              try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') }
+              catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') }
+            }} /> : undefined}
+          vehicleWork={vehicleWork} livePrograms={livePrograms} noticesConnection={cloudConfig && cloudSession && cloudMembership ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} onOwnerUnlock={async password => {
           if (!cloudConfig || !cloudSession || cloudMembership?.role !== 'owner') throw new Error('Solo il titolare può sbloccare i preventivi confermati.')
           const result = await productionRpc<{ok:boolean;message?:string}>('production_private_password', {p_company_id:cloudMembership.companyId,p_action:'unlock',p_password:password}, cloudSession, cloudConfig)
           if (!result.ok) throw new Error(result.message || 'Password dei blocchi non corretta.')
@@ -1982,7 +2021,7 @@ function Customers({ customers, data, onAdd, onEdit, onDelete }: { customers: Cu
     <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Tipo</th><th>Contatti</th><th>Codice fiscale / P.IVA</th><th>Veicoli</th><th>Azioni</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}><td><strong>{customer.name}</strong><small>{customer.address || 'Indirizzo non indicato'}</small></td><td><span className="tag">{customer.type}</span></td><td>{customer.phone}<small>{customer.email || 'Email non indicata'}</small></td><td>{customer.taxId || '—'}</td><td><b className="count">{data.vehicles.filter((vehicle) => vehicle.customerId === customer.id).length}</b></td><td><div className="row-actions"><button onClick={() => onEdit(customer)}>Modifica</button><button className="danger" onClick={() => { if (window.confirm(`Eliminare il cliente ${customer.name}?`)) onDelete(customer.id) }}>Elimina</button></div></td></tr>)}</tbody></table></div>{!customers.length && <Empty text="Nessun cliente trovato. Crea la prima anagrafica." />}</div>
 }
 
-function Vehicles({ billingData, onOpenInvoice, vehicles, customers, onAdd, onEdit, onDelete, onOpenCosts, onOpenRiba, updateStatus, customerById, statusOptions, statusLabel }: { billingData: ErpData; onOpenInvoice: (id: string) => void; vehicles: Vehicle[]; customers: Customer[]; onAdd: () => void; onEdit: (vehicle: Vehicle) => void; onDelete: (id: string) => void; onOpenCosts: (id: string) => void; onOpenRiba: (id: string) => void; updateStatus: (id: string, status: VehicleStatus) => void; customerById: (id: string) => Customer | undefined; statusOptions: Array<{ id: string; label: string }>; statusLabel: (status: VehicleStatus) => string }) {
+function getVehicleBillingActions(billingData: ErpData) {
   const pendingRibaIds = new Set(ribaVehicleOptions(billingData).map(option => option.vehicleId))
   const invoices = new Map(billingData.invoices.map(invoice => [invoice.id, invoice]))
   const loadedRibaIds = new Set<string>()
@@ -2000,16 +2039,31 @@ function Vehicles({ billingData, onOpenInvoice, vehicles, customers, onAdd, onEd
     }
   }
 
+  return (vehicle: Vehicle) => {
+    const ready = vehicleWorkFinished(billingData, vehicle)
+      || isVehicleDeliveredStatus(billingData.plannerSettings, vehicle.status)
+      || vehicle.billingStatus === 'Da fatturare'
+    const invoiced = Boolean(vehicle.invoiceId) || vehicle.billingStatus === 'Fatturata'
+    const invoice = vehicle.invoiceId ? invoices.get(vehicle.invoiceId) : undefined
+    const ribaPending = ready && ((!invoiced && !loadedRibaIds.has(vehicle.id)) || (invoice?.paymentMethod === 'R.I.B.A.' && pendingRibaIds.has(vehicle.id)))
+    const ribaLoaded = !pendingRibaIds.has(vehicle.id) && loadedRibaIds.has(vehicle.id)
+    return { ready, invoiced, ribaPending, ribaLoaded }
+  }
+}
+
+function Vehicles({ vehicles, customers, onAdd, renderActions, updateStatus, customerById, statusOptions, statusLabel }: {
+  vehicles: Vehicle[]
+  customers: Customer[]
+  onAdd: () => void
+  renderActions: (vehicle: Vehicle) => ReactNode
+  updateStatus: (id: string, status: VehicleStatus) => void
+  customerById: (id: string) => Customer | undefined
+  statusOptions: Array<{ id: string; label: string }>
+  statusLabel: (status: VehicleStatus) => string
+}) {
   return <div className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">PARCO VEICOLI</span><h3>{vehicles.length} vetture</h3></div><button className="primary" onClick={onAdd} disabled={!customers.length} title={!customers.length ? 'Crea prima un cliente' : ''}><Icon name="plus" /> Nuova vettura</button></div>
     <div className="table-wrap"><table><thead><tr><th>Vettura</th><th>Cliente</th><th>Stato operativo</th><th>Cono</th><th>Dati</th><th>Azioni</th></tr></thead><tbody>{vehicles.map((vehicle) => {
-      const ready = vehicleWorkFinished(billingData, vehicle)
-        || isVehicleDeliveredStatus(billingData.plannerSettings, vehicle.status)
-        || vehicle.billingStatus === 'Da fatturare'
-      const invoiced = Boolean(vehicle.invoiceId) || vehicle.billingStatus === 'Fatturata'
-      const invoice = vehicle.invoiceId ? invoices.get(vehicle.invoiceId) : undefined
-      const ribaPending = ready && ((!invoiced && !loadedRibaIds.has(vehicle.id)) || (invoice?.paymentMethod === 'R.I.B.A.' && pendingRibaIds.has(vehicle.id)))
-      const ribaLoaded = !pendingRibaIds.has(vehicle.id) && loadedRibaIds.has(vehicle.id)
-      const options = statusOptions.some((item) => item.id === vehicle.status) ? statusOptions : [...statusOptions, { id: vehicle.status, label: statusLabel(vehicle.status) }]; return <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${String(vehicle.status).toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{options.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select><small>{vehicle.statusMode === 'manual' ? 'Override manuale' : (vehicle.suggestedStatus ? `Suggerito: ${statusLabel(vehicle.suggestedStatus)}` : 'Suggerimento automatico')}</small></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : <small>{coneLabel(vehicle)}</small>}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td><td><div className="row-actions"><button onClick={() => onEdit(vehicle)}>Modifica</button><button onClick={() => onOpenCosts(vehicle.id)}>Costi</button><button className={ready && !invoiced ? 'invoice-ready' : undefined} disabled={!ready || invoiced} onClick={() => onOpenInvoice(vehicle.id)}>{invoiced ? 'Fatturata' : 'Fattura'}</button><button className={ribaPending ? 'invoice-ready' : undefined} onClick={() => onOpenRiba(vehicle.id)}>{ribaPending ? 'Ri.Ba. da caricare' : ribaLoaded ? 'Ri.Ba. caricata' : 'Ri.Ba.'}</button><button className="danger" onClick={() => onDelete(vehicle.id)}>Elimina</button></div></td></tr>})}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
+      const options = statusOptions.some((item) => item.id === vehicle.status) ? statusOptions : [...statusOptions, { id: vehicle.status, label: statusLabel(vehicle.status) }]; return <tr key={vehicle.id}><td><strong className="plate">{vehicle.plate}</strong><small>{vehicle.make} {vehicle.model} · {vehicle.color || 'Colore n/d'}</small></td><td>{customerById(vehicle.customerId)?.name}</td><td><select className={`status status-${String(vehicle.status).toLowerCase().replaceAll(' ', '-')}`} value={vehicle.status} onChange={(event) => updateStatus(vehicle.id, event.target.value as VehicleStatus)}>{options.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select><small>{vehicle.statusMode === 'manual' ? 'Override manuale' : (vehicle.suggestedStatus ? `Suggerito: ${statusLabel(vehicle.suggestedStatus)}` : 'Suggerimento automatico')}</small></td><td>{vehicle.coneNumber ? <b className="cone-badge">{vehicle.coneNumber}</b> : <small>{coneLabel(vehicle)}</small>}</td><td>{vehicle.year || 'Anno n/d'}<small>{vehicle.mileage ? `${vehicle.mileage} km` : 'Km n/d'}</small></td><td>{renderActions(vehicle)}</td></tr>})}</tbody></table></div>{!vehicles.length && <Empty text={customers.length ? 'Nessuna vettura trovata. Registrane una nuova.' : 'Crea prima un cliente, poi potrai registrare la sua vettura.'} />}</div>
 }
 
 function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle; data: ErpData; onClose: () => void; onSave: (entry: Omit<NonNullable<Vehicle['costEntries']>[number], 'id' | 'createdAt' | 'updatedAt'>) => void }) {
@@ -2052,12 +2106,12 @@ function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle
   return <Modal title={`Materiali e costi · ${vehicle.plate}`} onClose={onClose}><div className="cost-modal"><div className="summary-grid"><div className="summary-card"><span>Ricavo previsto</span><strong>{money(snapshot.taxableRevenue)}</strong></div><div className="summary-card"><span>Costi diretti</span><strong>{money(snapshot.totalDirectCosts)}</strong></div><div className="summary-card"><span>Margine reale</span><strong>{money(snapshot.realMargin)}</strong></div><div className="summary-card"><span>Margine %</span><strong>{snapshot.grossMarginPercent}%</strong></div></div><form className="cost-form" onSubmit={submit}><label>Data<input type="date" value={form.usedAt} onChange={(event) => update('usedAt', event.target.value)} /></label><label>Categoria<select value={form.category} onChange={(event) => update('category', event.target.value)}><option value="ricambi">Ricambi</option><option value="vernice">Vernice</option><option value="trasparente">Trasparente</option><option value="fondo">Fondo</option><option value="stucco">Stucco</option><option value="carta abrasiva">Carta abrasiva</option><option value="nastro e materiale da mascheratura">Nastro e materiale da mascheratura</option><option value="minuteria">Minuteria</option><option value="materiali di lucidatura">Materiali di lucidatura</option><option value="lavorazioni esterne">Lavorazioni esterne</option><option value="lavaggio">Lavaggio</option><option value="trasporto">Trasporto</option><option value="smaltimento">Smaltimento</option><option value="altro">Altro</option></select></label><label>Descrizione<input required value={form.description} onChange={(event) => update('description', event.target.value)} /></label><label>Fornitore<input value={form.supplier} onChange={(event) => update('supplier', event.target.value)} /></label><label>Quantità<input type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label><label>Unità<input value={form.unit} onChange={(event) => update('unit', event.target.value)} /></label><label>Prezzo unitario<input type="text" inputMode="decimal" value={form.unitCost} onChange={(event) => update('unitCost', event.target.value)} /></label><label>Sconto<input type="text" inputMode="decimal" value={form.discount} onChange={(event) => update('discount', event.target.value)} /></label><label>IVA %<input type="number" min="0" step="1" value={form.vatRate} onChange={(event) => update('vatRate', event.target.value)} /></label><label>Nota<textarea value={form.note} onChange={(event) => update('note', event.target.value)} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Chiudi</button><button className="primary">Salva costo</button></div></form>{vehicle.costEntries?.length ? <div className="entry-list"><h4>Costi già registrati</h4>{vehicle.costEntries.slice().reverse().map((entry) => <div className="entry-item" key={entry.id}><strong>{entry.description}</strong><span>{entry.category} · {entry.quantity} {entry.unit} · {money(entry.total)}</span></div>)}</div> : <div className="empty"><div>◌</div><p>Nessun costo registrato per questa commessa.</p></div>}</div></Modal>
 }
 
-function Cones({ data, customerById, onMove, onOpenVehicle, onOpenWorkflow }: {
+function Cones({ data, customerById, onMove, query, renderActions }: {
   data: ErpData
   customerById: (id: string) => Customer | undefined
   onMove: (id: string, cone: number | null) => void
-  onOpenVehicle: (plate: string) => void
-  onOpenWorkflow: (plate: string) => void
+  query: string
+  renderActions: NonNullable<ComponentProps<typeof ConeCustomerSummary>['renderActions']>
 }) {
   const [selected, setSelected] = useState<number | null>(null)
   const [filter, setFilter] = useState<'Tutti' | 'Liberi' | 'Occupati'>('Tutti')
@@ -2083,7 +2137,7 @@ function Cones({ data, customerById, onMove, onOpenVehicle, onOpenWorkflow }: {
         </button>
       })}</div>
     </section>
-    <ConeCustomerSummary data={data} onOpenVehicle={onOpenVehicle} onOpenWorkflow={onOpenWorkflow} />
+    <ConeCustomerSummary data={data} query={query} renderActions={renderActions} />
     <section className="panel history"><div className="panel-head"><div><span className="eyebrow">REGISTRO NON MODIFICABILE</span><h3>Storico assegnazioni</h3></div></div><div className="table-wrap"><table><thead><tr><th>Data e ora</th><th>Evento</th><th>Cono</th><th>Vettura</th><th>Nota</th></tr></thead><tbody>{data.coneHistory.map((item) => { const itemVehicle = data.vehicles.find((entry) => entry.id === item.vehicleId); return <tr key={item.id}><td>{formatDate(item.timestamp)}</td><td><span className="tag">{item.action}</span></td><td><b className="cone-badge">{item.coneNumber}</b></td><td><strong className="plate">{item.vehiclePlate}</strong><small>{itemVehicle ? customerById(itemVehicle.customerId)?.name : 'Vettura rimossa'}</small></td><td>{item.note}</td></tr> })}</tbody></table></div>{!data.coneHistory.length && <Empty text="Nessuna assegnazione registrata." />}</section>
     {selected !== null && <Modal title={`Cono ${selected}`} onClose={() => setSelected(null)}>{vehicle ? <div className="cone-detail"><div className="detail-plate">{vehicle.plate}</div><dl><div><dt>Vettura</dt><dd>{vehicle.make} {vehicle.model}</dd></div><div><dt>Cliente</dt><dd>{customerById(vehicle.customerId)?.name}</dd></div><div><dt>Stato</dt><dd>{vehicle.status}</dd></div></dl><label>Sposta manualmente su un cono libero<select defaultValue="" onChange={(event) => { onMove(vehicle.id, Number(event.target.value)); setSelected(null) }}><option value="" disabled>Seleziona nuovo cono</option>{Array.from({ length: TOTAL_CONES }, (_, i) => i + 1).filter((cone) => !occupied.some((entry) => entry.coneNumber === cone)).map((cone) => <option value={cone} key={cone}>Cono {cone}</option>)}</select></label><button type="button" className="secondary" onClick={() => { onMove(vehicle.id, null); setSelected(null) }}>Libera cono manualmente</button></div> : <div className="cone-detail"><div className="detail-plate">Cono libero</div><p>Assegna manualmente questo cono a una vettura in attesa.</p>{waitingVehicles.length ? <label>Vettura in attesa cono<select defaultValue="" onChange={(event) => { const selectedVehicle = event.target.value; if (!selectedVehicle) return; onMove(selectedVehicle, selected); setSelected(null) }}><option value="" disabled>Seleziona vettura</option>{waitingVehicles.map((item) => <option value={item.id} key={item.id}>{item.plate} · {customerById(item.customerId)?.name || 'Cliente'}</option>)}</select></label> : <div className="empty modal-empty"><b>Nessun cono disponibile</b><p>Non ci sono vetture in coda In attesa cono.</p></div>}</div>}</Modal>}
   </>

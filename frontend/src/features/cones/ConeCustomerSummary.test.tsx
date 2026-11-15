@@ -36,6 +36,9 @@ it('raggruppa le vetture presenti e distingue il timer attivo dall’attesa rica
   expect(row.getByText('In attesa ricambi').closest('li')).toHaveClass('waiting-parts')
   expect(row.getByText('Cono 9')).toBeInTheDocument()
   expect(screen.queryByText('CC333CC')).not.toBeInTheDocument()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Vetture da mostrare' }), { target: { value: 'delivered' } })
+  expect(screen.getByText('CC333CC')).toBeInTheDocument()
+  expect(screen.queryByText('AA111AA')).not.toBeInTheDocument()
 })
 
 
@@ -61,9 +64,8 @@ it('shows the estimate linked to the displayed job, even when a newer estimate e
     { id: 'e5', number: 'PREV-00005', date: '2026-11-15', vehicleId: 'v4', status: 'Bozza', total: 450 },
     { id: 'e4', number: 'PREV-00004', date: '2026-11-14', vehicleId: 'v4', convertedJobId: 'j4', status: 'Approvato', total: 610.27 },
   ] as EstimateDocument[]
-  const openVehicle = vi.fn()
-  const openWorkflow = vi.fn()
-  render(<ConeCustomerSummary data={data} onOpenVehicle={openVehicle} onOpenWorkflow={openWorkflow} />)
+  const renderActions = vi.fn(() => <button>Azioni</button>)
+  render(<ConeCustomerSummary data={data} renderActions={renderActions} />)
   const vehicle = within(screen.getByText('ZA493HH').closest('li')!)
   expect(vehicle.getByText('PREV-00004 · COMM-00004')).toBeInTheDocument()
   expect(vehicle.getByText('14/11/2026 · Approvato')).toBeInTheDocument()
@@ -71,8 +73,6 @@ it('shows the estimate linked to the displayed job, even when a newer estimate e
   expect(vehicle.getByText('Lavorato')).toBeInTheDocument()
   expect(vehicle.getByText('Anno 2021 · 56000 km')).toBeInTheDocument()
   expect(vehicle.queryByText('PREV-00005')).not.toBeInTheDocument()
-  fireEvent.click(vehicle.getByRole('button', { name: 'Apri vettura' }))
-  fireEvent.click(vehicle.getByRole('button', { name: 'Preventivi / Commesse' }))
-  expect(openVehicle).toHaveBeenCalledWith('ZA493HH')
-  expect(openWorkflow).toHaveBeenCalledWith('ZA493HH')
+  expect(vehicle.getByRole('button', { name: 'Azioni' })).toBeInTheDocument()
+  expect(renderActions).toHaveBeenCalledWith(data.vehicles[0], data.estimates[1], data.jobs[0])
 })

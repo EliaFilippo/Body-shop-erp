@@ -13,7 +13,7 @@ import { PhaseNotices, type NoticesConnection } from '../production/PhaseNotices
 import { WorkCycleFields } from '../../components/WorkCycleFields'
 import { cyclePhasesForLine } from '../../services/workCycle'
 import { PaymentTermsFields } from '../../components/PaymentTermsFields'
-import { useEffect, useMemo, useRef, useState, type FormEvent, type TouchEvent, type WheelEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type TouchEvent, type WheelEvent } from 'react'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
 import type { Customer, ErpData, EstimateDocument, EstimateLine, EstimateStatus, JobPhase, JobPhaseStatus, JobStatus, RepairJob, WorkCategory } from '../../types'
@@ -259,6 +259,7 @@ export function WorkflowPage({
   isOwner = false,
   onOwnerUnlock,
   noticesConnection,
+  renderSummary,
 }: {
   data: ErpData
   livePrograms?: ErpData['operatorPrograms']
@@ -272,6 +273,7 @@ export function WorkflowPage({
   statusOptions: Array<{ id: string; label: string }>
   statusLabel: (status: string) => string
   initialVehicleId?: string
+  renderSummary?: (renderActions: (estimate?: EstimateDocument, job?: RepairJob) => ReactNode) => ReactNode
   isOwner?: boolean
   noticesConnection?: NoticesConnection
   onOwnerUnlock?: (password: string) => Promise<void>
@@ -281,9 +283,12 @@ export function WorkflowPage({
   const [unlockPassword, setUnlockPassword] = useState('')
   const [unlockBusy, setUnlockBusy] = useState(false)
   const [unlockPrompt, setUnlockPrompt] = useState(false)
-  const [unlockNow, setUnlockNow] = useState(Date.now())
-  useEffect(() => { const timer = window.setInterval(() => setUnlockNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
-  const ownerUnlocked = isOwner && unlockUntil > unlockNow
+  useEffect(() => {
+    if (!unlockUntil) return
+    const timer = window.setTimeout(() => setUnlockUntil(0), Math.max(0, unlockUntil - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [unlockUntil])
+  const ownerUnlocked = isOwner && unlockUntil > Date.now()
   useEffect(() => {
     if (!ownerUnlocked && modal?.type === 'estimate-edit') {
       const estimate = (data.estimates ?? []).find(item => item.id === modal.estimateId)
@@ -307,13 +312,13 @@ export function WorkflowPage({
     setModal({ type: 'estimate-create' })
   }, [data.vehicles, initialVehicleId])
 
-  const kpis = useMemo(() => calculateJobKpis(data), [data])
-  const workTypeComparison = useMemo(() => workTypeTimeComparison(data), [data])
+  const kpis = useMemo(() => renderSummary ? null : calculateJobKpis(data), [data, renderSummary])
+  const workTypeComparison = useMemo(() => renderSummary ? [] : workTypeTimeComparison(data), [data, renderSummary])
   const estimates = data.estimates ?? []
   const jobs = data.jobs ?? []
 
   const q = query.trim().toLowerCase()
-  const filteredEstimates = estimates.filter((estimate) => {
+  const filteredEstimates = renderSummary ? [] : estimates.filter((estimate) => {
     const customer = customerById(estimate.customerId)
     const byStatus = estimateStatusFilter === 'Tutti' || estimate.status === estimateStatusFilter
     const byCustomer = !customerFilter || estimate.customerId === customerFilter
@@ -321,7 +326,7 @@ export function WorkflowPage({
     return byStatus && byCustomer && byQuery
   })
 
-  const filteredJobs = jobs.filter((job) => {
+  const filteredJobs = renderSummary ? [] : jobs.filter((job) => {
     const customer = customerById(job.customerId)
     const byStatus = jobStatusFilter === 'Tutti' || job.status === jobStatusFilter
     const byPriority = priorityFilter === 'Tutte' || job.priority === priorityFilter
@@ -347,9 +352,35 @@ export function WorkflowPage({
     }
   }
 
+  const renderEstimateActions = (estimate?: EstimateDocument, job?: RepairJob) => {
+    if (!estimate && !job) return null
+    const editable = estimate && (ownerUnlocked || (!estimate.convertedJobId && estimate.status !== 'Approvato'))
+    return <div className="row-actions">
+      {estimate && <button type="button" className="primary" onClick={() => setModal({ type: 'estimate-pdf', estimateId: estimate.id })}>PDF / WhatsApp</button>}
+      {job && <WorkSheetButton job={job} onPrint={openWorkSheet} />}
+      {estimate && <>
+        <button type="button" disabled={!editable && (!renderSummary || !isOwner)} onClick={() => {
+          if (!editable) { setUnlockPrompt(true); return }
+          setModal({ type: isFastEstimateDraft(data, estimate) ? 'estimate-fast' : 'estimate-edit', estimateId: estimate.id })
+        }}>{renderSummary ? 'Modifica preventivo' : 'Modifica'}</button>
+        <button type="button" className="primary" disabled={Boolean(estimate.convertedJobId || job)} onClick={() => {
+          try {
+            const approved = approveEstimateAndCreateJob(data, estimate.id)
+            apply(estimate.planningPrecedence ? recalculateOperatorPrograms(approved, undefined, 'Precedenza consegna confermata') : approved,
+              `Preventivo ${estimate.number} approvato e convertito in commessa.`)
+          } catch (error) {
+            setError(error instanceof Error ? error.message : 'Conversione non riuscita.')
+          }
+        }}>Approva e crea commessa</button>
+      </>}
+      {renderSummary && job && <button type="button" onClick={() => setModal({ type: 'job-edit', jobId: job.id })}>Apri commessa</button>}
+    </div>
+  }
+
   if(deliveredReportQuery!==null)return <DeliveredJobReports jobs={jobs} customerById={customerById} initialQuery={deliveredReportQuery} onBack={()=>setDeliveredReportQuery(null)} onSaveMaterials={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Materiali reali salvati. Report aggiornato.')}/>
 
   return <>
+    {renderSummary ? renderSummary(renderEstimateActions) : kpis && <>
     <section className="welcome compact-welcome">
       <div>
         <span className="eyebrow">PREVENTIVI E COMMESSE</span>
@@ -377,7 +408,6 @@ export function WorkflowPage({
     </section>
 
     <section className="panel"><h3>Preventivi confermati · modifiche protette</h3><p>{ownerUnlocked ? 'Accesso del titolare sbloccato per 5 minuti. Le modifiche restano nello storico.' : 'I preventivi sono visibili. Inserisci la password dei blocchi per modificarli. È separata dalla password di accesso al gestionale.'}</p>{isOwner && <button type="button" onClick={() => ownerUnlocked ? setUnlockUntil(0) : setUnlockPrompt(true)}>{ownerUnlocked ? 'Blocca modifiche' : 'Sblocca con password'}</button>}{!isOwner && <small>Accesso riservato al titolare.</small>}</section>
-    {unlockPrompt && <Modal title="Sblocca preventivi confermati" onClose={() => { setUnlockPassword(''); setUnlockPrompt(false) }}><form onSubmit={event => { event.preventDefault(); if (!onOwnerUnlock) return; setUnlockBusy(true); void onOwnerUnlock(unlockPassword).then(() => { setUnlockUntil(Date.now()+300000); setUnlockNow(Date.now()); setUnlockPrompt(false); setError('') }).catch(() => setError('Sblocco non riuscito. Controlla la password dei blocchi.')).finally(() => { setUnlockPassword(''); setUnlockBusy(false) }) }}><label>Password dei blocchi<input type="password" autoComplete="current-password" required value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} /></label><button type="submit" disabled={unlockBusy}>{unlockBusy ? 'Verifica…' : 'Sblocca'}</button></form></Modal>}
     <section className="panel table-panel">
       <div className="panel-head">
         <div><span className="eyebrow">PREVENTIVI</span><h3>{filteredEstimates.length} documenti</h3></div>
@@ -396,7 +426,6 @@ export function WorkflowPage({
         {filteredEstimates.map((estimate) => {
           const customer = customerById(estimate.customerId)
           const linkedJob = estimate.convertedJobId ? jobs.find(job => job.id === estimate.convertedJobId) : undefined
-          const editable = ownerUnlocked || (!estimate.convertedJobId && estimate.status !== 'Approvato')
           return <tr key={estimate.id}>
             <td><strong>{estimate.number}</strong><small>{estimate.companyName || 'Nessuna azienda'}</small></td>
             <td><strong className="plate">{estimate.plate}</strong><small>{customer?.name || 'Cliente'}</small></td>
@@ -414,20 +443,7 @@ export function WorkflowPage({
             <td>{estimate.date}</td>
             <td>{money(estimate.total)}</td>
             <td><span className="tag">{estimateFinancialStage(data, estimate)}</span></td>
-            <td><div className="row-actions">
-              <button className="primary" onClick={()=>setModal({type:'estimate-pdf',estimateId:estimate.id})}>PDF / WhatsApp</button>
-              {linkedJob && <WorkSheetButton job={linkedJob} onPrint={openWorkSheet} />}
-              <button onClick={() => setModal({ type: isFastEstimateDraft(data, estimate) ? 'estimate-fast' : 'estimate-edit', estimateId: estimate.id })} disabled={!editable}>Modifica</button>
-              <button className="primary" onClick={() => {
-                try {
-                  const approved = approveEstimateAndCreateJob(data, estimate.id)
-                  apply(estimate.planningPrecedence ? recalculateOperatorPrograms(approved, undefined, 'Precedenza consegna confermata') : approved,
-                    `Preventivo ${estimate.number} approvato e convertito in commessa.`)
-                } catch (error) {
-                  setError(error instanceof Error ? error.message : 'Conversione non riuscita.')
-                }
-              }} disabled={Boolean(estimate.convertedJobId)}>Approva e crea commessa</button>
-            </div></td>
+            <td>{renderEstimateActions(estimate, linkedJob)}</td>
           </tr>
         })}
       </tbody></table></div>
@@ -485,6 +501,9 @@ export function WorkflowPage({
       </tbody></table></div>
       {!filteredJobs.length && <div className="empty">Nessuna commessa trovata.</div>}
     </section>
+
+    </>}
+    {unlockPrompt && <Modal title="Sblocca preventivi confermati" onClose={() => { setUnlockPassword(''); setUnlockPrompt(false) }}><form onSubmit={event => { event.preventDefault(); if (!onOwnerUnlock) return; setUnlockBusy(true); void onOwnerUnlock(unlockPassword).then(() => { setUnlockUntil(Date.now()+300000); setUnlockPrompt(false); setError('') }).catch(() => setError('Sblocco non riuscito. Controlla la password dei blocchi.')).finally(() => { setUnlockPassword(''); setUnlockBusy(false) }) }}><label>Password dei blocchi<input type="password" autoComplete="current-password" required value={unlockPassword} onChange={event => setUnlockPassword(event.target.value)} /></label><button type="submit" disabled={unlockBusy}>{unlockBusy ? 'Verifica…' : 'Sblocca'}</button></form></Modal>}
 
     {modal?.type==='estimate-pdf'&&estimates.find(e=>e.id===modal.estimateId)&&<EstimatePdfPreview data={data} estimate={estimates.find(e=>e.id===modal.estimateId)!} onClose={()=>setModal(null)}/>}
     {modal?.type === 'estimate-fast' && <FastEstimateEditor key={modal.estimateId??'new'} initial={estimates.find(estimate=>estimate.id===modal.estimateId)} data={data} livePrograms={livePrograms} vehicleWork={vehicleWork} onCancel={() => setModal(null)} onDone={(next, confirmed, pdfPrepared) => {
@@ -633,13 +652,13 @@ export function WorkflowPage({
       }}
     />}
 
-    <section className="panel table-panel">
+    {!renderSummary && <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">STORICO TEMPI</span><h3>Previsto vs consuntivo per lavorazione</h3></div></div>
       <div className="table-wrap"><table><thead><tr><th>Lavorazione</th><th>Minuti previsti</th><th>Minuti consuntivi</th><th>Delta</th><th>Campioni</th></tr></thead><tbody>
         {workTypeComparison.map((row) => <tr key={row.workType}><td>{row.workType}</td><td>{row.plannedMinutes}</td><td>{row.actualMinutes}</td><td>{row.deltaMinutes}</td><td>{row.samples}</td></tr>)}
       </tbody></table></div>
       {!workTypeComparison.length && <div className="empty">Storico non ancora disponibile.</div>}
-    </section>
+    </section>}
   </>
 }
 
