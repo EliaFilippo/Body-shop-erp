@@ -14,6 +14,7 @@ import type {
   OperatorDayProgramSummary,
   OperatorProgramHistoryEntry,
   OperatorProgramTask,
+  PlannerAbsence,
   PlannerAssignment,
   PlannerOperator,
   PlannerPriorityWeights,
@@ -966,46 +967,80 @@ function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] 
  return reservations
 }
 
-export function generateOperatorPrograms(data: ErpData, date = todayKey(), reason = 'Ricalcolo automatico', nowIso?: string, availability?: {operators:Record<string,string>;jobs:Record<string,string>}): OperatorProgramResult {
+function buildManualProgram(data: ErpData, firstDate: string, lastDate: string, revision: number) {
+  const jobs = new Map((data.jobs ?? []).map(job => [job.id, job]))
+  const operators = new Map(data.plannerSettings.operators.filter(operator => operator.active).map(operator => [operator.id, operator]))
+  const closed = closedPlanningWork(data)
+  const phases = new Set<string>()
+  const tasks: Array<{ date: string; operator: PlannerOperator; task: OperatorProgramTask }> = []
+  const reservations: PlannerAbsence[] = []
+
+  for (const day of (data.plannerSettings.manualOperatorDays ?? []).filter(day => day.date >= firstDate && day.date <= lastDate).sort((a, b) => a.date.localeCompare(b.date))) {
+    const cursors = new Map<string, number>()
+    const startMinute = day.period === 'afternoon' ? 780 : 0
+    const endMinute = day.period === 'morning' ? 780 : 1440
+    const midnight = Date.parse(`${day.date}T00:00:00.000Z`)
+    for (const assignment of day.assignments) {
+      const job = jobs.get(assignment.jobId)
+      const phase = job?.phases.find(phase => phase.id === assignment.phaseId)
+      const operator = operators.get(assignment.operatorId)
+      const key = assignment.jobId + '|' + assignment.phaseId
+      if (!operator || !job?.vehicleId || closed.jobIds.has(job.id) || !phase || phases.has(key)) continue
+
+      let cursor = cursors.get(operator.id)
+      if (cursor === undefined) {
+        const interval = getOperatorWorkingIntervals(day.date, data.plannerSettings, operator)
+          .find(interval => interval.endMinute > startMinute && interval.startMinute < endMinute)
+        cursor = midnight + Math.max(startMinute, interval?.startMinute ?? (day.period === 'afternoon' ? 780 : 480)) * 60000
+        reservations.push({
+          id: `office-manual:${day.date}:${operator.id}`, operatorId: operator.id,
+          startDate: day.date, endDate: day.date, hoursPerDay: null, reason: 'Programma manuale',
+          ...(day.period === 'morning' ? { startTime: '00:00', endTime: '13:00' }
+            : day.period === 'afternoon' ? { startTime: '13:00', endTime: '23:59' } : {}),
+        })
+        cursors.set(operator.id, cursor)
+      }
+      if (phase.status === 'Completata') continue
+
+      const plannedMinutes = Math.max(1, Math.ceil(phase.estimatedMinutes || 15))
+      const end = cursor + plannedMinutes * 60000
+      const lines = (job.lines ?? []).filter(line => cyclePhasesForLine(line).includes(phase.name)
+        || String(line.categoryOrPhase ?? '').trim().toLowerCase() === phase.name.trim().toLowerCase())
+      tasks.push({ date: day.date, operator, task: {
+        id: `office-manual:${day.date}:${operator.id}:${job.id}:${phase.id}`,
+        operatorId: operator.id, operatorName: operator.name, vehicleId: job.vehicleId,
+        plate: job.plate, jobId: job.id, jobNumber: job.number, phaseId: phase.id, phaseName: phase.name,
+        startAt: new Date(cursor).toISOString(), endAt: new Date(end).toISOString(), plannedMinutes,
+        priority: job.priority, revision, originalPlannedDate: day.date,
+        reason: end > midnight + endMinute * 60000
+          ? 'Programma manuale · Durata oltre la fascia scelta' : 'Programma manuale · Orario indicativo',
+        panelNames: [...new Set(lines.map(line => line.panelName?.trim()).filter((name): name is string => Boolean(name)))],
+        panelNotes: [...new Set(lines.map(line => line.panelWorkNote?.trim()).filter((note): note is string => Boolean(note)))],
+      } })
+      phases.add(key)
+      cursors.set(operator.id, end)
+    }
+  }
+  return { tasks, phases, reservations }
+}
+
+export function generateOperatorPrograms(data: ErpData, date = todayKey(), reason = 'Ricalcolo automatico', nowIso?: string, availability?: {operators:Record<string,string>;jobs:Record<string,string>}, manualSource = data): OperatorProgramResult {
   const now = nowIso ?? new Date().toISOString()
   const effectiveDate = planningDateFloor(date, nowIso)
   const schedulingFloor = planningInstantFloor(date, nowIso)
   const revision = Number(data.operatorProgramRevision ?? 0) + 1
   const horizonEndDate = addDays(effectiveDate, 30)
+  const manual = buildManualProgram(manualSource, effectiveDate, horizonEndDate, revision)
+  if (manual.reservations.length) {
+    data = { ...data, plannerSettings: { ...data.plannerSettings, absences: [...data.plannerSettings.absences, ...manual.reservations] } }
+  }
+  const inManualProgram = (jobId: string, phaseId: string) => manual.phases.has(jobId + '|' + phaseId)
   const operators = data.plannerSettings.operators.filter((operator) => operator.active)
   const originalJobs=new Map((data.jobs??[]).map(job=>[job.id,job]))
   const paintPriority=(candidate:{job:RepairJob;phase:JobPhase})=>paintFlowPriority(candidate.job,candidate.phase,originalJobs.get(candidate.job.id))
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
   const {jobIds} = closedPlanningWork(data)
   const openJobs = (data.jobs ?? []).filter(job => job.vehicleId && !jobIds.has(job.id))
-  const manualAssignments = new Map<string, { operatorId: string; start: string; end: string; rank: number }>()
-  const manualJobDates = new Map<string, string>()
-  for (const day of (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date >= effectiveDate).sort((a, b) => a.date.localeCompare(b.date))) {
-    for (const [rank, assignment] of day.assignments.entries()) {
-      const phase = originalJobs.get(assignment.jobId)?.phases.find(item => item.id === assignment.phaseId)
-      const operator = operators.find(item => item.id === assignment.operatorId)
-      if (!phase || phase.notRequired || phase.name === 'Consegna' || phase.status === 'Completata'
-        || !operator || !operatorCompatible(operator, phase)) continue
-      const key = assignment.jobId + '|' + assignment.phaseId
-      if (manualAssignments.has(key)) continue
-      const start = day.date + (day.period === 'afternoon' ? 'T13:00:00.000Z' : 'T00:00:00.000Z')
-      const end = day.period === 'morning' ? day.date + 'T13:00:00.000Z' : addDays(day.date, 1) + 'T00:00:00.000Z'
-      manualAssignments.set(key, { operatorId: assignment.operatorId, start, end, rank })
-      if (!manualJobDates.has(assignment.jobId)) manualJobDates.set(assignment.jobId, day.date)
-    }
-  }
-  const manualPhase = (job: RepairJob, phase: JobPhase, readyAt: string) => {
-    const assignment = manualAssignments.get(job.id + '|' + phase.id)
-    if (!assignment || phase.status === 'In lavorazione') return { phase, readyAt, manualRank: Infinity, manualEnd: '' }
-    const operator = operators.find(item => item.id === assignment.operatorId)
-    if (!operator || !operatorCompatible(operator, phase)) return { phase, readyAt, manualRank: Infinity, manualEnd: '' }
-    return {
-      phase: { ...phase, preferredOperatorId: operator.id, supportOperatorId: undefined },
-      readyAt: assignment.start > readyAt ? assignment.start : readyAt,
-      manualRank: assignment.rank,
-      manualEnd: assignment.end,
-    }
-  }
   const hasPrecedence = openJobs.some(job => job.planningPrecedence)
   const precedenceRank = ({ job, phase }: {job: RepairJob; phase: JobPhase}) => {
     if (!hasPrecedence) return 0
@@ -1016,15 +1051,12 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     .map((savedJob, arrivalIndex) => {
       const vehicle = vehiclesById.get(savedJob.vehicleId ?? '')
       if (!vehicle) return null
-      // A manual assignment reserves a planning date. Earlier prerequisite work
-      // may be scheduled from that date without editing the vehicle's intake record.
-      const availableFrom = vehicle.presentInShop ? effectiveDate : manualJobDates.get(savedJob.id)
-      const job = availableFrom && (!savedJob.entryDate || savedJob.entryDate > availableFrom)
-        ? { ...savedJob, entryDate: availableFrom } : savedJob
+      const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate)
+        ? { ...savedJob, entryDate: effectiveDate } : savedJob
       const normal = selectSchedulablePhase(job)
       const alternate = vehicle.presentInShop ? independentShopPhase(job, normal?.phase.id) : null
       const selectedPhase = normal ?? alternate
-      if (!selectedPhase) return null
+      if (!selectedPhase || inManualProgram(job.id, selectedPhase.phase.id)) return null
       const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle)
       const compatibleCount = operators.filter((operator) => operatorCompatible(operator, selectedPhase.phase)).length
       const score = computePriorityScore({
@@ -1040,9 +1072,11 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const dueToday = Boolean(job.expectedDeliveryDate && job.expectedDeliveryDate <= effectiveDate)
       return {
         job,
-        ...manualPhase(job, selectedPhase.phase, [selectedPhase.readyAt,availability?.jobs[job.id]??''].sort().at(-1)!),
+        phase: selectedPhase.phase,
+        readyAt: [selectedPhase.readyAt, availability?.jobs[job.id] ?? ''].sort().at(-1)!,
         independent: !normal,
-        alternate: normal && alternate ? manualPhase(job, alternate.phase, [alternate.readyAt, availability?.jobs[job.id] ?? ''].sort().at(-1)!) : null,
+        alternate: normal && alternate && !inManualProgram(job.id, alternate.phase.id)
+          ? { phase: alternate.phase, readyAt: [alternate.readyAt, availability?.jobs[job.id] ?? ''].sort().at(-1)! } : null,
         vehicle,
         blocked,
         dueToday,
@@ -1115,7 +1149,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     }
     const nextUsable = (candidate: typeof candidates[number]) => {
       const normalStart = earliestSlot(candidate)
-      if (!candidate.alternate || Number.isFinite(candidate.manualRank) || normalStart.slice(0, 10) <= effectiveDate) {
+      if (!candidate.alternate || normalStart.slice(0, 10) <= effectiveDate) {
         return { candidate, slot: normalStart }
       }
       const alternate = { ...candidate, ...candidate.alternate, independent: true, alternate: null }
@@ -1129,13 +1163,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       const b = chosen
       const ageA=Math.max(0,betweenDays(a.job.createdAt.slice(0,10),effectiveDate))
       const ageB=Math.max(0,betweenDays(b.job.createdAt.slice(0,10),effectiveDate))
-      const rankA = slot < a.manualEnd ? a.manualRank : Infinity
-      const rankB = earliest < b.manualEnd ? b.manualRank : Infinity
-      const manualOrder = rankA === rankB ? 0
-        : a.phase.status === 'In lavorazione' || b.phase.status === 'In lavorazione'
-          ? Number(b.phase.status === 'In lavorazione') - Number(a.phase.status === 'In lavorazione')
-          : rankA - rankB
-      const priorityOrder=manualOrder||precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
+      const priorityOrder=precedenceRank(a)-precedenceRank(b)||paintPriority(a).rank-paintPriority(b).rank
         || a.score.dueDate.localeCompare(b.score.dueDate)
         || (martinCanStart(a, slot) && martinCanStart(b, earliest)
           ? phaseResidualMinutes(b.phase, now, b.job) - phaseResidualMinutes(a.phase, now, a.job)
@@ -1248,7 +1276,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         endAt:workerEndAt,
         plannedMinutes,
         priority: item.job.priority,
-        reason: `${Number.isFinite(item.manualRank) ? 'Programma manuale · ' : ''}${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)}${item.independent ? ' · Fase indipendente anticipata' : ' · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti'}`,
+        reason: `${item.job.planningPrecedence ? 'Precedenza consegna · ' : ''}${paintPriority(item).reason ? paintPriority(item).reason+' · ' : ''}${ranking.reason} · ${reasonForAssignment(item.job,item.dueToday,activeNames.includes(operatorName),selected.length>1,isAdvancedFromFuture)}${item.independent ? ' · Fase indipendente anticipata' : ' · Sequenza prevista: avvio subordinato al completamento reale delle fasi precedenti'}`,
         panelNames,
         panelNotes,
         originalPlannedDate: item.job.expectedDeliveryDate,
@@ -1270,7 +1298,9 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         completedAt:remaining>0?undefined:endAt,endedAt:remaining>0?undefined:endAt,
       })}
       const selectedNext=remaining>0?{phase:virtualJob.phases.find(phase=>phase.id===item.phase.id)!,readyAt:endAt}:selectSchedulablePhase(virtualJob)
-      if(selectedNext&&endAt.slice(0,10)<=horizonEndDate)candidates.push({...item,job:virtualJob,...manualPhase(virtualJob,selectedNext.phase,[selectedNext.readyAt,endAt].sort().at(-1)!),independent:remaining>0&&item.independent,alternate:null})
+      if (selectedNext && !inManualProgram(virtualJob.id, selectedNext.phase.id) && endAt.slice(0,10) <= horizonEndDate) {
+        candidates.push({ ...item, job: virtualJob, phase: selectedNext.phase, readyAt: [selectedNext.readyAt, endAt].sort().at(-1)!, independent: remaining > 0 && item.independent, alternate: null })
+      }
     }
   }
 
@@ -1286,6 +1316,13 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
     }
   }
 
+  for (const { date, operator, task } of manual.tasks) {
+    const key = `${operator.id}|${date}`
+    const program = grouped.get(key) ?? { date, operator, tasks: [] }
+    program.tasks.push(task)
+    grouped.set(key, program)
+  }
+
   const programs: OperatorDayProgram[] = Array.from(grouped.values())
     .sort((a, b) => a.date.localeCompare(b.date) || a.operator.name.localeCompare(b.operator.name, 'it-IT'))
     .map((entry) => ({
@@ -1295,7 +1332,7 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       tasks: [...entry.tasks].sort(taskSort),
       generatedAt: now,
       revision,
-      summary: summarizeOperatorDay(data, entry.operator.id, entry.date, entry.tasks),
+      summary: summarizeOperatorDay(manualSource, entry.operator.id, entry.date, entry.tasks),
     }))
 
   return {

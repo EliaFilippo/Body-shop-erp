@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { ErpData, ManualOperatorDay } from '../../types'
-import { closedPlanningWork, waitingPartsPlanningWork } from '../../services/closedPlanningWork'
-import { supportsOperatorDuty } from '../../services/operatorSkills'
+import { closedPlanningWork } from '../../services/closedPlanningWork'
 import { phaseDisplayName } from '../../services/workCycle'
 
 export function ManualOperatorDayEditor({ data, date, onSave }: {
@@ -13,11 +12,9 @@ export function ManualOperatorDayEditor({ data, date, onSave }: {
   const [period, setPeriod] = useState<ManualOperatorDay['period']>(saved?.period ?? 'day')
   const [assignments, setAssignments] = useState(saved?.assignments ?? [])
   const closed = closedPlanningWork(data)
-  const waiting = waitingPartsPlanningWork(data)
-  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome' }).format(new Date())
-  const available = (data.jobs ?? []).filter(job => job.vehicleId && !closed.jobIds.has(job.id)
-    && !waiting.jobIds.has(job.id) && !job.blocks.length && !data.vehicles.find(vehicle => vehicle.id === job.vehicleId)?.blockReason).flatMap(job => job.phases
-      .filter(phase => !phase.notRequired && phase.status === 'Da fare' && phase.name !== 'Consegna')
+  const available = (data.jobs ?? []).filter(job => job.vehicleId && !closed.jobIds.has(job.id))
+    .flatMap(job => job.phases
+      .filter(phase => !phase.notRequired && phase.status !== 'Completata' && phase.name !== 'Consegna')
       .map(phase => ({ job, phase, key: JSON.stringify([job.id, phase.id]) })))
 
   const move = (index: number, direction: number) => {
@@ -39,13 +36,11 @@ export function ManualOperatorDayEditor({ data, date, onSave }: {
       <option value="morning">Mattina fino alle 13:00</option>
       <option value="afternoon">Pomeriggio dalle 13:00</option>
     </select></label>
-    <p>Metti in ordine le fasi per ogni operatore. Il gestionale calcola gli orari quando le fasi sono eseguibili, tenendo conto dei lavori in corso e dei turni. Le fasi senza spazio slittano al primo orario disponibile.</p>
+    <p>Il giorno e l’ordine scelti fanno parte del piano manuale. Gli orari sono indicativi e la disponibilità effettiva delle fasi è mostrata sul tablet.</p>
     {data.plannerSettings.operators.filter(operator => operator.active).map(operator => {
       const rows = assignments.map((row, index) => ({ row, index })).filter(({ row }) => row.operatorId === operator.id)
-      const options = available.filter(({ job, phase }) => supportsOperatorDuty(operator, phase.requiredSkill || phase.name)
-        && !assignments.some(row => row.jobId === job.id && row.phaseId === phase.id)
-        && !(data.plannerSettings.manualOperatorDays ?? []).some(plan => plan.date !== date && plan.date >= today
-          && plan.assignments.some(row => row.jobId === job.id && row.phaseId === phase.id)))
+      const options = available.filter(({ job, phase }) =>
+        !assignments.some(row => row.jobId === job.id && row.phaseId === phase.id))
       return <div key={operator.id}>
         <h4>{operator.name}</h4>
         <ol>{rows.map(({ row, index }, position) => {

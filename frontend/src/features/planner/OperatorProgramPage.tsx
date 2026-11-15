@@ -40,7 +40,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
   const openJobs = (data.jobs ?? []).filter(job => !closed.jobIds.has(job.id))
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => {
     const program = (visiblePrograms ?? []).find(item => item.date === date && item.operatorId === operator.id)
-    return program ? {...program, tasks: program.tasks.filter(task => !closed.hasTask(task) && !waiting.hasTask(task))}
+    return program ? {...program, tasks: program.tasks.filter(task => !closed.hasTask(task) && (task.id.startsWith('office-manual:') || !waiting.hasTask(task)))}
       : { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }
   }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [visiblePrograms, data.plannerSettings.operators, date, closed, waiting])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
@@ -141,10 +141,13 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     </section>
 
     <section className="panel table-panel">
-      <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni. Le fasi successive sono previsioni: sui tablet diventano avviabili solo dopo il completamento reale delle precedenti. Le quote dei tempi condivisi servono a organizzare il piano; il totale del timer resta unico.</p>
+      <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni. Il tablet mostra se la fase programmata è già avviabile. Le quote dei tempi condivisi servono a organizzare il piano; il totale del timer resta unico.</p>
       <button type="button" disabled={date < todayKey()} onClick={() => setEditingDay(value => !value)}>{editingDay ? 'Chiudi modifica programma' : 'Modifica programma del giorno'}</button>
       {editingDay && date >= todayKey() && <ManualOperatorDayEditor key={date} date={date} data={data} onSave={plan => {
-        const remaining = (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date !== date)
+        const selected = new Set(plan.assignments.map(item => item.jobId + '|' + item.phaseId))
+        const remaining = (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date !== date).map(item =>
+          item.date < todayKey() ? item : { ...item, assignments: item.assignments.filter(row => !selected.has(row.jobId + '|' + row.phaseId)) },
+        ).filter(item => item.assignments.length)
         const manualOperatorDays = plan.assignments.length ? [...remaining, plan] : remaining
         const next = { ...data, plannerSettings: { ...data.plannerSettings, manualOperatorDays } }
         applyProgramChange(next, 'Programma del giorno modificato dall’ufficio')

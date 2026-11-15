@@ -1,6 +1,7 @@
 \set ON_ERROR_STOP on
 \ir ../migrations/20261028083902_manual_phase_progress.sql
 \ir ../migrations/20261028083902_manual_phase_progress.sql
+\ir ../migrations/20261115153000_preserve_office_manual_program.sql
 begin;
 insert into companies(id,name) values('90000000-0000-0000-0000-000000000009','Manual/automatic progress fixture');
 insert into company_members(company_id,user_id,display_name,role) values
@@ -87,6 +88,25 @@ do $$begin
  if exists(select 1 from production_live_jobs where company_id='90000000-0000-0000-0000-000000000009' and initial_budget<>120) then raise exception 'Frozen budget changed';end if;
  if has_table_privilege('authenticated','production_phase_check_history','select') or has_function_privilege('authenticated','production_phase_definitions(uuid)','execute') then raise exception 'Internal state exposed';end if;
 end $$;
+-- A manual row remains visible to its operator even when automatic Start is unavailable.
+update erp_snapshots set payload=jsonb_set(jsonb_set(jsonb_set(
+ payload,'{jobs,0,phases}', payload->'jobs'->0->'phases'||
+ '[{"id":"manual-only","name":"Verniciatura","estimatedMinutes":30,"status":"Da fare","cycleOrder":12}]'::jsonb),
+ '{operatorPrograms,0,operatorId}','"a"'),
+ '{operatorPrograms,0,tasks}','[
+ {"id":"office-manual:test","jobId":"progress","plate":"PROGRESS","phaseId":"manual-only","phaseName":"Verniciatura","startAt":"2026-10-28T08:00:00Z","endAt":"2026-10-28T09:00:00Z"}
+ ]') where company_id='90000000-0000-0000-0000-000000000009';
+set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
+set local role authenticated;
+do $$declare feed jsonb;begin
+ feed:=production_live_feed('90000000-0000-0000-0000-000000000009');
+ if feed->'program'->0->>'id' is distinct from 'office-manual:test'
+    or feed->'program'->0->>'phaseId' is distinct from 'manual-only'
+    or feed->'program'->0->>'ready' is distinct from 'false' then
+   raise exception 'Manual program was hidden or incorrectly made startable: %',feed->'program';
+ end if;
+end $$;
+reset role;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
 set local role authenticated;
 do $$begin
