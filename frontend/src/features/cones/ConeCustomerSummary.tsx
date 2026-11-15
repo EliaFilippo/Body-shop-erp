@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react'
 import type { ErpData, EstimateDocument, OperatorProgramTask, RepairJob, Vehicle } from '../../types'
 import { normalizePlate } from '../../services/erp'
 import { isVehicleStatusSemantic, isVehicleWaitingForParts, resolveVehicleStatusLabel } from '../../services/vehicleStatuses'
@@ -8,12 +9,16 @@ const isClosed = (job: RepairJob) => job.status === 'Consegnata' || job.status =
 const isInactiveEstimate = (estimate: EstimateDocument) => estimate.status === 'Rifiutato' || estimate.status === 'Scaduto'
 const money = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 
-export function ConeCustomerSummary({ data, onOpenVehicle, onOpenWorkflow }: {
+export function ConeCustomerSummary({ data, query = '', renderActions }: {
   data: ErpData
-  onOpenVehicle?: (plate: string) => void
-  onOpenWorkflow?: (plate: string) => void
+  query?: string
+  renderActions?: (vehicle: Vehicle, estimate?: EstimateDocument, job?: RepairJob) => ReactNode
 }) {
+  const [scope, setScope] = useState<'shop' | 'delivered' | 'all'>('shop')
   const settings = data.plannerSettings
+  const customers = new Map(data.customers.map(customer => [customer.id, customer.name]))
+  const search = query.trim().toLocaleLowerCase('it')
+  const searchPlate = normalizePlate(search)
   const accepted = new Set(data.acceptances?.filter(item => item.status === 'confirmed').map(item => item.vehicleId))
   const jobs = new Map<string, RepairJob>()
   for (const job of data.jobs ?? []) {
@@ -24,15 +29,17 @@ export function ConeCustomerSummary({ data, onOpenVehicle, onOpenWorkflow }: {
   }
   const groups = new Map<string, Array<{ vehicle: Vehicle; job?: RepairJob }>>()
   for (const vehicle of data.vehicles) {
-    if (isVehicleStatusSemantic(settings, vehicle.status, 'delivered') || isVehicleStatusSemantic(settings, vehicle.status, 'cancelled')) continue
     const job = jobs.get(vehicle.id) ?? jobs.get(normalizePlate(vehicle.plate))
-    if (job && isClosed(job)) continue
-    if (vehicle.coneNumber == null && !job && !vehicle.entryDate && !accepted.has(vehicle.id)) continue
+    if (search && !(searchPlate && normalizePlate(vehicle.plate).includes(searchPlate))
+      && !`${customers.get(vehicle.customerId) ?? ''} ${vehicle.make} ${vehicle.model}`.toLocaleLowerCase('it').includes(search)) continue
+    const delivered = isVehicleStatusSemantic(settings, vehicle.status, 'delivered') || job?.status === 'Consegnata'
+    const cancelled = isVehicleStatusSemantic(settings, vehicle.status, 'cancelled') || job?.status === 'Annullata'
+    if (scope === 'delivered' && !delivered) continue
+    if (scope === 'shop' && (delivered || cancelled || (vehicle.coneNumber == null && !job && !vehicle.entryDate && !accepted.has(vehicle.id)))) continue
     const group = groups.get(vehicle.customerId) ?? []
     group.push({ vehicle, job })
     groups.set(vehicle.customerId, group)
   }
-  const customers = new Map(data.customers.map(customer => [customer.id, customer.name]))
   const estimates = data.estimates ?? []
   const estimatesById = new Map(estimates.map(estimate => [estimate.id, estimate]))
   const estimatesByJob = new Map(estimates.filter(estimate => estimate.convertedJobId).map(estimate => [estimate.convertedJobId, estimate]))
@@ -49,17 +56,23 @@ export function ConeCustomerSummary({ data, onOpenVehicle, onOpenWorkflow }: {
   const rows = [...groups].sort(([a], [b]) => (customers.get(a) ?? '').localeCompare(customers.get(b) ?? '', 'it'))
 
   return <section className="panel cone-customer-summary" aria-labelledby="cone-customer-title">
-    <div className="panel-head"><div><span className="eyebrow">RIEPILOGO OFFICINA</span><h3 id="cone-customer-title">Vetture in carrozzeria per cliente</h3></div>
-      <small>{rows.length} clienti · {[...groups.values()].reduce((count, group) => count + group.length, 0)} vetture</small>
+    <div className="panel-head"><div><span className="eyebrow">RIEPILOGO OFFICINA</span><h3 id="cone-customer-title">Vetture per cliente</h3></div>
+      <div className="planner-actions">
+        <select aria-label="Vetture da mostrare" value={scope} onChange={event => setScope(event.target.value as typeof scope)}>
+          <option value="shop">In carrozzeria</option><option value="delivered">Consegnate</option><option value="all">Tutte le vetture</option>
+        </select>
+        <small>{rows.length} clienti · {[...groups.values()].reduce((count, group) => count + group.length, 0)} vetture</small>
+      </div>
     </div>
-    {!rows.length ? <p>Nessuna vettura presente.</p> : <div className="cone-customer-scroll"><table>
+    {!rows.length ? <p>Nessuna vettura trovata.</p> : <div className="cone-customer-scroll"><table>
       <thead><tr><th scope="col">Cliente</th><th scope="col">Vetture</th><th scope="col">Dettaglio vetture</th></tr></thead>
       <tbody>{rows.map(([customerId, group]) => <tr key={customerId}>
         <th scope="row">{customers.get(customerId) || 'Cliente non indicato'}</th>
         <td>{group.length}</td>
         <td><ul className="cone-customer-vehicles">{group.sort((a, b) => (a.vehicle.coneNumber ?? Infinity) - (b.vehicle.coneNumber ?? Infinity)
           || a.vehicle.plate.localeCompare(b.vehicle.plate)).map(({ vehicle, job }) => {
-          const waiting = isVehicleWaitingForParts(settings, vehicle)
+          const closedVehicle = isVehicleStatusSemantic(settings, vehicle.status, 'delivered') || isVehicleStatusSemantic(settings, vehicle.status, 'cancelled')
+          const waiting = !closedVehicle && isVehicleWaitingForParts(settings, vehicle)
           const phases = (job?.phases ?? []).filter(phase => !phase.notRequired && phase.name !== 'Consegna')
           const phaseTimers = phases.flatMap(phase => phase.operatorAssignments
             .filter(assignment => assignment.activityStatus === 'Attivo' && !assignment.endedAt && phase.status !== 'Completata')
@@ -77,7 +90,7 @@ export function ConeCustomerSummary({ data, onOpenVehicle, onOpenWorkflow }: {
           const currentPhase = phases.find(phase => phase.status === 'In lavorazione')
           const vehicleLabel = resolveVehicleStatusLabel(settings, vehicle.status)
           const ready = isVehicleStatusSemantic(settings, vehicle.status, 'ready')
-          const status = waiting ? 'In attesa ricambi' : ready ? vehicleLabel : job?.status || vehicleLabel
+          const status = waiting ? 'In attesa ricambi' : ready || closedVehicle ? vehicleLabel : job?.status || vehicleLabel
           const estimate = job
             ? estimatesById.get(job.estimateId ?? '') ?? estimatesByJob.get(job.id)
             : unconvertedEstimates.find(item => item.vehicleId === vehicle.id
@@ -116,10 +129,7 @@ export function ConeCustomerSummary({ data, onOpenVehicle, onOpenWorkflow }: {
                 <small>Stadio economico</small>
                 <strong>{estimate ? estimateFinancialStage(data, estimate) : '—'}</strong>
               </div>
-              {(onOpenVehicle || onOpenWorkflow) && <div className="row-actions cone-customer-actions">
-                {onOpenVehicle && <button type="button" onClick={() => onOpenVehicle(vehicle.plate)}>Apri vettura</button>}
-                {onOpenWorkflow && <button type="button" onClick={() => onOpenWorkflow(vehicle.plate)}>Preventivi / Commesse</button>}
-              </div>}
+              {renderActions && <div className="cone-customer-actions">{renderActions(vehicle, estimate, job)}</div>}
             </div>
           </li>
         })}</ul></td>
