@@ -9,10 +9,12 @@ const isClosed = (job: RepairJob) => job.status === 'Consegnata' || job.status =
 const isInactiveEstimate = (estimate: EstimateDocument) => estimate.status === 'Rifiutato' || estimate.status === 'Scaduto'
 const money = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 
-export function ConeCustomerSummary({ data, query = '', renderActions }: {
+export function ConeCustomerSummary({ data, query = '', onAdd, renderActions, renderStatus }: {
   data: ErpData
   query?: string
+  onAdd?: () => void
   renderActions?: (vehicle: Vehicle, estimate?: EstimateDocument, job?: RepairJob) => ReactNode
+  renderStatus?: (vehicle: Vehicle) => ReactNode
 }) {
   const [scope, setScope] = useState<'shop' | 'delivered' | 'all'>('shop')
   const settings = data.plannerSettings
@@ -35,7 +37,7 @@ export function ConeCustomerSummary({ data, query = '', renderActions }: {
     const delivered = isVehicleStatusSemantic(settings, vehicle.status, 'delivered') || job?.status === 'Consegnata'
     const cancelled = isVehicleStatusSemantic(settings, vehicle.status, 'cancelled') || job?.status === 'Annullata'
     if (scope === 'delivered' && !delivered) continue
-    if (scope === 'shop' && (delivered || cancelled || (vehicle.coneNumber == null && !job && !vehicle.entryDate && !accepted.has(vehicle.id)))) continue
+    if (scope === 'shop' && (delivered || cancelled || (!search && vehicle.coneNumber == null && !job && !vehicle.entryDate && !accepted.has(vehicle.id)))) continue
     const group = groups.get(vehicle.customerId) ?? []
     group.push({ vehicle, job })
     groups.set(vehicle.customerId, group)
@@ -58,6 +60,9 @@ export function ConeCustomerSummary({ data, query = '', renderActions }: {
   return <section className="panel cone-customer-summary" aria-labelledby="cone-customer-title">
     <div className="panel-head"><div><span className="eyebrow">RIEPILOGO OFFICINA</span><h3 id="cone-customer-title">Vetture per cliente</h3></div>
       <div className="planner-actions">
+        {onAdd && <button type="button" className="primary" disabled={!data.customers.length}
+          title={!data.customers.length ? 'Crea prima un cliente' : undefined}
+          onClick={() => { setScope('all'); onAdd() }}>Nuova vettura</button>}
         <select aria-label="Vetture da mostrare" value={scope} onChange={event => setScope(event.target.value as typeof scope)}>
           <option value="shop">In carrozzeria</option><option value="delivered">Consegnate</option><option value="all">Tutte le vetture</option>
         </select>
@@ -112,7 +117,7 @@ export function ConeCustomerSummary({ data, query = '', renderActions }: {
               </div>
               <div>
                 <small>Stato vettura</small>
-                {vehicleLabel !== status && <strong>{vehicleLabel}</strong>}
+                {renderStatus ? renderStatus(vehicle) : vehicleLabel !== status && <strong>{vehicleLabel}</strong>}
                 <small>{vehicle.statusMode === 'manual' ? 'Override manuale'
                   : vehicle.suggestedStatus ? `Suggerito: ${resolveVehicleStatusLabel(settings, vehicle.suggestedStatus)}` : 'Suggerimento automatico'}</small>
               </div>

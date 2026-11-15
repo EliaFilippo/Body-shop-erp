@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ErpData } from './types'
 import { createCustomer, emptyData, STORAGE_KEY } from './services/erp'
@@ -93,7 +93,9 @@ describe('vehicle save UI flow', () => {
     render(<App />)
 
     await screen.findByText('Archivio pronto')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    const scope = await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 })
+    fireEvent.change(scope, { target: { value: 'all' } })
     fireEvent.click(screen.getByRole('button', { name: /Nuova vettura/i }))
 
     fireEvent.change(screen.getByLabelText('Cliente'), { target: { value: 'c-ui-1' } })
@@ -108,11 +110,13 @@ describe('vehicle save UI flow', () => {
     expect(screen.queryByText(/margine aggiunto/i)).not.toBeInTheDocument()
   })
 
-  it('VEHICLE VISIBLE IN PARCO VEICOLI: PASS', async () => {
+  it('VEHICLE VISIBLE IN GESTIONE CONI: PASS', async () => {
     render(<App />)
 
     await screen.findByText('Archivio pronto')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    const scope = await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 })
+    fireEvent.change(scope, { target: { value: 'all' } })
     fireEvent.click(screen.getByRole('button', { name: /Nuova vettura/i }))
 
     fireEvent.change(screen.getByLabelText('Cliente'), { target: { value: 'c-ui-1' } })
@@ -136,7 +140,9 @@ describe('vehicle save UI flow', () => {
     render(<App />)
 
     await screen.findByText('Archivio pronto')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    const scope = await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 })
+    fireEvent.change(scope, { target: { value: 'all' } })
     fireEvent.change(screen.getByPlaceholderText('Cerca targa, cliente...'), { target: { value: 'ab 123 cd' } })
 
     await waitFor(() => {
@@ -162,7 +168,7 @@ describe('vehicle save UI flow', () => {
     })
   })
 
-  it('conteggio iniziale 3 -> nuova vettura -> repository/state/VehiclesPage 4 senza refresh', async () => {
+  it('conteggio iniziale 3 -> nuova vettura -> repository/state/Gestione coni 4 senza refresh', async () => {
     persistedData = {
       ...baseData(),
       vehicles: [
@@ -175,8 +181,10 @@ describe('vehicle save UI flow', () => {
     render(<App />)
 
     await screen.findByText('Archivio pronto')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
-    await screen.findByText('3 vetture')
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    const scope = await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 })
+    fireEvent.change(scope, { target: { value: 'all' } })
+    await screen.findByText(/· 3 vetture/)
     fireEvent.click(screen.getByRole('button', { name: /Nuova vettura/i }))
 
     fireEvent.change(screen.getByLabelText('Cliente'), { target: { value: 'c-ui-1' } })
@@ -190,16 +198,17 @@ describe('vehicle save UI flow', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Vettura salvata')).toBeInTheDocument()
-      expect(screen.getByText('4 vetture')).toBeInTheDocument()
+      expect(screen.getByText(/· 4 vetture/)).toBeInTheDocument()
       expect(persistedData.vehicles).toHaveLength(4)
       expect(persistedData.vehicles.some((vehicle) => vehicle.plate === 'DD444DD')).toBe(true)
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 }), { target: { value: 'all' } })
 
     await waitFor(() => {
-      expect(screen.getByText('4 vetture')).toBeInTheDocument()
+      expect(screen.getByText(/· 4 vetture/)).toBeInTheDocument()
       expect(screen.getByText('DD444DD')).toBeInTheDocument()
     })
   })
@@ -208,7 +217,9 @@ describe('vehicle save UI flow', () => {
     render(<App />)
 
     await screen.findByText('Archivio pronto')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    const scope = await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 })
+    fireEvent.change(scope, { target: { value: 'all' } })
     fireEvent.click(screen.getByRole('button', { name: /Nuova vettura/i }))
 
     fireEvent.change(screen.getByLabelText('Cliente'), { target: { value: 'c-ui-1' } })
@@ -226,7 +237,7 @@ describe('vehicle save UI flow', () => {
     })
   })
 
-  it('historical storage con 3 occorrenze stessa targa -> VehiclesPage mostra solo lo snapshot corrente', async () => {
+  it('historical storage con 3 occorrenze stessa targa -> Gestione coni mostra solo lo snapshot corrente', async () => {
     persistedData = {
       ...baseData(),
       vehicles: [{ ...vehicleFixture('1', 'HGJFU8547') }],
@@ -243,11 +254,34 @@ describe('vehicle save UI flow', () => {
     render(<App />)
 
     await screen.findByText('Archivio pronto')
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    const scope = await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 })
+    fireEvent.change(scope, { target: { value: 'all' } })
 
     await waitFor(() => {
-      expect(screen.getByText('1 vetture')).toBeInTheDocument()
+      expect(screen.getByText(/· 1 vetture/)).toBeInTheDocument()
       expect(screen.getAllByText('HGJFU8547')).toHaveLength(1)
     })
+  })
+
+  it('mostra solo le vetture consegnate nello storico e le raggruppa per mese della consegna in Italia', async () => {
+    persistedData.vehicles = [
+      { ...vehicleFixture('1', 'AA111AA'), status: 'consegnata', deliveredAt: '2026-10-31T23:30:00Z' },
+      { ...vehicleFixture('2', 'BB222BB'), status: 'consegnata', deliveredAt: '2026-10-21T10:30:00Z' },
+      { ...vehicleFixture('3', 'CC333CC'), status: 'consegnata', requestedDeliveryDate: '2026-10-28' },
+      vehicleFixture('4', 'DD444DD'),
+    ]
+    render(<App />)
+    await screen.findByText('Archivio pronto')
+    fireEvent.click(screen.getByRole('button', { name: 'Storico veicoli' }))
+
+    expect(within(screen.getByRole('region', { name: 'novembre 2026' })).getByText('01/11/2026')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'ottobre 2026' })).getByText('BB222BB')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Data di consegna non registrata' })).getByText('CC333CC')).toBeInTheDocument()
+    expect(screen.queryByText('DD444DD')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Mese di consegna' }), { target: { value: '2026-11' } })
+    expect(screen.getByText('AA111AA')).toBeInTheDocument()
+    expect(screen.queryByText('BB222BB')).not.toBeInTheDocument()
   })
 })

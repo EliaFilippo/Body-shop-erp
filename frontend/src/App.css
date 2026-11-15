@@ -565,6 +565,9 @@ button.work-sheet-print-pending {
 .cone-customer-details{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 12px;padding-top:8px;border-top:1px solid var(--line);overflow-wrap:anywhere}
 .cone-customer-actions{grid-column:1/-1;display:grid;gap:6px}
 .cone-customer-actions .row-actions{flex-wrap:wrap}
+.cone-customer-details select{max-width:100%}
+.vehicle-history-month + .vehicle-history-month{margin-top:24px}
+.vehicle-history-month h4{margin:0;text-transform:capitalize}
 .cone-timer-active{color:#8ee0ae}
 
 

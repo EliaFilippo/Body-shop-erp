@@ -841,7 +841,8 @@ describe('Acceptance flow', () => {
       expect(screen.getByText('Mario Rossi')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Veicoli' }))
+    fireEvent.click(screen.getByRole('button', { name: /Gestione coni/ }))
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Vetture da mostrare' }, { timeout: 4000 }), { target: { value: 'all' } })
     await waitFor(() => {
       expect(screen.getByText('AA123BB')).toBeInTheDocument()
     })
