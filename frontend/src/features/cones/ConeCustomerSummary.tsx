@@ -98,7 +98,12 @@ export function ConeCustomerSummary({ data, query = '', onAdd, renderActions, re
               || (!item.vehicleId && item.customerId === vehicle.customerId && normalizePlate(item.plate) === normalizePlate(vehicle.plate)))
           const model = [vehicle.make, vehicle.model].filter(Boolean).join(' ')
           return <li key={vehicle.id} className={waiting ? 'waiting-parts' : undefined}>
-            <div><strong>{vehicle.plate}</strong><small>{vehicle.coneNumber == null ? 'Senza cono' : `Cono ${vehicle.coneNumber}`}</small></div>
+            <div className="cone-customer-identity">
+              <strong>{vehicle.plate}</strong>
+              {vehicle.coneNumber == null
+                ? <small>Senza cono</small>
+                : <strong className="cone-customer-number">Cono {vehicle.coneNumber}</strong>}
+            </div>
             <div><strong>{status}</strong>
               {!waiting && currentPhase && <small>{currentPhase.name}</small>}</div>
             <div><small>{actualStart ? 'Inizio effettivo' : 'Inizio previsto'}</small>{dateLabel(actualStart || plannedStart)}</div>
