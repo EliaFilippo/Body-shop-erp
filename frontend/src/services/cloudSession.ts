@@ -58,7 +58,7 @@ export function requireTabletPin(){
 export class CloudSessionExpiredError extends Error { constructor(message='Occorre confermare nuovamente l’accesso. I dati e i timer sono conservati.'){super(message);this.name='CloudSessionExpiredError'} }
 const inFlight=new Map<string,Promise<CloudAuthSession>>()
 async function refreshLock<T>(key:string,task:()=>Promise<T>):Promise<T> {
- if(navigator.locks?.request)return navigator.locks.request(key,task)
+ if(navigator.locks?.request)return navigator.locks.request(key,{signal:AbortSignal.timeout(12000)},task)
  const leaseKey=`${key}:lease`,owner=crypto.randomUUID(),deadline=Date.now()+12000
  while(Date.now()<deadline){
   let lease:{owner:string;until:number}|null=null

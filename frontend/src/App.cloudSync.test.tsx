@@ -1,5 +1,6 @@
 import { publishProductionJobs } from './services/liveProduction'
 import { persistCloudSession } from './services/cloudSession'
+import { bootstrapCloudCompany } from './services/cloudAuth'
 vi.mock('./features/production/ProductionControlPanel', () => ({ ProductionControlPanel: () => null }))
 import 'fake-indexeddb/auto'
 import { StrictMode } from 'react'
@@ -174,13 +175,23 @@ describe('avvio e salvataggio cloud', () => {
   })
 
   it('consente di riprovare dopo un errore iniziale senza modificare l’archivio locale', async () => {
-    vi.mocked(loadCloudSnapshot).mockRejectedValueOnce(new Error('Connessione temporaneamente non disponibile.'))
+    vi.mocked(loadCloudSnapshot).mockRejectedValueOnce(new TypeError('Failed to fetch'))
     render(<App />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Connessione temporaneamente non disponibile.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Il browser non riesce a raggiungere l’archivio cloud.')
     expect((await loadDatabase()).dbRevision).toBe(12)
     fireEvent.click(screen.getByRole('button', { name: 'Riprova sincronizzazione' }))
     expect(await screen.findByText('Archivio sincronizzato dal cloud.')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('riprova anche il collegamento all’azienda quando la prima richiesta fallisce', async () => {
+    vi.mocked(bootstrapCloudCompany).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    render(<App />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Il browser non riesce a raggiungere l’archivio cloud.')
+    expect(loadCloudSnapshot).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Riprova sincronizzazione' }))
+    expect(await screen.findByText('Archivio sincronizzato dal cloud.')).toBeInTheDocument()
+    expect(bootstrapCloudCompany).toHaveBeenCalledTimes(2)
   })
 
   it('riprende gli invii dopo un errore e ricarica il cliente dal cloud con un archivio locale vuoto', async () => {

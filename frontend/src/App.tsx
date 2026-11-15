@@ -657,6 +657,17 @@ function UsersSettingsPage({ data, onChange, setNotice, setError }: { data: ErpD
   </section>
 }
 
+function cloudStartupMessage(problem: unknown, fallback: string) {
+  if (problem instanceof Error) {
+    if (problem.name === 'TimeoutError') return 'Il collegamento con il cloud sta impiegando troppo tempo. Riprova la sincronizzazione.'
+    if (problem instanceof TypeError && /fetch|network|load failed/i.test(problem.message)) {
+      return 'Il browser non riesce a raggiungere l’archivio cloud. Verifica la connessione e riprova la sincronizzazione.'
+    }
+    return problem.message
+  }
+  return fallback
+}
+
 function App() {
   const blockedByOrigin = isFileOrigin()
   const cloudConfig = useMemo(() => getCloudAuthConfig(), [])
@@ -762,7 +773,7 @@ function App() {
       setCloudReady(true)
       setNotice('Gestionale pronto: puoi reinserire le vetture mancanti. La copia dei dati locali è conservata.')
     } catch (problem) {
-      setCloudInitializationError(problem instanceof Error ? problem.message : 'Riapertura non riuscita. I dati locali sono conservati.')
+      setCloudInitializationError(cloudStartupMessage(problem, 'Riapertura non riuscita. I dati locali sono conservati.'))
     } finally { setOpeningCloud(false) }
   }
 
@@ -802,15 +813,16 @@ function App() {
   useEffect(() => {
     if (!cloudConfig || !cloudSession || cloudMembership) return
     let cancelled = false
+    setCloudInitializationError('')
     void bootstrapCloudCompany(cloudSession, 'Carrozzeria Elias', 'Filippo Elia', cloudConfig)
       .then((membership) => { if (!cancelled) setCloudMembership(membership) })
       .catch(problem => {
         if (cancelled) return
         if(problem instanceof CloudSessionExpiredError){clearCloudSession(cloudSession.userId,cloudConfig);setCloudSession(null)}
-        else setCloudInitializationError(problem instanceof Error?problem.message:'Collegamento temporaneamente non disponibile. Riprova tra poco.')
+        else setCloudInitializationError(cloudStartupMessage(problem, 'Collegamento temporaneamente non disponibile. Riprova tra poco.'))
       })
     return () => { cancelled = true }
-  }, [cloudConfig, cloudMembership, cloudSession])
+  }, [cloudConfig, cloudMembership, cloudSession, cloudSyncAttempt])
 
   useEffect(() => {
     if(!cloudConfig||!cloudSession||!cloudMembership||cloudMembership.role==='production'||!cloudReady)return
@@ -918,7 +930,7 @@ function App() {
         if (cancelled) return
         cloudReadyRef.current = false
         setCloudReady(false)
-        setCloudInitializationError(problem instanceof Error ? problem.message : 'Sincronizzazione cloud non riuscita.')
+        setCloudInitializationError(cloudStartupMessage(problem, 'Sincronizzazione cloud non riuscita.'))
       }
     })()
 
@@ -1211,11 +1223,11 @@ function App() {
         <h1>{problem ? 'Sincronizzazione sospesa' : 'Caricamento archivio'}</h1>
         {problem
           ? <><p role="alert" className="cloud-login-error">{problem}</p><button type="button" className="primary" onClick={() => {
-            if (!databaseLoaded) { window.location.reload(); return }
+            if (databaseReady && !databaseLoaded) { window.location.reload(); return }
             setCloudSyncAttempt((attempt) => attempt + 1)
           }}>Riprova sincronizzazione</button></>
           : <p role="status">Sto sincronizzando i dati prima di aprire il gestionale…</p>}
-        {problem && <button type="button" className="primary" disabled={openingCloud} onClick={() => void openCloudForManualEntry()}>{openingCloud ? 'Apertura in corso…' : 'Apri gestionale e reinserisci le vetture'}</button>}
+        {problem && databaseLoaded && cloudMembership && <button type="button" className="primary" disabled={openingCloud} onClick={() => void openCloudForManualEntry()}>{openingCloud ? 'Apertura in corso…' : 'Apri gestionale e reinserisci le vetture'}</button>}
         {problem && <p>La copia dei dati locali viene conservata automaticamente.</p>}
         <LocalRecoveryPanel onRecover={recoverLocalInsertions} />
         <button type="button" className="cloud-logout" onClick={() => void logoutCloud()}>Esci</button>

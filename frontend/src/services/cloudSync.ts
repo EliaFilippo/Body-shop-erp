@@ -78,7 +78,9 @@ async function responseMessage(response: Response) {
 
 export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAuthSession, 'accessToken'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot | null> {
   const query = new URLSearchParams({ company_id: `eq.${companyId}`, select: 'company_id,revision,payload,updated_at', limit: '1' })
-  const response = await authenticatedCloudFetch(`${config.url}/rest/v1/erp_snapshots?${query}`, { headers: headers(session, config) }, session, config, fetcher)
+  const response = await authenticatedCloudFetch(`${config.url}/rest/v1/erp_snapshots?${query}`, {
+    headers: headers(session, config), signal: AbortSignal.timeout(20000),
+  }, session, config, fetcher)
   if (!response.ok) throw new CloudSyncRequestError(await responseMessage(response),response.status)
   const rows = await response.json() as CloudSnapshotRow[]
   if (!rows[0]) return null
@@ -90,6 +92,7 @@ export async function loadCloudSnapshot(companyId: string, session: Pick<CloudAu
 export async function createCloudSnapshot(companyId: string, data: ErpData, session: Pick<CloudAuthSession, 'accessToken' | 'userId'>, config: CloudAuthConfig, fetcher: typeof fetch = fetch): Promise<CloudSnapshot> {
   const response = await authenticatedCloudFetch(`${config.url}/rest/v1/erp_snapshots`, {
     method: 'POST',
+    signal: AbortSignal.timeout(20000),
     headers: { ...headers(session, config), Prefer: 'return=representation' },
     body: JSON.stringify({ company_id: companyId, revision: 1, payload: data, updated_by: session.userId }),
   }, session, config, fetcher)

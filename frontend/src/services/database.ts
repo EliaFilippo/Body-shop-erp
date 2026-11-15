@@ -131,11 +131,27 @@ function assertPlateAvailability(latest: ErpData, candidate: ErpData) {
   }
 }
 
+const ARCHIVE_WAIT_MS = 12000
+class LocalArchiveBusyError extends Error {
+  constructor() {
+    super('L’archivio locale è in attesa. Chiudi le altre schede del gestionale e riprova.')
+  }
+}
+
 async function withCrossTabSaveLock<T>(task: () => Promise<T>): Promise<T> {
   const lockName = `${DB_NAME}:save-lock`
   const hasNavigatorLocks = typeof navigator !== 'undefined' && Boolean((navigator as Navigator & { locks?: LockManager }).locks?.request)
   if (hasNavigatorLocks) {
-    return (navigator as Navigator & { locks: LockManager }).locks.request(lockName, { mode: 'exclusive' }, task)
+    const wait = new AbortController()
+    const timeout = setTimeout(() => wait.abort(new LocalArchiveBusyError()), ARCHIVE_WAIT_MS)
+    try {
+      return await navigator.locks.request(lockName, { mode: 'exclusive', signal: wait.signal }, () => {
+        clearTimeout(timeout)
+        return task()
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   if (typeof localStorage === 'undefined') return task()
@@ -143,10 +159,12 @@ async function withCrossTabSaveLock<T>(task: () => Promise<T>): Promise<T> {
   const storageKey = `${lockName}:lease`
   const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`
   const leaseMs = 5000
+  const deadline = Date.now() + ARCHIVE_WAIT_MS
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
   while (true) {
     const now = Date.now()
+    if (now >= deadline) throw new LocalArchiveBusyError()
     const raw = localStorage.getItem(storageKey)
     const current = raw ? (() => { try { return JSON.parse(raw) as { token: string; expiresAt: number } } catch { return null } })() : null
     if (!current || current.expiresAt <= now) {
@@ -454,13 +472,37 @@ export async function resolveDuplicatePlate(normalizedPlateInput: string): Promi
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, CURRENT_VERSION)
+    let abandoned = false
+    const failBusy = () => {
+      abandoned = true
+      clearTimeout(timeout)
+      reject(new LocalArchiveBusyError())
+    }
+    const timeout = setTimeout(failBusy, ARCHIVE_WAIT_MS)
+    request.onblocked = failBusy
     request.onupgradeneeded = () => {
+      if (abandoned) {
+        request.transaction?.abort()
+        return
+      }
       if (!request.result.objectStoreNames.contains(STORE)) {
         request.result.createObjectStore(STORE)
       }
     }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      clearTimeout(timeout)
+      const database = request.result
+      if (abandoned) {
+        database.close()
+        return
+      }
+      database.onversionchange = () => database.close()
+      resolve(database)
+    }
+    request.onerror = () => {
+      clearTimeout(timeout)
+      reject(request.error)
+    }
   })
 }
 
@@ -973,17 +1015,36 @@ export function normalizeData(value: unknown): ErpData {
   return normalized
 }
 
+async function readLocalArchive(): Promise<ErpData | undefined> {
+  const database = await openDatabase()
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE, 'readonly')
+      const request = transaction.objectStore(STORE).get(STATE_KEY)
+      const timeout = setTimeout(() => {
+        reject(new LocalArchiveBusyError())
+        try { transaction.abort() } catch { /* The browser may already have closed it. */ }
+      }, ARCHIVE_WAIT_MS)
+      transaction.oncomplete = () => {
+        clearTimeout(timeout)
+        resolve(request.result as ErpData | undefined)
+      }
+      transaction.onabort = () => {
+        clearTimeout(timeout)
+        reject(transaction.error ?? new Error('Lettura dell’archivio locale interrotta.'))
+      }
+    })
+  } finally {
+    database.close()
+  }
+}
+
 async function readCurrentPersistedSnapshot(): Promise<ErpData | null> {
   try {
-    const database = await openDatabase()
-    const stored = await new Promise<ErpData | undefined>((resolve, reject) => {
-      const request = database.transaction(STORE, 'readonly').objectStore(STORE).get(STATE_KEY)
-      request.onsuccess = () => resolve(request.result as ErpData | undefined)
-      request.onerror = () => reject(request.error)
-    })
-    database.close()
+    const stored = await readLocalArchive()
     if (stored) return normalizeData(stored)
-  } catch {
+  } catch (problem) {
+    if (problem instanceof LocalArchiveBusyError) throw problem
     // Fall back to legacy storage read below.
   }
 
@@ -998,13 +1059,7 @@ async function readCurrentPersistedSnapshot(): Promise<ErpData | null> {
 
 export async function loadDatabase(): Promise<ErpData> {
   try {
-    const database = await openDatabase()
-    const stored = await new Promise<ErpData | undefined>((resolve, reject) => {
-      const request = database.transaction(STORE, 'readonly').objectStore(STORE).get(STATE_KEY)
-      request.onsuccess = () => resolve(request.result as ErpData | undefined)
-      request.onerror = () => reject(request.error)
-    })
-    database.close()
+    const stored = await readLocalArchive()
     if (stored) return normalizeData(stored)
 
     const legacy = readFallback()
@@ -1015,25 +1070,45 @@ export async function loadDatabase(): Promise<ErpData> {
       return migrated
     }
     return normalizeData(emptyData)
-  } catch {
+  } catch (problem) {
+    if (problem instanceof LocalArchiveBusyError) throw problem
     const fallback = readFallback()
     if (fallback) return normalizeData(JSON.parse(fallback))
     throw new Error('Impossibile caricare il database locale. Nessun fallback disponibile.')
   }
 }
 
+async function writeLocalArchive(data: ErpData, key: string): Promise<void> {
+  const database = await openDatabase()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STORE, 'readwrite')
+      transaction.objectStore(STORE).put(data, key)
+      let timedOut = false
+      const timeout = setTimeout(() => {
+        try {
+          transaction.abort()
+          timedOut = true
+        } catch { /* A transaction already committing will report its result. */ }
+      }, ARCHIVE_WAIT_MS)
+      transaction.oncomplete = () => {
+        clearTimeout(timeout)
+        resolve()
+      }
+      transaction.onabort = () => {
+        clearTimeout(timeout)
+        reject(timedOut ? new LocalArchiveBusyError() : transaction.error ?? new Error('Salvataggio locale interrotto.'))
+      }
+    })
+  } finally {
+    database.close()
+  }
+}
+
 export async function createDatabaseCheckpoint(data: ErpData, reason = 'manual'): Promise<string> {
   const safeReason = reason.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '') || 'manual'
   const key = `backup:${safeReason}:${new Date().toISOString()}`
-  const database = await openDatabase()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE, 'readwrite')
-    transaction.objectStore(STORE).put(structuredClone(data), key)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-    transaction.onabort = () => reject(transaction.error)
-  })
-  database.close()
+  await writeLocalArchive(structuredClone(data), key)
   return key
 }
 
@@ -1079,15 +1154,7 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
     if (latest && (options.checkpointReason || options.allowCountReduction)) await createDatabaseCheckpoint(latest, options.checkpointReason || 'prima-eliminazione')
 
     try {
-      const database = await openDatabase()
-      await new Promise<void>((resolve, reject) => {
-        const transaction = database.transaction(STORE, 'readwrite')
-        transaction.objectStore(STORE).put(candidate, STATE_KEY)
-        transaction.oncomplete = () => resolve()
-        transaction.onerror = () => reject(transaction.error)
-        transaction.onabort = () => reject(transaction.error)
-      })
-      database.close()
+      await writeLocalArchive(candidate, STATE_KEY)
       if (sourceData) {
         sourceData.dbRevision = candidate.dbRevision
         sourceData.dbUpdatedAt = candidate.dbUpdatedAt
@@ -1096,6 +1163,7 @@ async function persistDatabase(data: ErpData, options: SaveDatabaseOptions, sour
         localStorage.setItem(REVISION_PING_KEY, JSON.stringify({ rev: candidate.dbRevision, at: candidate.dbUpdatedAt }))
       }
     } catch (error) {
+      if (error instanceof LocalArchiveBusyError) throw error
       try {
         if (typeof localStorage === 'undefined') throw new Error('localStorage non disponibile')
         localStorage.setItem(STORAGE_KEY, JSON.stringify(candidate))

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ErpData } from '../types'
-import { createDatabaseCheckpoint, listLocalCheckpoints, readLocalCheckpoint, analyzeDatabaseIntegrity, loadDatabase, prepareDuplicateResolution, resolveDuplicatePlate, restoreCloudDatabase, saveDatabase } from './database'
+import { createDatabaseCheckpoint, listLocalCheckpoints, readLocalCheckpoint, analyzeDatabaseIntegrity, loadDatabase, prepareDuplicateResolution, resolveDuplicatePlate, restoreCloudDatabase, saveDatabase, DB_NAME, CURRENT_VERSION } from './database'
 import { defaultPlannerSettings, emptyData, STORAGE_KEY } from './erp'
 import { EXPECTED_APP_ORIGIN } from './originGuard'
 
@@ -54,6 +54,21 @@ beforeEach(async () => {
 })
 
 describe('database persistente', () => {
+  it('segnala subito un aggiornamento dell’archivio bloccato da un’altra scheda e riprende quando si chiude', async () => {
+    const oldTab = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, CURRENT_VERSION - 1)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      await expect(loadDatabase()).rejects.toThrow('Chiudi le altre schede del gestionale e riprova.')
+    } finally {
+      oldTab.close()
+    }
+    await saveDatabase(data)
+    expect((await loadDatabase()).customers).toEqual(data.customers)
+  })
+
   it.each([10, 900])('importa il payload cloud con contatore %s usando la revisione locale e conserva un checkpoint', async (remoteRevision) => {
     const local = { ...structuredClone(data), dbRevision: 11 }
     await saveDatabase(local)
