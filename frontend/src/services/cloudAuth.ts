@@ -107,6 +107,7 @@ export async function bootstrapCloudCompany(
 ): Promise<CloudCompanyMembership> {
   const response = await authenticatedCloudFetch(`${config.url}/rest/v1/rpc/bootstrap_company`, {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       'Content-Type': 'application/json',
       apikey: config.anonKey,
