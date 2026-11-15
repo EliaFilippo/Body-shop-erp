@@ -54,6 +54,7 @@ it('mostra il piano visibile e riprende le fasi del solo operatore scelto, mante
   const date = todayKey()
   const job = data.jobs![0]
   job.vehicleId = 'vehicle-1'
+  job.coneNumber = 4
   const filling = job.phases.find(phase => phase.name === 'Stuccatura')!
   filling.notRequired = false
   const paint = job.phases.find(phase => phase.name === 'Verniciatura')!
@@ -72,11 +73,13 @@ it('mostra il piano visibile e riprende le fasi del solo operatore scelto, mante
   ]
   const onChange = vi.fn()
   render(<OperatorProgramPage data={data} onChange={onChange} visiblePrograms={programs} />)
+  expect(screen.getAllByText(/PROVA01 · Cono 4/)).toHaveLength(2)
 
   fireEvent.click(screen.getByRole('button', { name: 'Modifica programma del giorno' }))
   const editor = within(screen.getByRole('region', { name: 'Modifica programma del giorno' }))
-  expect(editor.getByText(/08:00–09:00 · PROVA01/)).toBeVisible()
-  expect(editor.getByText(/PROVA01 · Verniciatura/, { selector: 'li' })).toBeVisible()
+  expect(editor.getByText(/08:00–09:00 · PROVA01 · Cono 4/)).toBeVisible()
+  expect(editor.getByText(/PROVA01 · Cono 4 · Verniciatura/, { selector: 'li' })).toBeVisible()
+  expect(within(editor.getByLabelText('Aggiungi fase per Stefania')).getByRole('option', { name: /PROVA01 · Cono 4 · Stuccatura/ })).toBeInTheDocument()
   expect(onChange).not.toHaveBeenCalled()
 
   fireEvent.click(editor.getByRole('button', { name: 'Riprendi le fasi pianificate di Stefania' }))

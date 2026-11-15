@@ -54,12 +54,12 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     if(compatible.every(j=>waiting.jobIds.has(j.id)||j.blocks.length>0||!!data.vehicles.find(v=>v.id===j.vehicleId)?.blockReason))return 'Le commesse compatibili sono bloccate: verifica ricambi e blocchi operativi.'
     return 'Nessuna assegnazione nella data scelta. Verifica disponibilità delle vetture, fasi precedenti e assegnazioni manuali delle commesse compatibili.'
   }
-  const coneLabelByTask = (jobId: string, vehicleId: string) => {
+  const coneLabel = (jobId: string, vehicleId?: string) => {
     const job = (data.jobs ?? []).find((item) => item.id === jobId)
     if (job?.coneNumber != null) return `Cono ${job.coneNumber}`
     const vehicle = data.vehicles.find((item) => item.id === vehicleId)
     if (vehicle?.coneNumber != null) return `Cono ${vehicle.coneNumber}`
-    return vehicle && isVehicleWaitingForCone(vehicle) ? 'In attesa cono (Nessun cono disponibile)' : '—'
+    return vehicle && isVehicleWaitingForCone(vehicle) ? 'In attesa di cono' : 'Senza cono'
   }
 
   if(showTimers&&connection)return <RemoteTimers connection={connection} onBack={()=>setShowTimers(false)}/>
@@ -93,7 +93,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
         if (!phase) return null
         const operators = data.plannerSettings.operators.filter(o => o.active && supportsOperatorDuty(o, phase.requiredSkill || phase.name))
         return <div key={job.id}>
-          <strong>{job.plate}</strong>
+          <strong>{job.plate} · {coneLabel(job.id, job.vehicleId)}</strong>
           <label>Fase di lavorazione
             <select aria-label={`Fase di lavorazione ${job.plate}`} value={phase.id} onChange={event => {
               const phaseId = event.target.value
@@ -143,7 +143,7 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     <section className="panel table-panel">
       <div className="panel-head"><div><span className="eyebrow">TIMELINE</span><h3>{date}</h3></div><div className="planner-actions"><button onClick={()=>moveDay(-1)}>← Giorno precedente</button><label>Data programma operatori<input type="date" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}} /></label><button onClick={()=>setDate(todayKey())}>Oggi</button><button onClick={()=>moveDay(1)}>Giorno successivo →</button></div></div><p>Consulta le mansioni già pianificate per ciascun operatore, anche nei prossimi giorni. Cambiare la data non modifica le assegnazioni. Il tablet mostra se la fase programmata è già avviabile. Le quote dei tempi condivisi servono a organizzare il piano; il totale del timer resta unico.</p>
       <button type="button" disabled={date < todayKey()} onClick={() => setEditingDay(value => !value)}>{editingDay ? 'Chiudi modifica programma' : 'Modifica programma del giorno'}</button>
-      {editingDay && date >= todayKey() && <ManualOperatorDayEditor key={date} date={date} data={data} programs={programs} timeLabel={iso => timeLabel(iso, liveClock)} onSave={plan => {
+      {editingDay && date >= todayKey() && <ManualOperatorDayEditor key={date} date={date} data={data} programs={programs} timeLabel={iso => timeLabel(iso, liveClock)} coneLabel={coneLabel} onSave={plan => {
         const selected = new Set(plan.assignments.map(item => item.jobId + '|' + item.phaseId))
         const remaining = (data.plannerSettings.manualOperatorDays ?? []).filter(item => item.date !== date).map(item =>
           item.date < todayKey() ? item : { ...item, assignments: item.assignments.filter(row => !selected.has(row.jobId + '|' + row.phaseId)) },
@@ -166,9 +166,8 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
             })}
             {program.tasks.map((task) => <div className="day-job" key={task.id}>
               <strong className="plate">{timeLabel(task.startAt,liveClock)}-{timeLabel(task.endAt,liveClock)}</strong>
-              <span>{task.jobNumber} - {phaseDisplayName(task.phaseName)} - {task.plate}</span>
+              <span>{task.jobNumber} - {phaseDisplayName(task.phaseName)} - {task.plate} · {coneLabel(task.jobId, task.vehicleId)}</span>
               <small>{task.plannedMinutes} min · {task.priority}</small>
-              <small>{coneLabelByTask(task.jobId, task.vehicleId)}</small>
               {!!task.panelNames?.length && <small>Pannelli: {task.panelNames.join(', ')}</small>}
               {!!task.panelNotes?.length && <small>Note pannello: {task.panelNotes.join(' | ')}</small>}
               <small>{task.reason}</small>
