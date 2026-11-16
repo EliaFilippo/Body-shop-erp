@@ -1532,16 +1532,16 @@ describe('assegnazione manuale e automatica per margine', () => {
     expect(tasks.every((task, index) => !index || task.startAt >= tasks[index - 1].endAt)).toBe(true)
     expect(result.programs.find(program => program.operatorId === 'op-1' && program.date === '2026-07-28')?.tasks[0].plannedMinutes).toBe(60)
   })
-  it('mantiene giorno, operatore e ordine manuali anche con assenza e fasi bloccate', () => {
+  it.each([false, true])('rispetta l’ordine manuale salvo assenza nella fascia (assenza: %s)', absent => {
     const data = setup()
     const job = data.jobs![0]
     const first = job.phases[0]
     first.status = 'Bloccata'
     const second = { ...first, id: 'manual-second', name: 'Verniciatura', status: 'Da fare' as const }
     job.phases.push(second)
-    data.plannerSettings.absences = [{
+    if (absent) data.plannerSettings.absences = [{
       id: 'absent', operatorId: 'op-1', startDate: '2026-07-27', endDate: '2026-07-27',
-      hoursPerDay: null, reason: 'Assente',
+      hoursPerDay: null, startTime: '08:00', endTime: '18:00', reason: 'Assente',
     }]
     data.plannerSettings.manualOperatorDays = [{
       date: '2026-07-27', period: 'day',
@@ -1549,9 +1549,9 @@ describe('assegnazione manuale e automatica per margine', () => {
     }]
     const result = generateOperatorPrograms(data, '2026-07-27')
     const forced = result.programs.find(program => program.date === '2026-07-27' && program.operatorId === 'op-1')
-    expect(forced?.tasks.map(task => task.phaseId)).toEqual([second.id, first.id])
+    expect(forced?.tasks.map(task => task.phaseId)).toEqual(absent ? [] : [second.id, first.id])
     expect(forced?.tasks.every(task => task.id.startsWith('office-manual:'))).toBe(true)
-    expect(result.programs.flatMap(program => program.tasks).filter(task => task.jobId === job.id)).toHaveLength(2)
+    expect(result.programs.flatMap(program => program.tasks).filter(task => task.jobId === job.id)).toHaveLength(absent ? 0 : 2)
     expect(job.phases[0].status).toBe('Bloccata')
   })
   it('non sostituisce silenziosamente un operatore manuale inattivo', () => {

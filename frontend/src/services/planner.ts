@@ -1006,6 +1006,9 @@ function buildManualProgram(data: ErpData, firstDate: string, lastDate: string, 
       let shift = shifts.get(operator.id)
       if (!shift) {
         const intervals = manualOperatorWorkIntervals(day.date, day.period, data.plannerSettings, operator)
+        const hasAbsence = data.plannerSettings.absences.some(absence =>
+          absence.operatorId === operator.id && day.date >= absence.startDate && day.date <= absence.endDate)
+        if (hasAbsence && !intervals.length) continue
         const start = intervals[0]?.startMinute ?? (day.period === 'afternoon' ? 780 : 480)
         shift = { start, cursor: start, intervals }
         shifts.set(operator.id, shift)
