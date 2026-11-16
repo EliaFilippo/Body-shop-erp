@@ -1067,6 +1067,8 @@ function buildManualProgram(data, firstDate, lastDate, revision) {
       let shift = shifts.get(operator.id);
       if (!shift) {
         const intervals = manualOperatorWorkIntervals(day.date, day.period, data.plannerSettings, operator);
+        const hasAbsence = data.plannerSettings.absences.some((absence) => absence.operatorId === operator.id && day.date >= absence.startDate && day.date <= absence.endDate);
+        if (hasAbsence && !intervals.length) continue;
         const start2 = intervals[0]?.startMinute ?? (day.period === "afternoon" ? 780 : 480);
         shift = { start: start2, cursor: start2, intervals };
         shifts.set(operator.id, shift);
