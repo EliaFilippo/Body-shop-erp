@@ -13,12 +13,19 @@ const dayOf = (timestamp?: string) => timestamp && Number.isFinite(Date.parse(ti
 const federicaOfficeMinutes = 4 * 60
 const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
 
-export function calculateGoalProgress(data: ErpData, today = romeDate.format(new Date()), vehicleWork?: readonly VehicleWork[]) {
+export function goalWeekStart(date: string) {
+  return addDays(date, -((new Date(date + 'T12:00:00Z').getUTCDay() + 6) % 7))
+}
+
+export function calculateGoalProgress(data: ErpData, today = romeDate.format(new Date()), vehicleWork?: readonly VehicleWork[],
+  selection?: { day?: string; week?: string }) {
   const settings = data.plannerSettings
   const month = today.slice(0, 7)
   const monthGoal = Math.max(0, settings.monthlyMarginGoal ?? 0)
-  const monday = addDays(today, -((new Date(today + 'T12:00:00Z').getUTCDay() + 6) % 7))
+  const day = selection?.day ?? today
+  const monday = goalWeekStart(selection?.week ?? today)
   const week = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
+  const weekEnd = week[6] < today ? week[6] : today
   const operators = settings.operators.filter(operator => operator.active)
   const capacity = (date: string) => operators.length
     ? operators.reduce((sum, operator) => sum + workingMinutesForDate(date, settings, operator), 0)
@@ -100,13 +107,20 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     }
   }
   const currentCalendar = { ...settings, operatorDayExtensions: [] }
+  const currentWeekStart = goalWeekStart(today)
+  const liveWorkStart = currentWeekStart < month + '-01' ? currentWeekStart : month + '-01'
   const outsideCosts: Array<{ date: string; seconds: number | null; costCents: number | null }> = []
-  for (let date = monday < month + '-01' ? monday : month + '-01'; date <= today; date = addDays(date, 1)) {
+  const intervals = [[day, day], [monday, weekEnd], [month + '-01', today]]
+  const periodDays = new Set<string>()
+  for (const [start, end] of intervals) {
+    for (let date = start; date <= end; date = addDays(date, 1)) periodDays.add(date)
+  }
+  for (const date of periodDays) {
     for (const operator of federica) {
       const productionMinutes = workingMinutesForDate(date, currentCalendar, operator)
       if (productionMinutes <= 0) continue
       const recorded = vehicleSeconds.get(`${operator.id}/${date}`)
-      const seconds = vehicleWork === undefined && recorded === undefined
+      const seconds = recorded === undefined && (vehicleWork === undefined || date < liveWorkStart)
         ? null : federicaOfficeMinutes * 60 + Math.max(0, productionMinutes * 60 - (recorded ?? 0))
       const rate = operatorHourlyCost(operator)
       const costCents = seconds === null || (seconds > 0 && rate === null)
@@ -118,8 +132,8 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     ...data.invoices.filter(isRealizedInvoice).map(invoice => ({ date: invoice.issueDate, amount: invoice.taxableAmount || 0 })),
     ...historicalRevenues(data),
   ]
-  const period = (label: string, start: string, goal: number) => {
-    const includes = (date: string) => date >= start && date <= today
+  const period = (label: string, start: string, goal: number, end = today) => {
+    const includes = (date: string) => date >= start && date <= end
     const recognized = production.filter(entry => includes(entry.date))
     const expenses = outsideCosts.filter(entry => includes(entry.date))
     const offVehicleCostCents = expenses.reduce((sum, entry) => sum + (entry.costCents ?? 0), 0)
@@ -137,8 +151,8 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       gap: Math.max(0, cents(target - done)) / 100, percent: target > 0 && !incomplete ? 100 * done / target : null }
   }
   return [
-    period('Oggi', today, dailyGoal(today)),
-    period('Settimana', monday, week.reduce((sum, day) => sum + dailyGoal(day), 0)),
+    period('Oggi', day, dailyGoal(day), day),
+    period('Settimana', monday, week.reduce((sum, day) => sum + dailyGoal(day), 0), weekEnd),
     period('Mese', month + '-01', monthGoal),
   ]
 }

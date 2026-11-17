@@ -42,6 +42,10 @@ it('subtracts Martin, internal labor and materials and reconciles delivery witho
   const result = calculateGoalProgress(data, '2026-11-10')
   expect(result.map(({ done, billed }) => [done, billed])).toEqual([[170, 0], [330, 0], [330, 0]])
   expect(result[2]).toMatchObject({ goal: 3000, gap: 2670, percent: 11, incomplete: false })
+  const historical = calculateGoalProgress(data, '2026-11-17', undefined, { day: '2026-11-09', week: '2026-11-10' })
+  expect(historical.map(({ done }) => done)).toEqual([160, 330, 330])
+  expect(historical[2]).toEqual(calculateGoalProgress(data, '2026-11-17')[2])
+  expect(calculateGoalProgress(data, '2026-11-17', undefined, { week: '2026-11-02' })[1].done).toBe(0)
 })
 
 it('marks the period incomplete when a signed phase has hours without operator attribution', () => {
