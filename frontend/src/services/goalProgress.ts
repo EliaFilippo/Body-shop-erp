@@ -150,9 +150,32 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       offVehicleCost: offVehicleCostCents / 100, offVehicleCostIncomplete, offVehicleTimeIncomplete,
       gap: Math.max(0, cents(target - done)) / 100, percent: target > 0 && !incomplete ? 100 * done / target : null }
   }
+  // The current day's and week's remaining targets must absorb the entire
+  // outstanding monthly margin, weighted by the remaining scheduled capacity.
+  // Historical periods keep their original budget allocation for comparison.
+  const monthlyProgress = period('Mese', month + '-01', monthGoal)
+  const remainingMargin = Math.max(0, monthGoal - monthlyProgress.done)
+  const [year, monthNumber] = month.split('-').map(Number)
+  const monthEnd = month + '-' + String(new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()).padStart(2, '0')
+  const remainingCapacity = (start: string, end: string) => {
+    let minutes = 0
+    for (let date = start; date <= end; date = addDays(date, 1)) minutes += capacity(date)
+    return minutes
+  }
+  const monthMinutesLeft = remainingCapacity(today, monthEnd)
+  const share = (start: string, end: string) =>
+    monthMinutesLeft > 0 && start <= end
+      ? remainingMargin * remainingCapacity(start, end) / monthMinutesLeft : 0
+  const todayActual = period('Oggi', today, 0, today).done
+  const weekActual = period('Settimana', monday, 0, weekEnd).done
+  const currentDayGoal = day === today && monthMinutesLeft > 0
+    ? todayActual + share(today, today) : dailyGoal(day)
+  const currentWeekGoal = monday === goalWeekStart(today) && monthMinutesLeft > 0
+    ? weekActual + share(today, week[6] < monthEnd ? week[6] : monthEnd)
+    : week.reduce((sum, date) => sum + dailyGoal(date), 0)
   return [
-    period('Oggi', day, dailyGoal(day), day),
-    period('Settimana', monday, week.reduce((sum, day) => sum + dailyGoal(day), 0), weekEnd),
-    period('Mese', month + '-01', monthGoal),
+    period('Oggi', day, currentDayGoal, day),
+    period('Settimana', monday, currentWeekGoal, weekEnd),
+    monthlyProgress,
   ]
 }
