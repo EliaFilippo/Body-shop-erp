@@ -1,0 +1,20 @@
+.operator-absences {
+  margin-bottom: 10px;
+}
+
+.operator-absences summary {
+  cursor: pointer;
+}
+
+.operator-absences fieldset {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+}
+
+.operator-absences input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}

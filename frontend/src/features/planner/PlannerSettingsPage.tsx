@@ -1,5 +1,4 @@
 import { OperatorTabletQr, type OperatorTabletConnection } from '../production/OperatorPinAccess'
-import { parseTimeToMinutes } from '../../services/workCalendar'
 import { preferredOperatorDuties } from '../../services/operatorSkills'
 import { useEffect, useMemo, useState } from 'react'
 import { MoneyInput } from '../../components/MoneyInput'
@@ -7,7 +6,7 @@ import { Modal } from '../../components/Modal'
 import { OperatorSchedule } from './OperatorSchedule'
 import { OPERATOR_DUTIES } from '../../services/operatorSkills'
 import { invalidOperatorSchedule } from '../../services/operatorSchedule'
-import type { PlannerAbsence, PlannerOperator, PlannerSettings, StandardWorkDefinition, StandardWorkRule, StandardWorkTimePreset } from '../../types'
+import type { PlannerOperator, PlannerSettings, StandardWorkDefinition, StandardWorkRule, StandardWorkTimePreset } from '../../types'
 
 const dayLabels = [
   { value: 1, label: 'Lun' },
@@ -301,14 +300,6 @@ export function PlannerSettingsPage({
     })
   }
 
-  const updateAbsence = (id: string, patch: Partial<PlannerAbsence>) => {
-    markDirty()
-    setDraft((value) => ({
-      ...value,
-      absences: value.absences.map((absence) => (absence.id === id ? { ...absence, ...patch } : absence)),
-    }))
-  }
-
   const duplicateWork = (work: StandardWorkDefinition) => {
     const duplicate: StandardWorkDefinition = {
       ...structuredClone(work),
@@ -397,12 +388,7 @@ export function PlannerSettingsPage({
               ? 'Completa correttamente le regole tempi.'
                 : (draft.standardWorkTimePresets ?? []).some((preset) => !preset.workName.trim() || !preset.panelName.trim() || Number(preset.minutes) <= 0)
                   ? 'Completa correttamente i tempi predefiniti per pannello e lavorazione.'
-              : draft.absences.some((absence) => !absence.startDate || !absence.endDate || absence.endDate < absence.startDate ||
-                ((absence.startTime || absence.endTime) &&
-                  (parseTimeToMinutes(absence.startTime) == null || parseTimeToMinutes(absence.endTime) == null ||
-                    parseTimeToMinutes(absence.startTime)! >= parseTimeToMinutes(absence.endTime)!)))
-                ? 'Completa correttamente gli intervalli di ferie e assenze.'
-                : ''
+                  : ''
 
     if (problem) {
       setValidationError(problem)
@@ -793,63 +779,5 @@ export function PlannerSettingsPage({
       </div>
     </Modal>}
 
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <span className="eyebrow">FERIE E ASSENZE</span>
-          <h3>Disponibilita operatori</h3><p>Per bloccare una fascia precisa indica gli orari di inizio e fine. Se inserisci solo le ore, il turno si accorcia dalla fine. Lascia orari e ore vuoti per un’assenza di tutto il giorno.</p>
-        </div>
-        <button
-          className="secondary"
-          disabled={!draft.operators.length}
-          onClick={() => {
-            markDirty()
-            setDraft((value) => ({
-              ...value,
-              absences: [
-                ...value.absences,
-                {
-                  id: uid(),
-                  operatorId: value.operators[0].id,
-                  startDate: '',
-                  endDate: '',
-                  hoursPerDay: null,
-                  reason: '',
-                },
-              ],
-            }))
-          }}
-        >
-          + Aggiungi assenza
-        </button>
-      </div>
-
-      <div className="settings-list">
-        {draft.absences.map((absence) => <div className="settings-row absence-row" key={absence.id}>
-          <select value={absence.operatorId} onChange={(event) => updateAbsence(absence.id, { operatorId: event.target.value })}>
-            {draft.operators.map((operator) => <option value={operator.id} key={operator.id}>{operator.name || 'Operatore senza nome'}</option>)}
-          </select>
-          <input aria-label="Inizio assenza" type="date" value={absence.startDate} onChange={(event) => updateAbsence(absence.id, { startDate: event.target.value })} />
-          <input aria-label="Fine assenza" type="date" value={absence.endDate} onChange={(event) => updateAbsence(absence.id, { endDate: event.target.value })} />
-          <div><input aria-label="Ore assenza" disabled={Boolean(absence.startTime || absence.endTime)} type="number" min="0" step="0.5" placeholder="Tutto il giorno" value={absence.hoursPerDay ?? ''} onChange={(event) => updateAbsence(absence.id, { hoursPerDay: event.target.value ? Number(event.target.value) : null })} />
-            <label>Dalle <input aria-label="Ora inizio assenza" type="time" value={absence.startTime ?? ''} onChange={event => updateAbsence(absence.id, { startTime: event.target.value })} /></label>
-            <label>Alle <input aria-label="Ora fine assenza" type="time" value={absence.endTime ?? ''} onChange={event => updateAbsence(absence.id, { endTime: event.target.value })} /></label>
-          </div>
-          <input aria-label="Motivo assenza" placeholder="Motivo" value={absence.reason} onChange={(event) => updateAbsence(absence.id, { reason: event.target.value })} />
-          <button
-            className="danger"
-            onClick={() => {
-              markDirty()
-              setDraft((value) => ({
-                ...value,
-                absences: value.absences.filter((item) => item.id !== absence.id),
-              }))
-            }}
-          >
-            Rimuovi
-          </button>
-        </div>)}
-      </div>
-    </section>
   </section>
 }
