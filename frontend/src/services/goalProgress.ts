@@ -179,3 +179,37 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     monthlyProgress,
   ]
 }
+
+/** Remaining monthly margin split into calendar weeks, using the same operator capacity
+ * as the current goal card. Rounding is reconciled in the final week. */
+export function remainingWeeklyMarginGoals(data: ErpData, today: string, remainingMargin: number) {
+  const settings = data.plannerSettings
+  const operators = settings.operators.filter(operator => operator.active)
+  const capacity = (day: string) => operators.length
+    ? operators.reduce((sum, operator) => sum + workingMinutesForDate(day, settings, operator), 0)
+    : Number(isWorkingDate(day, settings))
+  const monthKey = today.slice(0, 7)
+  const [year, monthNumber] = monthKey.split('-').map(Number)
+  const monthEnd = monthKey + '-' + String(new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()).padStart(2, '0')
+  const weeks: Array<{ start: string; end: string; minutes: number; amount: number }> = []
+  for (let start = today; start <= monthEnd;) {
+    const sunday = addDays(goalWeekStart(start), 6)
+    const end = sunday < monthEnd ? sunday : monthEnd
+    let minutes = 0
+    for (let day = start; day <= end; day = addDays(day, 1)) minutes += capacity(day)
+    weeks.push({ start, end, minutes, amount: 0 })
+    start = addDays(end, 1)
+  }
+  const totalMinutes = weeks.reduce((sum, week) => sum + week.minutes, 0)
+  const remainingCents = Math.round(Math.max(0, remainingMargin) * 100)
+  if (totalMinutes > 0) {
+    let allocated = 0
+    weeks.forEach((week, index) => {
+      const cents = index === weeks.length - 1 ? remainingCents - allocated
+        : Math.round(remainingCents * week.minutes / totalMinutes)
+      allocated += cents
+      week.amount = cents / 100
+    })
+  }
+  return { weeks, totalMinutes, unallocated: totalMinutes > 0 ? 0 : remainingCents / 100 }
+}
