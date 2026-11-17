@@ -1323,10 +1323,20 @@ function App() {
           tabletConnection={cloudReady && cloudMembership?.role === 'owner' && cloudSession && cloudConfig
             ? {companyId: cloudMembership.companyId, session: cloudSession, config: cloudConfig} : undefined}
           onSave={async (plannerSettings) => {
-          const nextData = { ...data, plannerSettings }
+          const absencesChanged = JSON.stringify(data.plannerSettings.absences) !== JSON.stringify(plannerSettings.absences)
+          const editedAt = new Date().toISOString()
+          const planningNow = toRomePlanningClock(editedAt)
+          const nextData = absencesChanged
+            ? recalculateOperatorPrograms({
+              ...data,
+              plannerSettings: { ...plannerSettings, operatorProgramEditedAt: editedAt },
+            }, planningNow.slice(0, 10), 'Ricalcolo per variazione assenze', planningNow)
+            : { ...data, plannerSettings }
           try {
             await saveDatabase(nextData)
-            setData(nextData)
+            const saved = await loadDatabase()
+            nextPersistenceActionRef.current = 'sync-only'
+            setData(saved)
             setNotice('Modifiche salvate')
             setError('')
           } catch {
