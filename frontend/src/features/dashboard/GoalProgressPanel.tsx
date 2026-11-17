@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { MarginTargetRatePanel } from './MarginTargetRatePanel'
-import { calculateGoalProgress, goalWeekStart } from '../../services/goalProgress'
+import { calculateGoalProgress, goalWeekStart, remainingWeeklyMarginGoals } from '../../services/goalProgress'
 import { addDays } from '../../services/workCalendar'
 import type { VehicleWork } from '../../services/productionPlanningState'
 import type { ErpData } from '../../types'
@@ -25,6 +25,8 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
   const periods = useMemo(() => calculateGoalProgress(data, today, vehicleWork, { day, week }), [data, today, vehicleWork, day, week])
 
   const target = useMemo(() => marginTargetRate(data, today.slice(0, 7), today, periods[2]), [data, today, periods])
+
+  const breakdown = useMemo(() => remainingWeeklyMarginGoals(data, today, target?.remainingMargin ?? 0), [data, today, target?.remainingMargin])
 
   return <>
   <section className="panel" aria-label="Avanzamento obiettivi di margine">
@@ -73,6 +75,20 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
       })}
     </div>
   </section>
+  {target && <section className="panel" aria-label="Ripartizione del margine residuo fino a fine mese">
+    <div className="panel-head"><h3>Obiettivi delle settimane rimanenti</h3></div>
+    <p>Margine da recuperare dal {formatDate(today)} alla fine del mese, distribuito in base alle ore disponibili degli operatori. Le settimane già trascorse non vengono conteggiate.</p>
+    <div className="planner-detail-summary-grid economic-grid">
+      {breakdown.weeks.map(week => <div key={week.start}>
+        <span>{formatDate(week.start)} – {formatDate(week.end)}</span>
+        <strong>{money.format(week.amount)}</strong>
+        <small>{(week.minutes / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} ore disponibili</small>
+      </div>)}
+    </div>
+    <p><strong>Totale da recuperare: {money.format(breakdown.weeks.reduce((sum, week) => sum + week.amount, 0) + breakdown.unallocated)}</strong> · Residuo mensile: {money.format(target.remainingMargin)}</p>
+    {breakdown.unallocated > 0 && <small>Attenzione: nessuna ora lavorativa disponibile. {money.format(breakdown.unallocated)} non sono assegnabili alle settimane: controlla turni e assenze.</small>}
+    {target.partial && <small>Importi provvisori: alcune fasi hanno costi incompleti.</small>}
+  </section>}
   {target && <MarginTargetRatePanel target={target} />}
   </>
 }
