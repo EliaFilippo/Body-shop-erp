@@ -79,13 +79,18 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
     <div className="panel-head"><h3>Obiettivi delle settimane rimanenti</h3></div>
     <p>Margine da recuperare dal {formatDate(today)} alla fine del mese, distribuito in base alle ore disponibili degli operatori. Le settimane già trascorse non vengono conteggiate.</p>
     <div className="planner-detail-summary-grid economic-grid">
+      <div><span>Residuo mensile da recuperare</span><strong>{money.format(target.remainingMargin)}</strong></div>
+      <div><span>Ore lavorative ancora disponibili</span><strong>{(breakdown.totalMinutes / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} h</strong></div>
+      <div><span>Media necessaria per ora</span><strong>{breakdown.totalMinutes > 0 ? money.format(target.remainingMargin / (breakdown.totalMinutes / 60)) + '/h' : 'Non calcolabile'}</strong></div>
+    </div>
+    <div className="planner-detail-summary-grid economic-grid">
       {breakdown.weeks.map(week => <div key={week.start}>
         <span>{formatDate(week.start)} – {formatDate(week.end)}</span>
         <strong>{money.format(week.amount)}</strong>
-        <small>{(week.minutes / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} ore disponibili</small>
+        <small>Ore previste: {(week.minutes / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} ore disponibili</small>
       </div>)}
     </div>
-    <p><strong>Totale da recuperare: {money.format(breakdown.weeks.reduce((sum, week) => sum + week.amount, 0) + breakdown.unallocated)}</strong> · Residuo mensile: {money.format(target.remainingMargin)}</p>
+    <p><strong>Somma degli obiettivi settimanali: {money.format(breakdown.weeks.reduce((sum, week) => sum + week.amount, 0) + breakdown.unallocated)}</strong> · Residuo mensile: {money.format(target.remainingMargin)}</p>
     {breakdown.unallocated > 0 && <small>Attenzione: nessuna ora lavorativa disponibile. {money.format(breakdown.unallocated)} non sono assegnabili alle settimane: controlla turni e assenze.</small>}
     {target.partial && <small>Importi provvisori: alcune fasi hanno costi incompleti.</small>}
   </section>}
