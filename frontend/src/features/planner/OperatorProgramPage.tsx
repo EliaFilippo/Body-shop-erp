@@ -40,9 +40,14 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
   const openJobs = (data.jobs ?? []).filter(job => !closed.jobIds.has(job.id))
   const programs = useMemo(() => data.plannerSettings.operators.filter(operator => operator.active).map(operator => {
     const program = (visiblePrograms ?? []).find(item => item.date === date && item.operatorId === operator.id)
+    const hasAbsence = data.plannerSettings.absences.some(absence =>
+      absence.operatorId === operator.id && date >= absence.startDate && date <= absence.endDate)
+    if (program && hasAbsence && workingMinutesForDate(date, data.plannerSettings, operator) === 0) {
+      return { ...program, tasks: [] }
+    }
     return program ? {...program, tasks: program.tasks.filter(task => !closed.hasTask(task) && (task.id.startsWith('office-manual:') || !waiting.hasTask(task)))}
       : { operatorId: operator.id, operatorName: operator.name, date, revision: 0, tasks: [] }
-  }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [visiblePrograms, data.plannerSettings.operators, date, closed, waiting])
+  }).sort((a,b) => a.operatorName.localeCompare(b.operatorName,'it-IT')), [visiblePrograms, data.plannerSettings, date, closed, waiting])
   const history = useMemo(() => (data.operatorProgramHistory ?? []).filter((item) => item.date === date).slice(0, 6), [data.operatorProgramHistory, date])
   const attendanceMinutes=(id:string)=>workingMinutesForDate(date,data.plannerSettings,data.plannerSettings.operators.find(o=>o.id===id))
   const idleReason=(id:string)=>{
