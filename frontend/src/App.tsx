@@ -1109,6 +1109,28 @@ function App() {
     if(!databaseReady||!cloudReady||cloudMembership?.role!=='owner')return
     setData(current=>enableFilippoTransport(current,cloudMembership.companyId))
   },[databaseReady,cloudReady,cloudMembership])
+  const savePlannerSettings = async (plannerSettings: ErpData['plannerSettings']) => {
+    const absencesChanged = JSON.stringify(data.plannerSettings.absences) !== JSON.stringify(plannerSettings.absences)
+    const editedAt = new Date().toISOString()
+    const planningNow = toRomePlanningClock(editedAt)
+    const nextData = absencesChanged
+      ? recalculateOperatorPrograms({
+        ...data,
+        plannerSettings: { ...plannerSettings, operatorProgramEditedAt: editedAt },
+      }, planningNow.slice(0, 10), 'Ricalcolo per variazione assenze', planningNow)
+      : { ...data, plannerSettings }
+    try {
+      await saveDatabase(nextData)
+      const saved = await loadDatabase()
+      nextPersistenceActionRef.current = 'sync-only'
+      setData(saved)
+      setNotice('Modifiche salvate')
+      setError('')
+    } catch {
+      setError('Salvataggio non riuscito')
+      throw new Error('Salvataggio non riuscito')
+    }
+  }
   const customerById = (customerId: string) => data.customers.find((customer) => customer.id === customerId)
   const occupied = data.vehicles.filter(vehicle => vehicle.coneNumber !== null && !isVehicleDeliveredStatus(data.plannerSettings, vehicle.status))
   const filteredCustomers = data.customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.email}`.toLowerCase().includes(query.toLowerCase()))
@@ -1318,32 +1340,11 @@ function App() {
           if (hours > capacity.protected && !window.confirm(`La lavorazione richiede ${hours} ore, mentre il ${date} dispone di ${capacity.protected} ore protette. Eccedenza: ${Math.round((hours - capacity.protected) * 100) / 100} ore. Vuoi comunque fissare questa data di inizio?`)) return
           setData({ ...data, vehicles: data.vehicles.map((item) => item.id === vehicleId ? { ...item, manualPlanningDate: date } : item) })
         }} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
-        {view === 'operator-program' && <OperatorProgramPage liveClock={displayData!==data} data={data} visiblePrograms={displayData.operatorPrograms} onChange={setData} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
+        {view === 'operator-program' && <OperatorProgramPage liveClock={displayData!==data} data={data} visiblePrograms={displayData.operatorPrograms} onChange={setData} onSaveAbsences={absences => savePlannerSettings({ ...data.plannerSettings, absences })} connection={cloudConfig && cloudSession && cloudMembership && cloudReady ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} />}
         {view === 'planner-settings' && <PlannerSettingsPage settings={data.plannerSettings}
           tabletConnection={cloudReady && cloudMembership?.role === 'owner' && cloudSession && cloudConfig
             ? {companyId: cloudMembership.companyId, session: cloudSession, config: cloudConfig} : undefined}
-          onSave={async (plannerSettings) => {
-          const absencesChanged = JSON.stringify(data.plannerSettings.absences) !== JSON.stringify(plannerSettings.absences)
-          const editedAt = new Date().toISOString()
-          const planningNow = toRomePlanningClock(editedAt)
-          const nextData = absencesChanged
-            ? recalculateOperatorPrograms({
-              ...data,
-              plannerSettings: { ...plannerSettings, operatorProgramEditedAt: editedAt },
-            }, planningNow.slice(0, 10), 'Ricalcolo per variazione assenze', planningNow)
-            : { ...data, plannerSettings }
-          try {
-            await saveDatabase(nextData)
-            const saved = await loadDatabase()
-            nextPersistenceActionRef.current = 'sync-only'
-            setData(saved)
-            setNotice('Modifiche salvate')
-            setError('')
-          } catch {
-            setError('Salvataggio non riuscito')
-            throw new Error('Salvataggio non riuscito')
-          }
-        }} />}
+          onSave={savePlannerSettings} />}
         {view === 'vehicle-statuses' && <VehicleStatusesSettingsPage settings={data.plannerSettings} vehicles={data.vehicles} onSave={async (plannerSettings) => {
           const nextData = {
             ...data,

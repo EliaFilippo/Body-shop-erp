@@ -1,3 +1,4 @@
+import { OperatorAbsences } from './OperatorAbsences'
 import { ManualOperatorDayEditor } from './ManualOperatorDayEditor'
 import { toRomePlanningClock } from '../../services/romePlanningClock'
 import { closedPlanningWork, waitingPartsPlanningWork } from '../../services/closedPlanningWork'
@@ -7,17 +8,18 @@ import { RunningTaskCard, useOperatorStatus } from './operatorLiveStatus'
 import type { NoticesConnection } from '../production/PhaseNotices'
 import { workingMinutesForDate } from '../../services/workCalendar'
 import { phaseDisplayName } from '../../services/workCycle'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { isVehicleWaitingForCone } from '../../services/erp'
 import { recalculateOperatorPrograms, selectSchedulablePhase, todayKey } from '../../services/planner'
 import { supportsOperatorDuty } from '../../services/operatorSkills'
-import type { ErpData } from '../../types'
+import type { ErpData, PlannerAbsence } from '../../types'
 
 const timeLabel = (iso: string, liveClock = false) => new Intl.DateTimeFormat('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: liveClock ? 'Europe/Rome' : 'UTC' }).format(new Date(iso))
 
-export function OperatorProgramPage({ data, onChange, connection, liveClock = false, visiblePrograms = data.operatorPrograms }: {
+export function OperatorProgramPage({ data, onChange, onSaveAbsences, connection, liveClock = false, visiblePrograms = data.operatorPrograms }: {
   data: ErpData
   onChange: (next: ErpData) => void
+  onSaveAbsences?: (absences: PlannerAbsence[]) => Promise<void>
   connection?: NoticesConnection
   liveClock?: boolean
   visiblePrograms?: ErpData['operatorPrograms']
@@ -32,6 +34,16 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
     const planningNow = toRomePlanningClock(editedAt)
     const updated = { ...next, plannerSettings: { ...next.plannerSettings, operatorProgramEditedAt: editedAt } }
     onChange(recalculateOperatorPrograms(updated, planningNow.slice(0, 10), reason, planningNow))
+  }
+  const absenceSaveInProgress = useRef(false)
+  const saveAbsences = async (absences: PlannerAbsence[]) => {
+    if (!onSaveAbsences || absenceSaveInProgress.current) throw new Error('Salvataggio in corso')
+    absenceSaveInProgress.current = true
+    try {
+      await onSaveAbsences(absences)
+    } finally {
+      absenceSaveInProgress.current = false
+    }
   }
   const [selectedPhases, setSelectedPhases] = useState<Record<string, string>>({})
   const moveDay = (days: number) => { const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate()+days); setDate(next.toISOString().slice(0,10)) }
@@ -163,6 +175,8 @@ export function OperatorProgramPage({ data, onChange, connection, liveClock = fa
       <div className="week-grid">
         {programs.map((program) => <article className="day-card" key={program.operatorId}>
           <div className="day-head"><strong>{program.operatorName}</strong><span>{program.revision ? `rev. ${program.revision}` : 'Senza assegnazioni'}</span></div>
+          {onSaveAbsences && <OperatorAbsences key={date} operatorId={program.operatorId} operatorName={program.operatorName}
+            date={date} absences={data.plannerSettings.absences} onSave={saveAbsences} />}
           <p>{Math.round(program.tasks.reduce((sum,task)=>sum+task.plannedMinutes,0))} min programmati / {Math.round(attendanceMinutes(program.operatorId))} min di presenza</p><div className="day-jobs">
             {date===todayKey()&&running.filter(t=>t.operatorId===program.operatorId&&!closed.jobIds.has(t.jobId)).map(task=>{
               const job=data.jobs?.find(j=>j.id===task.jobId)
