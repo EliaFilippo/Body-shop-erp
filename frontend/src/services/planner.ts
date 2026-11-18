@@ -330,6 +330,7 @@ export function sortPlanningVehicles(vehicles: Vehicle[]) {
     const aBlocked = Boolean(a.blockReason) || a.partsStatus === 'Mancanti'
     const bBlocked = Boolean(b.blockReason) || b.partsStatus === 'Mancanti'
     return Number(aBlocked) - Number(bBlocked)
+      || Number(Boolean(b.scheduledStartDate)) - Number(Boolean(a.scheduledStartDate))
       || Number(Boolean(b.planningPrecedence)) - Number(Boolean(a.planningPrecedence))
       || (a.requestedDeliveryDate || '9999-12-31').localeCompare(b.requestedDeliveryDate || '9999-12-31')
       || b.expectedMargin - a.expectedMargin
@@ -356,7 +357,7 @@ function allocate(
 ) {
   let remaining = remainingHours(vehicle)
   const assignments: PlannerAssignment[] = []
-  const start = [referenceDate, vehicle.presentInShop ? undefined : vehicle.plannedEntryDate, vehicle.manualPlanningDate].filter(Boolean).sort().at(-1) ?? referenceDate
+  const start = [referenceDate, vehicle.presentInShop ? undefined : vehicle.plannedEntryDate, vehicle.manualPlanningDate, vehicle.scheduledStartDate].filter(Boolean).sort().at(-1) ?? referenceDate
   let date = start
   for (let day = 0; day < maxDays && remaining > 0; day += 1, date = addDays(date, 1)) {
     const available = availableFor(date, settings, usage, protectedMode)
@@ -1078,21 +1079,22 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]))
   const {jobIds} = closedPlanningWork(data)
   const openJobs = (data.jobs ?? []).filter(job => job.vehicleId && !jobIds.has(job.id))
-  const hasPrecedence = openJobs.some(job => job.planningPrecedence)
+  const hasPrecedence = openJobs.some(job => job.planningPrecedence || vehiclesById.get(job.vehicleId ?? '')?.scheduledStartDate)
   const precedenceRank = ({ job, phase }: {job: RepairJob; phase: JobPhase}) => {
     if (!hasPrecedence) return 0
     if (phase.status === 'In lavorazione') return 0
-    return job.planningPrecedence ? 1 : 2
+    return job.planningPrecedence || vehiclesById.get(job.vehicleId ?? '')?.scheduledStartDate ? 1 : 2
   }
   const candidates = openJobs
     .map((savedJob, arrivalIndex) => {
       const vehicle = vehiclesById.get(savedJob.vehicleId ?? '')
       if (!vehicle) return null
-      const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate)
+      const job = !vehicle.scheduledStartDate && vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate)
         ? { ...savedJob, entryDate: effectiveDate } : savedJob
       const normal = selectSchedulablePhase(job)
       const alternate = vehicle.presentInShop && normal?.phase.status !== 'In lavorazione'
         ? independentShopPhase(job, normal?.phase.id) : null
+      const plannedFloor = vehicle.scheduledStartDate ? `${vehicle.scheduledStartDate}T00:00:00.000Z` : ''
       const selectedPhase = normal ?? alternate
       if (!selectedPhase || inManualProgram(job.id, selectedPhase.phase.id)) return null
       const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle)
@@ -1111,10 +1113,10 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
       return {
         job,
         phase: selectedPhase.phase,
-        readyAt: [selectedPhase.readyAt, availability?.jobs[job.id] ?? ''].sort().at(-1)!,
+        readyAt: [selectedPhase.phase.status === 'In lavorazione' ? selectedPhase.readyAt : [selectedPhase.readyAt, plannedFloor].sort().at(-1)!, availability?.jobs[job.id] ?? ''].sort().at(-1)!,
         independent: !normal,
         alternate: normal && alternate && !inManualProgram(job.id, alternate.phase.id)
-          ? { phase: alternate.phase, readyAt: [alternate.readyAt, availability?.jobs[job.id] ?? ''].sort().at(-1)! } : null,
+          ? { phase: alternate.phase, readyAt: [alternate.readyAt, plannedFloor, availability?.jobs[job.id] ?? ''].sort().at(-1)! } : null,
         vehicle,
         blocked,
         dueToday,
@@ -1219,7 +1221,8 @@ export function generateOperatorPrograms(data: ErpData, date = todayKey(), reaso
         || Number(ageB>4)-Number(ageA>4)
         || ((ageA>4&&ageB>4)?ageB-ageA:0)
         || a.arrivalIndex-b.arrivalIndex
-      if(slot<earliest||(slot===earliest&&priorityOrder<0)){earliest=slot;nextIndex=index;chosen=a}
+      const reservationOrder = precedenceRank(a) - precedenceRank(b)
+      if(reservationOrder<0||(reservationOrder===0&&(slot<earliest||(slot===earliest&&priorityOrder<0)))){earliest=slot;nextIndex=index;chosen=a}
     }
     if(nextIndex!==candidateIndex)[candidates[candidateIndex],candidates[nextIndex]]=[candidates[nextIndex],candidates[candidateIndex]]
     const item=chosen
