@@ -100,10 +100,12 @@ describe('pubblicazione automatica dopo conferma', () => {
   const session = { email: 'owner@example.invalid', userId: 'owner', accessToken: 'test', refreshToken: 'test', expiresIn: 3600 }
   const config = { url: 'https://example.invalid', anonKey: 'test' }
   it('pubblica una nuova commessa senza avviare timer e senza cambiare i prezzi', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] }))).mockResolvedValueOnce(new Response('null'))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] }))).mockResolvedValueOnce(new Response(null, { status: 204 }))
     try {
       const data = dataForPublish(); const before = JSON.stringify(data)
-      expect(await publishProductionJobs(data, 'company', 12, session, config)).toEqual([])
+      const first = publishProductionJobs(data, 'company', 12, session, config)
+      const second = publishProductionJobs(data, 'company', 12, session, config)
+      expect(await Promise.all([first, second])).toEqual([[], []])
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(String(fetchMock.mock.calls[1][0])).toContain('production_prepare_job')
       expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ p_job_id: 'auto-job', p_revision: 12, p_budget: 150 })

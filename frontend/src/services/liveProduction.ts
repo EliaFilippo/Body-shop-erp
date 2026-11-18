@@ -144,13 +144,20 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
     method: 'POST', headers: { 'Content-Type': 'application/json', apikey: config.anonKey, Authorization: `Bearer ${session.accessToken}` },
     body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
   }, session, config, fetcher)
-  const payload = await response.json()
+  if (response.status === 401) throw new Error('Accesso scaduto. Esci e accedi di nuovo; il tempo già avviato resta registrato.')
   if (!response.ok) {
-    if (response.status === 401) throw new Error('Accesso scaduto. Esci e accedi di nuovo; il tempo già avviato resta registrato.')
+    const payload = await response.json().catch(() => null)
     if (payload?.code === 'PGRST202') throw new Error('La produzione condivisa deve essere attivata su Supabase prima di usare i tablet.')
-    throw new Error(payload?.message || 'Collegamento non riuscito. Il timer sul server continua finché non viene messo in pausa.')
+    throw new Error(payload?.message || `Collegamento non riuscito (HTTP ${response.status}). Verifica lo stato prima di riprovare.`)
   }
-  return payload as T
+
+  const bodyText = await response.text()
+  if (name === 'production_prepare_job' && !bodyText.trim()) return undefined as T
+  try {
+    return JSON.parse(bodyText) as T
+  } catch {
+    throw new Error('Risposta del server incompleta. Verifica lo stato prima di riprovare.')
+  }
 }
 
 // Remember budgets the server has locked because work is already recorded.
@@ -190,13 +197,28 @@ async function publishProductionRevision(data: Pick<ErpData,'plannerSettings'|'j
   return { warnings }
 }
 
-export async function publishProductionJobs(data: Pick<ErpData, 'plannerSettings' | 'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
+async function publishLatestProductionJobs(data: Pick<ErpData, 'plannerSettings' | 'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
   const first = await publishProductionRevision(data, companyId, revision, session, config)
   if (!first.stale) return first.warnings
   const latest = await loadProductionArchive(companyId, session, config, true)
   if (!latest || latest.revision <= revision) return [...first.warnings, first.stale]
   const retry = await publishProductionRevision(latest.payload, companyId, latest.revision, session, config)
   return retry.stale ? [...retry.warnings, retry.stale] : retry.warnings
+}
+
+const pendingPublications = new WeakMap<CloudAuthSession, Map<string, Promise<string[]>>>()
+
+export function publishProductionJobs(data: Pick<ErpData, 'plannerSettings' | 'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
+  const pending = pendingPublications.get(session) ?? new Map<string, Promise<string[]>>()
+  pendingPublications.set(session, pending)
+  const key = JSON.stringify([config.url, companyId, revision])
+  const existing = pending.get(key)
+  if (existing) return existing
+
+  const publication = publishLatestProductionJobs(data, companyId, revision, session, config)
+    .finally(() => pending.delete(key))
+  pending.set(key, publication)
+  return publication
 }
 
 /** Retry saved, confirmed work on load/reconnect without another owner approval. */
