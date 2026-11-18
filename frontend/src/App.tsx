@@ -1,3 +1,5 @@
+import { VehicleScheduleDates } from './features/cones/VehicleScheduleDates'
+import { setVehicleScheduleDates } from './services/vehicleScheduleDates'
 import type { ComponentProps } from 'react'
 import { DeliveryMarginSummary } from './features/workflow/DeliveryMarginSummary'
 import { ConeCustomerSummary } from './features/cones/ConeCustomerSummary'
@@ -1432,7 +1434,10 @@ function App() {
             query={query}
             onAdd={() => { setQuery(''); setModal({ type: 'vehicle' }) }}
             renderStatus={renderVehicleStatus}
-            renderActions={(vehicle, estimate, job) => <>{renderVehicleActions(vehicle)}{renderEstimateActions(estimate, job)}</>}
+            renderActions={(vehicle, estimate, job) => <><VehicleScheduleDates data={displayData} vehicle={vehicle} onSave={(start, delivery) => {
+              setData(current => setVehicleScheduleDates(current, vehicle.id, start, delivery))
+              setError('')
+            }} />{renderVehicleActions(vehicle)}{renderEstimateActions(estimate, job)}</>}
             onMove={(vehicleId, cone) => {
               try { setData(moveVehicleCone(data, vehicleId, cone)); setError('') }
               catch (problem) { setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') }
