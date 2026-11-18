@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react'
 import { DeliveryMarginSummary } from './features/workflow/DeliveryMarginSummary'
 import { ConeCustomerSummary } from './features/cones/ConeCustomerSummary'
 import { VehicleHistory } from './features/vehicles/VehicleHistory'
-import { createInvoice, payableDueAlerts, vehicleInvoiceTaxableAmount, vehicleWorkFinished } from './services/finance'
+import { createInvoice, payableDueAlerts, vehicleInvoiceTaxableAmount, vehicleReadyForInvoice } from './services/finance'
 import { ribaVehicleOptions } from './services/vehicleRiba'
 import { practiceQueueEntries, type PracticeQueueEntry } from './services/practiceQueues'
 import { useCompletionPlan } from './hooks/useCompletionPlan'
@@ -2063,9 +2063,7 @@ function getVehicleBillingActions(billingData: ErpData) {
   }
 
   return (vehicle: Vehicle) => {
-    const ready = vehicleWorkFinished(billingData, vehicle)
-      || isVehicleDeliveredStatus(billingData.plannerSettings, vehicle.status)
-      || vehicle.billingStatus === 'Da fatturare'
+    const ready = vehicleReadyForInvoice(billingData, vehicle)
     const invoiced = Boolean(vehicle.invoiceId) || vehicle.billingStatus === 'Fatturata'
     const invoice = vehicle.invoiceId ? invoices.get(vehicle.invoiceId) : undefined
     const ribaPending = ready && ((!invoiced && !loadedRibaIds.has(vehicle.id)) || (invoice?.paymentMethod === 'R.I.B.A.' && pendingRibaIds.has(vehicle.id)))
