@@ -159,6 +159,23 @@ function cyclePhasesForLine(line) {
 }
 
 // frontend/src/services/productionPlanningState.ts
+var manualPhaseCodes = [
+  "wash-exterior",
+  "disassembly",
+  "hail",
+  "bodywork",
+  "filler",
+  "masking",
+  "painting",
+  "unmasking",
+  "assembly",
+  "mechanical",
+  "polishing",
+  "wash-interior",
+  "touchups",
+  "transport"
+];
+var manualPhaseNames = new Map(manualPhaseCodes.map((code, index) => [`manual-phase:${code}`, WORK_CYCLE[index]]));
 var sameJson = (a, b) => {
   const stable = (v) => JSON.stringify(v, (_key, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a2], [b2]) => a2.localeCompare(b2))) : value);
   return stable(a) === stable(b);
@@ -233,6 +250,31 @@ function applyProductionPlanningState(data, state) {
         changed = true;
       }
     }
+    if (delivered) {
+      for (const [id2, entries] of entriesByJob.get(job.id) ?? []) {
+        const name = manualPhaseNames.get(id2);
+        if (!name || phases.some((phase) => phase.id === id2) || entries.some((entry) => entry.runningSince) || !entries.some((entry) => entry.lastEndedAt)) continue;
+        phases.push({
+          id: id2,
+          name,
+          requiredSkill: name,
+          status: "Completata",
+          estimatedMinutes: 0,
+          completedAt: job.deliveredAt,
+          endedAt: job.deliveredAt,
+          completedByName: "Ufficio \xB7 Consegna",
+          actualMinutes: entries.reduce((total, entry) => total + entry.closedSeconds / 60, 0),
+          notes: "",
+          blockedReason: "",
+          operatorAssignments: [],
+          manualExtra: true,
+          manualWorkTracked: true,
+          serverWorkTracked: true
+        });
+        changed = true;
+        jobChanged = true;
+      }
+    }
     if (phases.length !== job.phases.length) {
       const order = (p) => p.cycleOrder ?? WORK_CYCLE.indexOf(p.name) + 1;
       phases.sort((a, b) => order(a) - order(b));
@@ -240,7 +282,7 @@ function applyProductionPlanningState(data, state) {
     phases = phases.map((phase) => {
       if (!delivered && phase.status === "Completata" && !phase.serverWorkTracked) return phase;
       const entries = entriesByJob.get(job.id)?.get(phase.id);
-      if (!entries) return phase;
+      if (!entries || delivered && entries.some((entry) => entry.runningSince)) return phase;
       const assignments = entries.map((e) => ({
         id: "tablet:" + e.operatorId,
         operatorName: e.operatorName,
@@ -250,7 +292,22 @@ function applyProductionPlanningState(data, state) {
         activityStatus: e.runningSince ? "Attivo" : "Concluso"
       }));
       const operatorAssignments = [...(phase.operatorAssignments ?? []).filter((a) => !a.id.startsWith("tablet:")), ...assignments];
-      const next = { ...phase, operatorAssignments, status: !delivered && phase.status === "Da fare" ? "In lavorazione" : phase.status };
+      const deliveredExtra = delivered && phase.notRequired && assignments.some((a) => a.endedAt && a.workedMinutes > 0);
+      const next = { ...phase, operatorAssignments };
+      if (delivered) {
+        next.actualMinutes = Number.isFinite(phase.tabletWorkedSeconds) && phase.tabletWorkedSeconds >= 0 ? phase.tabletWorkedSeconds / 60 : operatorAssignments.reduce((total, assignment) => total + (assignment.endedAt ? assignment.workedMinutes : 0), 0);
+        next.serverWorkTracked = true;
+        if (deliveredExtra) Object.assign(next, {
+          notRequired: false,
+          manualExtra: true,
+          manualWorkTracked: true,
+          status: "Completata",
+          remainingTimeUnknown: false,
+          completedAt: phase.completedAt ?? job.deliveredAt,
+          endedAt: phase.endedAt ?? job.deliveredAt,
+          completedByName: phase.completedByName ?? "Ufficio \xB7 Consegna"
+        });
+      } else if (phase.status === "Da fare") next.status = "In lavorazione";
       if (sameJson(next, phase)) return phase;
       changed = true;
       jobChanged = true;
@@ -1014,18 +1071,19 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
   const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const { jobIds } = closedPlanningWork(data);
   const openJobs = (data.jobs ?? []).filter((job) => job.vehicleId && !jobIds.has(job.id));
-  const hasPrecedence = openJobs.some((job) => job.planningPrecedence);
+  const hasPrecedence = openJobs.some((job) => job.planningPrecedence || vehiclesById.get(job.vehicleId ?? "")?.scheduledStartDate);
   const precedenceRank = ({ job, phase }) => {
     if (!hasPrecedence) return 0;
     if (phase.status === "In lavorazione") return 0;
-    return job.planningPrecedence ? 1 : 2;
+    return job.planningPrecedence || vehiclesById.get(job.vehicleId ?? "")?.scheduledStartDate ? 1 : 2;
   };
   const candidates = openJobs.map((savedJob, arrivalIndex) => {
     const vehicle = vehiclesById.get(savedJob.vehicleId ?? "");
     if (!vehicle) return null;
-    const job = vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate) ? { ...savedJob, entryDate: effectiveDate } : savedJob;
+    const job = !vehicle.scheduledStartDate && vehicle.presentInShop && (!savedJob.entryDate || savedJob.entryDate > effectiveDate) ? { ...savedJob, entryDate: effectiveDate } : savedJob;
     const normal2 = selectSchedulablePhase(job);
     const alternate = vehicle.presentInShop && normal2?.phase.status !== "In lavorazione" ? independentShopPhase(job, normal2?.phase.id) : null;
+    const plannedFloor = vehicle.scheduledStartDate ? `${vehicle.scheduledStartDate}T00:00:00.000Z` : "";
     const selectedPhase = normal2 ?? alternate;
     if (!selectedPhase || inManualProgram(job.id, selectedPhase.phase.id)) return null;
     const blocked = isJobBlocked(job) || Boolean(vehicle.blockReason) || isVehicleWaitingForParts(data.plannerSettings, vehicle);
@@ -1044,9 +1102,9 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
     return {
       job,
       phase: selectedPhase.phase,
-      readyAt: [selectedPhase.readyAt, availability?.jobs[job.id] ?? ""].sort().at(-1),
+      readyAt: [selectedPhase.phase.status === "In lavorazione" ? selectedPhase.readyAt : [selectedPhase.readyAt, plannedFloor].sort().at(-1), availability?.jobs[job.id] ?? ""].sort().at(-1),
       independent: !normal2,
-      alternate: normal2 && alternate && !inManualProgram(job.id, alternate.phase.id) ? { phase: alternate.phase, readyAt: [alternate.readyAt, availability?.jobs[job.id] ?? ""].sort().at(-1) } : null,
+      alternate: normal2 && alternate && !inManualProgram(job.id, alternate.phase.id) ? { phase: alternate.phase, readyAt: [alternate.readyAt, plannedFloor, availability?.jobs[job.id] ?? ""].sort().at(-1) } : null,
       vehicle,
       blocked,
       dueToday,
@@ -1129,7 +1187,8 @@ function generateOperatorPrograms(data, date = todayKey(), reason = "Ricalcolo a
       const ageA = Math.max(0, betweenDays(a.job.createdAt.slice(0, 10), effectiveDate));
       const ageB = Math.max(0, betweenDays(b.job.createdAt.slice(0, 10), effectiveDate));
       const priorityOrder = precedenceRank(a) - precedenceRank(b) || paintPriority(a).rank - paintPriority(b).rank || a.score.dueDate.localeCompare(b.score.dueDate) || (martinCanStart(a, slot) && martinCanStart(b, earliest) ? phaseResidualMinutes(b.phase, now, b.job) - phaseResidualMinutes(a.phase, now, a.job) : 0) || b.score.totalMargin - a.score.totalMargin || Number(ageB > 4) - Number(ageA > 4) || (ageA > 4 && ageB > 4 ? ageB - ageA : 0) || a.arrivalIndex - b.arrivalIndex;
-      if (slot < earliest || slot === earliest && priorityOrder < 0) {
+      const reservationOrder = precedenceRank(a) - precedenceRank(b);
+      if (reservationOrder < 0 || reservationOrder === 0 && (slot < earliest || slot === earliest && priorityOrder < 0)) {
         earliest = slot;
         nextIndex = index;
         chosen = a;
