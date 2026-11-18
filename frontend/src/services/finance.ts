@@ -18,7 +18,7 @@ import type {
   VatQuarterStatus,
 } from '../types'
 import { ownerWithdrawalPlannedDateForMonth } from './economic'
-import { isVehicleDeliveredStatus } from './vehicleStatuses'
+import { isVehicleDeliveredStatus, isVehicleStatusSemantic } from './vehicleStatuses'
 import { normalizePlate } from './erp'
 import { calculateVatQuarterSnapshot } from './vatQuarterly'
 
@@ -389,6 +389,14 @@ export function vehicleWorkFinished(data: Pick<ErpData, 'jobs'>, vehicle: Vehicl
   return phases.length > 0 && phases.every(phase => phase.status === 'Completata')
 }
 
+
+export function vehicleReadyForInvoice(data: Pick<ErpData, 'jobs' | 'plannerSettings'>, vehicle: Vehicle) {
+  return vehicleWorkFinished(data, vehicle)
+    || isVehicleStatusSemantic(data.plannerSettings, vehicle.status, 'ready')
+    || isVehicleDeliveredStatus(data.plannerSettings, vehicle.status)
+    || vehicle.billingStatus === 'Da fatturare'
+}
+
 export function vehicleInvoiceTaxableAmount(data: Pick<ErpData, 'jobs'>, vehicle: Vehicle): number | null {
   const jobs = vehicleInvoiceJobs(data, vehicle)
   if (jobs.length > 1) return null
@@ -409,7 +417,7 @@ export function createInvoice(
   if (!vehicles.length) throw new Error('Seleziona almeno una vettura da fatturare.')
   if (vehicles.some((item) => item.customerId !== input.customerId)) throw new Error('Tutte le vetture devono appartenere allo stesso cliente.')
   if (vehicles.some((item) => item.invoiceId || item.billingStatus === 'Fatturata')) throw new Error('Una o più vetture risultano già fatturate.')
-  if (vehicles.some((item) => !isVehicleDeliveredStatus(data.plannerSettings, item.status) && item.billingStatus !== 'Da fatturare' && !vehicleWorkFinished(data, item))) throw new Error('Puoi fatturare le vetture consegnate o con tutte le lavorazioni completate.')
+  if (vehicles.some((item) => !vehicleReadyForInvoice(data, item))) throw new Error('Puoi fatturare le vetture consegnate o con tutte le lavorazioni completate.')
 
   const vatRate = Number.isFinite(input.vatRate) ? Number(input.vatRate) : data.financeSettings.defaultVatRate
   const lines = vehicles.map((vehicle) => {
