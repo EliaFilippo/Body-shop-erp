@@ -160,15 +160,18 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
   }
 }
 
+const stalePublicationMessage = 'I dati sono cambiati: aggiorna prima di confermare il budget'
+
 // Remember budgets the server has locked because work is already recorded.
 const confirmedBudgets = new WeakMap<CloudAuthSession, Map<string, Set<string>>>()
 
 /** Runs only after a successful cloud save; timers still require the employee's Start. */
 async function publishProductionRevision(data: Pick<ErpData,'plannerSettings'|'jobs'>, companyId: string, revision: number, session: CloudAuthSession, config: CloudAuthConfig) {
   const warnings: string[] = []
-  const feed = await productionRpc<LiveFeed>('production_live_feed', { p_company_id: companyId }, session, config)
-  if (!['owner', 'office'].includes(feed.role)) return { warnings }
-  const published = new Set(feed.jobs.map(job => job.jobId))
+  const state = await productionRpc<{ revision: number; preparedJobIds: string[] } | null>(
+    'production_publication_state', { p_company_id: companyId }, session, config)
+  if (!state) return { warnings }
+  const published = new Set(state.preparedJobIds)
   const jobs = data.jobs ?? []
   const companies = confirmedBudgets.get(session) ?? new Map<string, Set<string>>()
   const confirmed = companies.get(companyId) ?? new Set<string>()
@@ -181,10 +184,11 @@ async function publishProductionRevision(data: Pick<ErpData,'plannerSettings'|'j
     try {
       if (!job.phases.some(phase => !phase.notRequired && phase.name !== 'Consegna' && phase.estimatedMinutes > 0)) throw new Error('Inserisci i tempi delle fasi prima di pubblicare il lavoro.')
       const budget = prepareLiveJob(data, job)
+      if (state.revision !== revision) return { warnings, stale: `${job.number}: ${stalePublicationMessage}` }
       await productionRpc('production_prepare_job', { p_company_id: companyId, p_job_id: job.id, p_revision: revision, p_budget: budget.budget, p_rates: budget.operators }, session, config)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Pubblicazione sul tablet non riuscita.'
-      if (message === 'I dati sono cambiati: aggiorna prima di confermare il budget') {
+      if (message === stalePublicationMessage) {
         return { warnings, stale: `${job.number}: ${message}` }
       }
       if (message === 'Il budget è già in uso: conservato per evitare di modificare il lavoro registrato') {
