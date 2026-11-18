@@ -36,6 +36,7 @@ import {
   updateOwnerWithdrawal,
   updatePayableEntry,
   vehicleInvoiceTaxableAmount,
+  vehicleReadyForInvoice,
   type PayableInput,
 } from '../../services/finance'
 import { CustomerFinanceDetail } from './CustomerFinanceDetail'
@@ -312,7 +313,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   const [vatInstallmentsCount, setVatInstallmentsCount] = useState(1)
   const [vatDetailFilter, setVatDetailFilter] = useState<VatDetailFilter>('all')
 
-  const toInvoice = data.vehicles.filter((vehicle) => vehicle.billingStatus === 'Da fatturare' && !vehicle.invoiceId)
+  const toInvoice = data.vehicles.filter((vehicle) => vehicleReadyForInvoice(data, vehicle) && vehicle.billingStatus !== 'Fatturata' && !vehicle.invoiceId)
   const openInvoices = data.invoices.filter((invoice) => invoice.status !== 'Incassata' && invoice.status !== 'Stornata')
   const quotes = data.quotes ?? []
   const communications = data.communications ?? []
