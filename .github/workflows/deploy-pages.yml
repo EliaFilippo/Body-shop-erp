@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -20,6 +21,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-24.04
+    env:
+      PAGES_ARTIFACT_NAME: github-pages-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +49,24 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
+
+      - name: Wait for the Pages artifact to be listed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..10}; do
+            if count=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+                -f name="$PAGES_ARTIFACT_NAME" --jq '.total_count') && [[ "$count" == 1 ]]; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo 'The Pages artifact is missing or duplicated in the Actions API.' >&2
+          exit 1
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
