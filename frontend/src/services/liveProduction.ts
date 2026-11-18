@@ -152,7 +152,7 @@ export async function productionRpc<T>(name: string, body: Record<string, unknow
   }
 
   const bodyText = await response.text()
-  if (name === 'production_prepare_job' && !bodyText.trim()) return undefined as T
+  if (!bodyText.trim() && (name === 'production_prepare_job' || name === 'production_complete_phase')) return undefined as T
   try {
     return JSON.parse(bodyText) as T
   } catch {
