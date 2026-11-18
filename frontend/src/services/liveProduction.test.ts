@@ -100,23 +100,24 @@ describe('pubblicazione automatica dopo conferma', () => {
   const session = { email: 'owner@example.invalid', userId: 'owner', accessToken: 'test', refreshToken: 'test', expiresIn: 3600 }
   const config = { url: 'https://example.invalid', anonKey: 'test' }
   it('pubblica una nuova commessa senza avviare timer e senza cambiare i prezzi', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] }))).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ revision: 12, preparedJobIds: [] }))).mockResolvedValueOnce(new Response(null, { status: 204 }))
     try {
       const data = dataForPublish(); const before = JSON.stringify(data)
       const first = publishProductionJobs(data, 'company', 12, session, config)
       const second = publishProductionJobs(data, 'company', 12, session, config)
       expect(await Promise.all([first, second])).toEqual([[], []])
       expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(String(fetchMock.mock.calls[0][0])).toContain('production_publication_state')
       expect(String(fetchMock.mock.calls[1][0])).toContain('production_prepare_job')
       expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ p_job_id: 'auto-job', p_revision: 12, p_budget: 150 })
       expect(JSON.stringify(data)).toBe(before)
     } finally { fetchMock.mockRestore() }
   })
   it('salta il budget già in uso anche se la commessa manca dal feed', async () => {
-    const feed = () => new Response(JSON.stringify({ role: 'owner', jobs: [] }))
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(feed())
+    const state = () => new Response(JSON.stringify({ revision: 12, preparedJobIds: [] }))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(state())
       .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Il budget è già in uso: conservato per evitare di modificare il lavoro registrato' }), { status: 400 }))
-      .mockResolvedValueOnce(feed())
+      .mockResolvedValueOnce(state())
     try {
       const data = dataForPublish()
       const connection = { ...session }
@@ -125,8 +126,8 @@ describe('pubblicazione automatica dopo conferma', () => {
       expect(fetchMock).toHaveBeenCalledTimes(3)
     } finally { fetchMock.mockRestore() }
   })
-  it('non ripubblica i lavori già disponibili e segnala dati mancanti', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [{ jobId: 'auto-job' }] }))).mockResolvedValueOnce(new Response(JSON.stringify({ role: 'owner', jobs: [] })))
+  it('salta i budget registrati anche quando mancano dal feed e segnala dati mancanti', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ revision: 12, preparedJobIds: ['auto-job'] }))).mockResolvedValueOnce(new Response(JSON.stringify({ revision: 12, preparedJobIds: [] })))
     try {
       const data = dataForPublish()
       expect(await publishProductionJobs(data, 'company', 12, session, config)).toEqual([])
@@ -157,11 +158,11 @@ describe('righe manuali e ripresa automatica delle commesse confermate',()=>{
  it('rilegge la revisione dopo un conflitto e riprova una sola volta', async () => {
   const data = setup()
   const archive = (revision: number) => new Response(JSON.stringify([{ company_id: 'company', revision, jobs: data.jobs, planner_settings: data.plannerSettings }]))
-  const feed = () => new Response(JSON.stringify({ role: 'owner', jobs: [] }))
+  const state = (revision: number) => new Response(JSON.stringify({ revision, preparedJobIds: [] }))
   const stale = () => new Response(JSON.stringify({ message: 'I dati sono cambiati: aggiorna prima di confermare il budget' }), { status: 400 })
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(archive(42))
-    .mockResolvedValueOnce(feed()).mockResolvedValueOnce(stale()).mockResolvedValueOnce(archive(43))
-    .mockResolvedValueOnce(feed()).mockResolvedValueOnce(stale())
+    .mockResolvedValueOnce(state(42)).mockResolvedValueOnce(stale()).mockResolvedValueOnce(archive(43))
+    .mockResolvedValueOnce(state(43)).mockResolvedValueOnce(stale())
   try {
    const result = await syncConfirmedProductionJobs('company', { accessToken: 'token' } as never, { url: 'https://example.invalid', anonKey: 'public' })
    const attempts = fetchMock.mock.calls.filter(call => String(call[0]).includes('production_prepare_job'))
@@ -169,11 +170,25 @@ describe('righe manuali e ripresa automatica delle commesse confermate',()=>{
    expect(result.warnings[0]).toContain('I dati sono cambiati')
   } finally { fetchMock.mockRestore(); clearProductionArchiveCache() }
  })
+ it('rilegge un archivio superato prima di inviare un budget', async () => {
+  const data = setup()
+  const state = () => new Response(JSON.stringify({ revision: 43, preparedJobIds: [] }))
+  const archive = new Response(JSON.stringify([{ company_id: 'company', revision: 43, jobs: data.jobs, planner_settings: data.plannerSettings }]))
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(state())
+    .mockResolvedValueOnce(archive).mockResolvedValueOnce(state()).mockResolvedValueOnce(new Response(null, { status: 204 }))
+  try {
+   const session = { accessToken: 'token' } as never
+   const config = { url: 'https://example.invalid', anonKey: 'public' }
+   expect(await publishProductionJobs(data, 'company', 42, session, config)).toEqual([])
+   const attempts = fetchMock.mock.calls.filter(call => String(call[0]).includes('production_prepare_job'))
+   expect(attempts.map(call => JSON.parse(String(call[1]?.body)).p_revision)).toEqual([43])
+  } finally { fetchMock.mockRestore(); clearProductionArchiveCache() }
+ })
  it('all’apertura pubblica le commesse salvate senza chiedere altre conferme o avviare timer',async()=>{
   const data=setup(),before=JSON.stringify(data)
   const fetchMock=vi.spyOn(globalThis,'fetch')
    .mockResolvedValueOnce(new Response(JSON.stringify([{company_id:'company',revision:42,jobs:data.jobs,planner_settings:data.plannerSettings}])))
-   .mockResolvedValueOnce(new Response(JSON.stringify({role:'owner',jobs:[]})))
+   .mockResolvedValueOnce(new Response(JSON.stringify({revision:42,preparedJobIds:[]})))
    .mockResolvedValueOnce(new Response('null'))
   try{
    const result=await syncConfirmedProductionJobs('company',{accessToken:'token'} as never,{url:'https://example.invalid',anonKey:'public'})
