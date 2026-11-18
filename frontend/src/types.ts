@@ -291,6 +291,7 @@ export interface Vehicle {
   entryDate?: string
   estimatedHours: number
   workedHours: number
+  scheduledStartDate?: string
   plannedEntryDate: string
   requestedDeliveryDate: string
   calculatedDeliveryDate: string

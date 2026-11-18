@@ -1693,3 +1693,28 @@ it('anticipa una vettura presente e propone la scartatura solo dopo la verniciat
   data.vehicles[0].presentInShop = false
   expect(run()).toEqual([])
 })
+
+describe('date esplicite dalla gestione coni', () => {
+  it('mantiene la data di inizio anche per una vettura già in carrozzeria', () => {
+    const data = makeProgramData()
+    data.plannerSettings = { ...structuredClone(emptyData.plannerSettings), workingDays:[1,2,3,4,5], weeklyWorkSchedule: [], efficiencyPercent:100, safetyMarginPercent:0, absences:[], holidays:[], closures:[], manualOperatorDays:[], operators:[{id:'op-1',name:'Filippo',active:true,dailyHours:8,skills:['smontaggio','lattoneria','rimontaggio']}] }
+    data.jobs = [data.jobs![0]]
+    data.vehicles = [data.vehicles[0]]
+    data.vehicles[0].presentInShop = true
+    data.vehicles[0].scheduledStartDate = '2026-07-29'
+    for (const phase of data.jobs[0].phases) phase.status = 'Da fare'
+    const result = generateOperatorPrograms(data, '2026-07-27', 'Test date', '2026-07-27T08:00:00.000Z')
+    const tasks = result.programs.flatMap(program => program.tasks)
+    expect(tasks.length).toBeGreaterThan(0)
+    expect(tasks.every(task => task.startAt.slice(0,10) >= '2026-07-29')).toBe(true)
+  })
+  it('riserva gli operatori alla vettura programmata prima delle vetture senza date', () => {
+    const data = makeProgramData()
+    data.plannerSettings = { ...structuredClone(emptyData.plannerSettings), workingDays:[1,2,3,4,5], weeklyWorkSchedule: [], efficiencyPercent:100, safetyMarginPercent:0, absences:[], holidays:[], closures:[], manualOperatorDays:[], operators:[{id:'op-1',name:'Filippo',active:true,dailyHours:8,skills:['smontaggio','lattoneria','rimontaggio']}] }
+    for (const job of data.jobs!) for (const phase of job.phases) phase.status = 'Da fare'
+    data.vehicles[1].scheduledStartDate = '2026-07-28'
+    const result = generateOperatorPrograms(data, '2026-07-27', 'Test priorità', '2026-07-27T08:00:00.000Z')
+    const tasks = result.programs.flatMap(program => program.tasks).sort((a,b) => a.startAt.localeCompare(b.startAt))
+    expect(tasks[0].vehicleId).toBe('v2')
+  })
+})

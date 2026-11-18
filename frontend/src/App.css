@@ -578,3 +578,5 @@ button.work-sheet-print-pending {
 .vehicle-history-detail{width:min(95vw,1050px)}
 .vehicle-history-detail > section,.vehicle-history-detail > details{margin-block:16px}
 .vehicle-history-job + .vehicle-history-job{border-top:1px solid var(--line);padding-top:12px}
+
+.vehicle-schedule-dates{display:flex;flex-wrap:wrap;gap:10px;align-items:end;width:100%}.vehicle-schedule-dates label{display:grid;gap:4px}.vehicle-schedule-dates p{flex-basis:100%;margin:0}
