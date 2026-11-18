@@ -37,6 +37,7 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
         const canCalculate = hasGoal && period.hasMargin
         const reached = canCalculate && period.gap === 0
         const partial = period.incomplete || period.provisional
+        const confirmed = reached && !partial
         const width = canCalculate ? Math.min(100, Math.max(0, 100 * period.done / period.goal)) : 0
         const history = period.label === 'Oggi'
           ? { value: day, current: today, step: 1, unit: 'giorno', set: setSelectedDay, label: formatDate(day) }
@@ -63,12 +64,16 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
           </div>}
           <strong>{canCalculate ? money.format(period.gap) : '—'}</strong>
           <small>{!hasGoal ? 'Obiettivo da impostare' : !canCalculate ? 'Dati da completare'
-            : reached ? (partial ? 'Obiettivo raggiunto sui dati disponibili' : 'Obiettivo raggiunto')
+            : reached ? (partial ? 'Stima sopra o pari all’obiettivo · da confermare' : 'Obiettivo raggiunto')
             : historical ? (partial ? 'Scostamento · stima parziale' : 'Scostamento dall’obiettivo')
             : (partial ? 'Da raggiungere · stima parziale' : 'Da raggiungere')}</small>
+          {historical && period.label === 'Oggi' && <>
+            <small>Obiettivo base del giorno: {hasGoal ? money.format(period.goal) : '—'}</small>
+            <small>{partial ? 'Margine provvisorio' : 'Margine registrato'}: {period.hasMargin ? money.format(period.done) : '—'}</small>
+          </>}
           {canCalculate && <div role="progressbar" aria-label={`Avanzamento ${period.label.toLowerCase()}`}
             aria-valuenow={Math.round(width)} aria-valuetext={`${money.format(period.gap)} da raggiungere${partial ? ', stima parziale' : ''}`}
-            style={{ height: 7, borderRadius: 6, overflow: 'hidden', background: reached ? 'var(--green)' : '#9c3939' }}>
+            style={{ height: 7, borderRadius: 6, overflow: 'hidden', background: confirmed ? 'var(--green)' : reached ? '#a96918' : '#9c3939' }}>
             {!reached && <div style={{ height: '100%', width: `${width}%`, background: 'var(--red)' }} />}
           </div>}
         </article>
