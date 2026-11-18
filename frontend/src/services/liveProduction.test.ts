@@ -82,6 +82,15 @@ describe('tablet budget clock', () => {
     data.plannerSettings.operators[0].hourlyCost = 0
     expect(() => prepareLiveJob(data, job)).toThrow('costo orario')
   })
+  it('accetta la conferma vuota di una fase e mantiene il rifiuto mentre un collega lavora', async () => {
+    const message = 'Un collega sta ancora lavorando su questa fase: deve prima premere Fine o Pausa'
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message }), { status: 400 }))
+    const session = { accessToken: 'token' } as never
+    const config = { url: 'https://example.test', anonKey: 'public' }
+    await expect(productionRpc('production_complete_phase', {}, session, config, fetcher)).resolves.toBeUndefined()
+    await expect(productionRpc('production_complete_phase', {}, session, config, fetcher)).rejects.toThrow(message)
+  })
   it('does not fabricate an offline success and reports a missing backend clearly', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: 'PGRST202' }), { status: 404 }))
     await expect(productionRpc('production_live_feed', {}, { accessToken: 'token' } as never, { url: 'https://example.test', anonKey: 'public' }, fetcher)).rejects.toThrow('attivata su Supabase')
