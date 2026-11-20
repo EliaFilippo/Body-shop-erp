@@ -276,7 +276,7 @@ type FinanceModalState =
   | { type: 'quote-convert'; quoteId: string }
   | { type: 'customer-terms'; customerId: string }
   | { type: 'invoice-create'; customerId: string; vehicleIds: string[] }
-  | { type: 'riba-vehicles'; vehicleId?: string }
+  | { type: 'riba-vehicles'; vehicleId?: string; customerId?: string }
   | { type: 'riba-create'; invoiceId: string }
   | { type: 'riba-advance'; batchId: string }
   | { type: 'communication'; draft: CommunicationDraft }
@@ -567,7 +567,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Vetture</th><th>Fatturato</th><th>Incassato</th><th>Credito aperto</th><th>Scaduto</th><th>In R.I.B.A.</th><th>Ritardo medio</th><th>Rating</th><th>Azioni</th></tr></thead><tbody>{customerRows.map((row) => <tr key={row.customer.id}><td><strong>{row.customer.name}</strong><small>{row.customer.usualPaymentMethod ?? 'Bonifico'} · {row.customer.endOfMonth ? 'FM +' : ''} {row.customer.paymentDays ?? data.financeSettings.defaultPaymentDays} gg</small></td><td>{row.vehicles.length}</td><td>{money(row.invoiced)}</td><td>{money(row.collected)}</td><td>{money(row.outstanding)}</td><td>{money(row.expired)}</td><td>{money(row.inRiba)}</td><td>{row.averageDelay} gg</td><td><span className="tag">{row.rating}</span></td><td><div className="row-actions"><button onClick={() => setSelectedCustomerId(row.customer.id)}>Dettaglio</button><button onClick={() => setModal({ type: 'customer-terms', customerId: row.customer.id })}>Condizioni</button></div></td></tr>)}</tbody></table></div>
     </section>
 
-    {selected && <CustomerFinanceDetail row={selected} data={data} onEditTerms={() => setModal({ type: 'customer-terms', customerId: selected.customer.id })} />}
+    {selected && <CustomerFinanceDetail row={selected} data={data} onLoadRiba={()=>setModal({type:'riba-vehicles',customerId:selected.customer.id})} onEditTerms={() => setModal({ type: 'customer-terms', customerId: selected.customer.id })} />}
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">LAVORAZIONI CONSEGNATE</span><h3>Vetture da fatturare</h3></div></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Vetture</th><th>Imponibile previsto</th><th>Azione</th></tr></thead><tbody>{groups.map(([customerId, vehicles]) => <tr key={customerId}><td><strong>{customerById(customerId)?.name ?? 'Cliente'}</strong></td><td>{vehicles.map((vehicle) => vehicle.plate).join(', ')}</td><td>{vehicles.some(vehicle => invoiceAmounts.get(vehicle.id) == null)
         ? 'Importi da verificare'
@@ -943,7 +943,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       />
     })()}
 
-    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} vehicleId={modal.vehicleId} onClose={()=>setModal(null)} onAddBank={bank => onChange({ ...data, bankAccounts: [...data.bankAccounts, bank] })} onSave={next=>{
+    {modal?.type==='riba-vehicles'&&<VehicleRibaModal data={data} vehicleId={modal.vehicleId} customerId={modal.customerId} onClose={()=>setModal(null)} onAddBank={bank => onChange({ ...data, bankAccounts: [...data.bankAccounts, bank] })} onSave={next=>{
       onChange(next)
       setNotice('RIBA registrata in R.I.B.A. e anticipi.')
       setModal(null)

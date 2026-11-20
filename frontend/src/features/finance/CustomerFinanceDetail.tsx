@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Customer, ErpData, Invoice, Vehicle } from '../../types'
+import { customerMonthlyFinance } from '../../services/customerMonthlyFinance'
 import { invoiceResidual } from '../../services/finance'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
@@ -56,11 +57,14 @@ function customerRisk(row: CustomerRow) {
   }
 }
 
-export function CustomerFinanceDetail({ row, data, onEditTerms }: {
+export function CustomerFinanceDetail({ row, data, onEditTerms, onLoadRiba }: {
   row: CustomerRow
   data: ErpData
   onEditTerms: () => void
+  onLoadRiba: () => void
 }) {
+  const [month,setMonth] = useState(() => new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date()).slice(0,7))
+  const monthly = customerMonthlyFinance(data,row.customer.id,month)
   const sectionRef = useRef<HTMLElement>(null)
   const [highlighted, setHighlighted] = useState(false)
   const invoiceByVehicle = new Map<string, Invoice>()
@@ -121,6 +125,16 @@ export function CustomerFinanceDetail({ row, data, onEditTerms }: {
       <div className="row-actions"><span className="tag">Rating {row.rating}</span><button onClick={onEditTerms}>Modifica condizioni</button></div>
     </div>
 
+    <section className="panel" aria-label="Riepilogo mensile cliente">
+      <label>Mese di riferimento<input type="month" value={month} onChange={e=>{if(e.target.value)setMonth(e.target.value)}} /></label>
+      <div className="stat-grid">{[
+        ['RiBa da caricare',monthly.toLoad],['RiBa caricate · totale',monthly.loaded],['RiBa a maturazione · residuo',monthly.maturity],['RiBa in anticipo · lordo',monthly.advance],['Fatture ancora da pagare',monthly.unpaid],['Fatture del mese già pagate',monthly.paidInvoices],['Incassi definitivi del mese',monthly.paid],['Totale fatture del mese',monthly.invoiceTotal],
+      ].map(([label,value])=><div className="stat-card" key={label}><span>{label}</span><strong>{money(Number(value))}</strong></div>)}</div>
+      <p>Importi IVA inclusa. Fatture e RiBa da caricare: mese della fattura; vetture non fatturate: mese di inserimento. RiBa caricate: mese di presentazione, situazione attuale. Incassi: data dell’incasso definitivo registrato, anche per fatture di mesi precedenti. Gli anticipi non sono pagamenti del cliente.</p>
+      <p>Le quote cliente degli anticipi su distinte miste sono ripartite in proporzione agli importi. Le fatture ancora da pagare comprendono anche quelle in RiBa: i riquadri non vanno sommati.</p>
+      {monthly.unpriced > 0 && <p role="status">{monthly.unpriced} vetture senza importo: totale da completare.</p>}
+      <button className="primary" onClick={onLoadRiba}>Carica RiBa · anche senza fattura</button>
+    </section>
     <div style={{ border: `1px solid ${risk.color}`, background: risk.background, borderRadius: '14px', padding: '14px 16px', marginBottom: '18px', display: 'flex', justifyContent: 'space-between', gap: '18px', alignItems: 'center', flexWrap: 'wrap' }}>
       <div>
         <span className="eyebrow">AFFIDABILITÀ PAGAMENTI</span>

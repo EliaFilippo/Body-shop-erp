@@ -5,8 +5,8 @@ import { MoneyInput } from '../../components/MoneyInput'
 import { cancelVehicleRibaBatch,vehicleRibaBatches,createVehicleRiba,ribaVehicleOptions } from '../../services/vehicleRiba'
 const money=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date())
-export function VehicleRibaModal({data,vehicleId,onClose,onSave,onAddBank}:{data:ErpData;vehicleId?:string;onClose:()=>void;onSave:(next:ErpData)=>void;onAddBank:(bank:BankAccount)=>void}){
- const options = useMemo(() => ribaVehicleOptions(data).filter(option => !vehicleId || option.vehicleId === vehicleId), [data, vehicleId])
+export function VehicleRibaModal({data,vehicleId,customerId,onClose,onSave,onAddBank}:{data:ErpData;vehicleId?:string;customerId?:string;onClose:()=>void;onSave:(next:ErpData)=>void;onAddBank:(bank:BankAccount)=>void}){
+ const options = useMemo(() => ribaVehicleOptions(data).filter(option => (!vehicleId || option.vehicleId === vehicleId) && (!customerId || data.vehicles.find(v=>v.id===option.vehicleId)?.customerId===customerId)), [data, vehicleId, customerId])
  const vehicle = data.vehicles.find(item => item.id === vehicleId)
  const firstOption = vehicleId && options.length === 1 ? options[0] : undefined
  const [selected,setSelected]=useState<Record<string,number>>(() => firstOption ? {[firstOption.key]: firstOption.amount} : {})

@@ -61,3 +61,19 @@ it('asks for confirmation before cancelling an existing RIBA', async () => {
  expect(save.mock.calls[0][0].ribaBatches[0].status).toBe('Stornata')
  confirm.mockRestore()
 })
+
+it('allows loading unbilled vehicles for only the selected customer',()=>{
+ const data=structuredClone(emptyData)
+ data.vehicles=[{id:'v1',plate:'AAA',customerId:'c1',expectedRevenue:100},{id:'v2',plate:'BBB',customerId:'c2',expectedRevenue:100}] as typeof data.vehicles
+ data.bankAccounts=[{id:'bank',name:'Bank',currentBalance:0}] as typeof data.bankAccounts
+ const save=vi.fn()
+ render(<VehicleRibaModal data={data} customerId="c1" onSave={save} onClose={vi.fn()} onAddBank={vi.fn()} />)
+ expect(screen.queryByRole('checkbox',{name:'BBB'})).not.toBeInTheDocument()
+ fireEvent.click(screen.getByRole('checkbox',{name:'AAA'}))
+ fireEvent.change(screen.getByLabelText('Numero distinta'),{target:{value:'R-NO-INVOICE'}})
+ fireEvent.change(screen.getByLabelText('Scadenza bancaria RIBA'),{target:{value:'2026-12-01'}})
+ fireEvent.click(screen.getByRole('button',{name:'Registra RIBA'}))
+ expect(save).toHaveBeenCalledOnce()
+ expect(save.mock.calls[0][0].invoices).toHaveLength(0)
+ expect(save.mock.calls[0][0].ribaBatches[0].pendingVehicleLinks[0].vehicleId).toBe('v1')
+})
