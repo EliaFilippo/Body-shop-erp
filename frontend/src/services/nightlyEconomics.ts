@@ -22,16 +22,19 @@ export function calculateNightlyEconomics(data:ErpData,state:ProductionPlanningS
  const items=(settings.internalCostSettings?.monthlyCostItems??[]).filter(i=>i.active)
  const monthlyFixedCosts=items.reduce((sum,i)=>sum+safe(i.monthlyAmount),0)
  const payrollInMonthlyCosts=items.some(i=>(i.category==='personale'||i.coveredByOperatorRates===true)&&safe(i.monthlyAmount)>0)
+ const payroll=settings.monthlyPayrollActuals?.find(row=>row.month===monthKey)
  let laborCosts=0,missingLaborCost=false
  for(const entry of work){
   const op=settings.operators.find(o=>o.id===entry.operatorId)
-  if(payrollInMonthlyCosts&&op?.costMode!=='external-extra')continue
+  if((payrollInMonthlyCosts||payroll)&&op?.costMode!=='external-extra')continue
   const rate=op?.costMode==='external-extra'?safe(op.externalHourlyCost??op.hourlyCost):safe(op?.hourlyCost)
   if(safe(entry.paidSeconds)>0&&rate<=0)missingLaborCost=true
   laborCosts+=safe(entry.paidSeconds)/3600*rate
  }
  const historicalOperatingCosts=observationStart ? historicalCosts(data).filter(row=>row.date>=observationStart&&row.date<=end&&row.date<=asOfDay).reduce((sum,row)=>sum+row.amount,0) : 0
- const accruedCosts=monthlyFixedCosts*elapsedFraction+laborCosts+historicalOperatingCosts
+ // Replace configured payroll or hourly estimates once, retaining contractor costs.
+ const configuredPayroll=items.filter(i=>i.category==='personale'||i.coveredByOperatorRates===true).reduce((sum,i)=>sum+safe(i.monthlyAmount),0)*elapsedFraction
+ const accruedCosts=monthlyFixedCosts*elapsedFraction+laborCosts+historicalOperatingCosts+(payroll?payroll.total-configuredPayroll:0)
  const operators=settings.operators.filter(o=>o.active)
  const manual=settings.internalCostSettings?.productiveCapacity
  const calendarDates:string[]=[]

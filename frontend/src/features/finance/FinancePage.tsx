@@ -1,3 +1,4 @@
+import { MonthlyPayrollPanel } from './MonthlyPayrollPanel'
 import { HistoricalActualsPanel } from './HistoricalActualsPanel'
 import { receivableFlows, ribaDueAlerts } from '../../services/receivableFlows'
 import { VehicleRibaModal } from './VehicleRibaModal'
@@ -498,6 +499,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   const paymentDeadlines = payableDueAlerts(data, today())
 
   return <>
+    <MonthlyPayrollPanel data={data} connection={passwordConnection} onChange={onChange} />
     <HistoricalActualsPanel data={data} connection={passwordConnection} onChange={onChange} />
     <section className="panel" aria-label="Scadenzario pagamenti">
       <div className="panel-head">

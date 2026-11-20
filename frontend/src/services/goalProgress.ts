@@ -93,7 +93,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       production.push({ date, marginCents, provisional: provisional || !finalized })
     })
     if (accountingDate && accountingDate <= today) {
-      const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts, finalized)
+      const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts, finalized, settings.monthlyPayrollActuals)
       const marginCents = closed.marginCents === null ? null : closed.marginCents - cents(finalized ? costs?.other ?? 0 : 0) - creditedMargin
       production.push({ date: accountingDate, marginCents, provisional })
     }

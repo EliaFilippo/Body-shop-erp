@@ -83,7 +83,7 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings, hourlyTarget }: 
     </div>
     {settings && <ArchivedOperatingProfit vehicle={vehicle} job={job} jobs={jobs} settings={settings} />}
     <HourlyRevenueComparison revenue={contribution ?? NaN} seconds={report.workedSeconds} target={hourlyTarget} net />
-    <ArchivedLabor job={job} operators={operators} finalized={finalized} />
+    <ArchivedLabor job={job} operators={operators} finalized={finalized} settings={settings} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>
       <thead><tr><th>Fase e stato</th><th>Inizio / fine</th><th>Tempo registrato</th><th>Operatori</th><th>Note</th></tr></thead>
@@ -128,8 +128,8 @@ export function ArchivedMargin({margin,percent,estimatedMaterials}:{margin:numbe
  </div></section>
 }
 
-export function ArchivedLabor({ job, operators, finalized = false }: { job: RepairJob; operators: PlannerOperator[]; finalized?: boolean }) {
-  const labor = closedJobMargin(job, operators, undefined, undefined, finalized)
+export function ArchivedLabor({ job, operators, finalized = false, settings }: { job: RepairJob; operators: PlannerOperator[]; finalized?: boolean; settings?: PlannerSettings }) {
+  const labor = closedJobMargin(job, operators, undefined, undefined, finalized, settings?.monthlyPayrollActuals)
   return <section aria-label="Costo della manodopera registrata">
     <h4>Costo manodopera sulla vettura</h4>
     <div className="summary-grid"><div className="summary-card">
