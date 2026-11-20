@@ -1327,7 +1327,7 @@ function App() {
         {(view === 'cones' || view === 'vehicles') && ribaVehicleId && <VehicleRibaModal key={ribaVehicleId} data={data} vehicleId={ribaVehicleId}
           onClose={() => setRibaVehicleId(undefined)}
           onAddBank={bank => setData(current => ({ ...current, bankAccounts: [...current.bankAccounts, bank] }))}
-          onSave={next => { setData(next); setRibaVehicleId(undefined); setNotice('RIBA registrata in R.I.B.A. e anticipi.') }} />}
+          onSave={next => { setData(next); setRibaVehicleId(undefined); setNotice('RIBA aggiornata in R.I.B.A. e anticipi.') }} />}
         {view === 'planner' && <PlannerPage data={displayData} vehicleWork={vehicleWork} liveForecasts={displayData!==data?completion.plan?.forecasts:undefined} customerById={customerById} onOpenSettings={() => setView('planner-settings')} onOpenJob={(query) => {
           setView('estimates-jobs')
           setQuery(query)

@@ -45,3 +45,19 @@ it('adds and selects a bank without clearing the draft', () => {
   expect(screen.getByRole('option', { name: 'Banca di prova' })).toHaveProperty('selected', true)
   expect(screen.getByLabelText('Numero distinta')).toHaveValue('DIST-2')
 })
+
+it('asks for confirmation before cancelling an existing RIBA', async () => {
+ const { createVehicleRiba } = await import('../../services/vehicleRiba')
+ const initial=structuredClone(emptyData)
+ initial.vehicles=[{id:'v',plate:'TEST'}] as typeof initial.vehicles
+ initial.bankAccounts=[{id:'bank',name:'Banca',currentBalance:1000}] as typeof initial.bankAccounts
+ const data=createVehicleRiba(initial,{number:'R1',bankAccountId:'bank',presentationDate:'2026-11-01',dueDate:'2026-12-01',collectionDate:'2026-12-01',selections:[{key:'vehicle|v',amount:100}],mode:'maturity',advanceDate:'2026-11-01',fees:0,interest:0})
+ const save=vi.fn(), confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ render(<VehicleRibaModal data={data} vehicleId="v" onClose={vi.fn()} onSave={save} onAddBank={vi.fn()}/>)
+ fireEvent.click(screen.getByRole('button',{name:'Annulla distinta R1'}))
+ expect(save).not.toHaveBeenCalled()
+ confirm.mockReturnValue(true)
+ fireEvent.click(screen.getByRole('button',{name:'Annulla distinta R1'}))
+ expect(save.mock.calls[0][0].ribaBatches[0].status).toBe('Stornata')
+ confirm.mockRestore()
+})

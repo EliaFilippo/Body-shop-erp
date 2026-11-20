@@ -2,7 +2,7 @@ import { useMemo,useState } from 'react'
 import type { BankAccount, ErpData } from '../../types'
 import { Modal } from '../../components/Modal'
 import { MoneyInput } from '../../components/MoneyInput'
-import { createVehicleRiba,ribaVehicleOptions } from '../../services/vehicleRiba'
+import { cancelVehicleRibaBatch,vehicleRibaBatches,createVehicleRiba,ribaVehicleOptions } from '../../services/vehicleRiba'
 const money=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date())
 export function VehicleRibaModal({data,vehicleId,onClose,onSave,onAddBank}:{data:ErpData;vehicleId?:string;onClose:()=>void;onSave:(next:ErpData)=>void;onAddBank:(bank:BankAccount)=>void}){
@@ -42,8 +42,9 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave,onAddBank}:{data
   setBalance(0)
   setError('')
  }
+ const loaded = vehicleId ? vehicleRibaBatches(data, vehicleId) : []
  const total=Object.values(selected).reduce((sum,n)=>sum+n,0)
- return <Modal title={vehicle ? `Carica Ri.Ba. · ${vehicle.plate}` : "Carica RIBA per vetture"} onClose={onClose}><form onSubmit={e=>{e.preventDefault();try{onSave(createVehicleRiba(data,{number,bankAccountId:bank,presentationDate:presentation,dueDate:due,collectionDate:collection||due,selections:Object.entries(selected).map(([key,amount])=>({key,amount})),mode,advanceDate,advanceAmount:advanceAmount??total,fees,interest}))}catch(problem){setError(problem instanceof Error?problem.message:'Registrazione non riuscita.')}}}>
+ return <Modal title={vehicle ? `Carica Ri.Ba. · ${vehicle.plate}` : "Carica RIBA per vetture"} onClose={onClose}><>{loaded.length > 0 && <section aria-label="RIBA già caricate"><h3>Ri.Ba. già caricata: vuoi annullarla?</h3><p>L’annullamento riguarda tutta la distinta, comprese le altre vetture, e conserva lo storico. Non revoca la presentazione in banca.</p>{loaded.map(batch => <div key={batch.id}><strong>{batch.number} · {money(batch.total)} · {batch.status}</strong><p>{[...(batch.vehicleLinks ?? []), ...(batch.pendingVehicleLinks ?? [])].map(link => link.plate).join(', ') || 'Tutte le fatture della distinta'}</p><button type="button" className="danger" disabled={batch.status !== 'Presentata' || batch.advancedAmount > 0 || !!batch.bankAdvanceApplied || batch.fees > 0 || batch.interest > 0} onClick={() => {if (!window.confirm(`Annullare l’intera distinta ${batch.number} di ${money(batch.total)} per tutte le vetture incluse? La banca non viene aggiornata automaticamente.`)) return; try {onSave(cancelVehicleRibaBatch(data, batch.id))} catch(problem) {setError(problem instanceof Error ? problem.message : 'Annullamento non riuscito.')}}}>Annulla distinta {batch.number}</button>{(batch.status !== 'Presentata' || batch.advancedAmount > 0 || batch.bankAdvanceApplied || batch.fees > 0 || batch.interest > 0) && <p>Anticipo o incasso registrato: serve uno storno contabile dedicato.</p>}</div>)}</section>}<form onSubmit={e=>{e.preventDefault();try{onSave(createVehicleRiba(data,{number,bankAccountId:bank,presentationDate:presentation,dueDate:due,collectionDate:collection||due,selections:Object.entries(selected).map(([key,amount])=>({key,amount})),mode,advanceDate,advanceAmount:advanceAmount??total,fees,interest}))}catch(problem){setError(problem instanceof Error?problem.message:'Registrazione non riuscita.')}}}>
   <p>{vehicle ? 'Controlla l’importo e le date della distinta. Per una vettura senza fattura, inserisci o verifica l’importo IVA inclusa.' : 'Seleziona le vetture da includere. Per le vetture senza fattura puoi indicare l’importo IVA inclusa.'}</p>
   {suggestedDue && <p>La scadenza proposta viene dalla fattura. Verifica la data della distinta bancaria.</p>}
   <div className="form-grid">
@@ -80,5 +81,5 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave,onAddBank}:{data
   </div>}
   {error&&<p role="alert">{error}</p>}
   <div className="form-actions"><button type="button" onClick={onClose}>Annulla</button><button type="submit" className="primary" disabled={!Object.keys(selected).length||Object.values(selected).some(amount => amount <= 0)||!bank}>Registra RIBA</button></div>
- </form></Modal>
+ </form></></Modal>
 }

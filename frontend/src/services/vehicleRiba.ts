@@ -78,3 +78,27 @@ export function createVehicleRiba(data:ErpData,input:VehicleRibaInput){
  }
  return next
 }
+
+export function vehicleRibaBatches(data: ErpData, vehicleId: string) {
+ return data.ribaBatches.filter(batch => !['Stornata','Insoluta'].includes(batch.status) && (
+  [...(batch.vehicleLinks ?? []), ...(batch.pendingVehicleLinks ?? [])].some(link => link.vehicleId === vehicleId)
+  || (!batch.vehicleLinks?.length && batch.allocations.some(a => data.invoices.some(i => i.id === a.invoiceId && (i.vehicleId === vehicleId || i.lines.some(l => l.vehicleId === vehicleId)))))
+ ))
+}
+export function cancelVehicleRibaBatch(data: ErpData, batchId: string): ErpData {
+ const batch = data.ribaBatches.find(item => item.id === batchId)
+ if (!batch || batch.status !== 'Presentata' || batch.advancedAmount > 0 || batch.bankAdvanceApplied || batch.fees > 0 || batch.interest > 0)
+  throw new Error('Distinta con anticipo, incasso o già chiusa: occorre uno storno contabile dedicato.')
+ const timestamp = new Date().toISOString()
+ return {...data,
+  ribaBatches: data.ribaBatches.map(item => item.id === batchId ? {...item, status: 'Stornata', updatedAt: timestamp} : item),
+  invoices: data.invoices.map(invoice => {
+   const released = batch.allocations.filter(item => item.invoiceId === invoice.id).reduce((sum, item) => sum + item.amount, 0)
+   if (!released) return invoice
+   const allocated = round(Math.max(0, invoice.ribaAllocatedAmount - released))
+   const status = invoice.collectedAmount >= invoice.total ? 'Incassata' : allocated >= round(invoice.total - invoice.collectedAmount) ? 'Inserita in R.I.B.A.' : allocated > 0 ? 'Parzialmente inserita in R.I.B.A.' : 'Da incassare'
+   return {...invoice, ribaAllocatedAmount: allocated, status, updatedAt: timestamp}
+  }),
+  financialEvents: [{id: crypto.randomUUID(), type: 'Storno', date: new Intl.DateTimeFormat('sv-SE', {timeZone:'Europe/Rome'}).format(new Date()), amount: batch.total, ribaBatchId: batch.id, bankAccountId: batch.bankAccountId, note: `Annullamento distinta ${batch.number}`, createdAt: timestamp}, ...data.financialEvents],
+ }
+}
