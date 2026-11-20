@@ -14,3 +14,13 @@ it.each([[600,'Sopra obiettivo','#67d9a3'],[200,'Sotto obiettivo','#ff6b6b'],[40
  expect(status).toBeVisible()
  if(color)expect(status.parentElement).toHaveStyle({color})
 })
+
+it('compares the contribution after direct costs, preserving losses and accepting a zero remaining target',()=>{
+ // 232 revenue - 5 materials - 38.72 labor = 188.28 available to cover overhead and objective.
+ expect(hourlyRevenueComparison(232-5-38.72,2.5812*3600,70)).toMatchObject({actual:72.94,delta:2.94})
+ expect(hourlyRevenueComparison(-40,7200,70)).toMatchObject({actual:-20,delta:-90})
+ expect(hourlyRevenueComparison(100,3600,0)).toMatchObject({actual:100,goal:0,delta:100,percent:null})
+ render(<HourlyRevenueComparison revenue={188.28} seconds={2.5812*3600} target={70} net/>)
+ expect(screen.getByText('Margine orario rispetto all’obiettivo')).toBeVisible()
+ expect(screen.getByText('Sopra obiettivo')).toBeVisible()
+})

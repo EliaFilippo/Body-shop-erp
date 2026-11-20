@@ -46,7 +46,7 @@ export function marginTargetRate(data: ErpData, monthKey: string, today = romeDa
   const hourlyRate = ratesComplete && remainingMinutes > 0 && hours > 0 && materialsPercent < 100
     ? Math.ceil((hourlyCost + remainingMargin / hours) / (1 - materialsPercent / 100) * 100) / 100 : null
   return {
-    monthGoal, remainingMargin, hours, hourlyRate, hourlyCost, materialsPercent, ratesComplete,
+    monthGoal, remainingMargin, hours, marginHourlyRate: hours > 0 ? Math.ceil(remainingMargin / hours * 100) / 100 : null, hourlyRate, hourlyCost, materialsPercent, ratesComplete,
     partial: progress.incomplete,
   }
 }

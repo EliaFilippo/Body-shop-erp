@@ -59,6 +59,8 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, opera
 
 function ArchivedJob({ job, operators, vehicle, jobs, settings, hourlyTarget }: { job: RepairJob; operators: PlannerOperator[]; vehicle: Vehicle; jobs: RepairJob[]; settings?: PlannerSettings; hourlyTarget: number | null }) {
   const report = deliveredJobReport(job)
+  const economics = settings ? vehicleOperatingProfit(vehicle,job,jobs,settings) : undefined
+  const contribution = economics?.marginCents !== null && economics?.marginCents !== undefined && economics.otherCents !== null ? (economics.marginCents-economics.otherCents)/100 : null
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
   const closure = settings ? finalizedJobCosts(job,vehicle,jobs,settings) : undefined
@@ -80,7 +82,7 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings, hourlyTarget }: 
       </div>
     </div>
     {settings && <ArchivedOperatingProfit vehicle={vehicle} job={job} jobs={jobs} settings={settings} />}
-    <HourlyRevenueComparison revenue={job.taxableAmount} seconds={report.workedSeconds} target={hourlyTarget} />
+    <HourlyRevenueComparison revenue={contribution ?? NaN} seconds={report.workedSeconds} target={hourlyTarget} net />
     <ArchivedLabor job={job} operators={operators} finalized={finalized} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>

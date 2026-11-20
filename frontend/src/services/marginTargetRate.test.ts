@@ -19,10 +19,10 @@ it('updates the hourly revenue needed immediately when the margin goal changes',
   }
   const progress = { done: 2_000, incomplete: false }
   expect(marginTargetRate(data, '2026-11', '2026-11-11', progress)).toMatchObject({
-    remainingMargin: 8000, hours: 400, hourlyCost: 35, hourlyRate: 68.75,
+    remainingMargin: 8000, hours: 400, marginHourlyRate:20, hourlyCost: 35, hourlyRate: 68.75,
   })
   data.plannerSettings.monthlyMarginGoal = 14_000
   expect(marginTargetRate(data, '2026-11', '2026-11-11', progress)).toMatchObject({
-    remainingMargin: 12000, hourlyRate: 81.25,
+    remainingMargin: 12000, marginHourlyRate:30, hourlyRate: 81.25,
   })
 })

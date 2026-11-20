@@ -92,7 +92,7 @@ export function VehicleHistory({ data, query, renderActions, renderStatus, vehic
         </div>
       </section>,
     )}
-    {selected && <ArchivedVehicleDetails vehicle={selected.vehicle} customer={selected.customer} jobs={selected.jobs} allJobs={data.jobs??[]} operators={data.plannerSettings.operators} settings={data.plannerSettings} hourlyTarget={marginTargetRate(data,deliveryDay.format(new Date()).slice(0,7),undefined,undefined,vehicleWork)?.hourlyRate??null}
+    {selected && <ArchivedVehicleDetails vehicle={selected.vehicle} customer={selected.customer} jobs={selected.jobs} allJobs={data.jobs??[]} operators={data.plannerSettings.operators} settings={data.plannerSettings} hourlyTarget={marginTargetRate(data,deliveryDay.format(new Date()).slice(0,7),undefined,undefined,vehicleWork)?.marginHourlyRate??null}
       logs={(data.production?.workLogs ?? []).filter(log => log.vehicleId === selected.vehicle.id)}
       onClose={() => setSelectedId(undefined)} />}
   </section>
