@@ -27,3 +27,16 @@ it('preserves losses and does not present missing labor or overhead as zero',()=
  settings.internalCostSettings!.monthlyCostItems=[]
  expect(vehicleOperatingProfit(vehicle,job,[job],settings).profitCents).toBeNull()
 })
+
+it('identifies missing phase times without claiming configured overhead or rates are missing',()=>{
+ const {settings,job,vehicle}=fixture()
+ job.phases[0].tabletWorkedSeconds=undefined
+ job.phases[0].operatorAssignments=[]
+ job.phases[0].status='Completata'
+ job.status='Consegnata'
+ const result=vehicleOperatingProfit(vehicle,job,[job],settings)
+ expect(result.profitCents).toBeNull()
+ expect(result.missing).toEqual(['tempi non registrati: Lucidatura'])
+ expect(job.status).toBe('Consegnata')
+ expect(job.phases[0].tabletWorkedSeconds).toBeUndefined()
+})

@@ -66,7 +66,7 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJ
       <div className="summary-card"><span>Ore previste</span><strong>{reportDuration(report.plannedSeconds)}</strong></div>
       <div className="summary-card">
         <span>Ore registrate</span><strong>{report.complete || report.workedSeconds > 0 ? reportDuration(report.workedSeconds) : 'Da registrare'}</strong>
-        {report.missing > 0 && <small>{report.missing} fasi con dati incompleti</small>}
+        {report.missing > 0 && <small>{report.missing} fasi senza tempi registrati</small>}
       </div>
       <div className="summary-card"><span>Materiali stimati · IVA esclusa</span><strong>{currency.format(report.materials.estimatedMaterials)}</strong></div>
       <div className="summary-card"><span>Materiali a consuntivo · IVA esclusa</span><strong>{actual ? currency.format(actual.amount) : 'Da registrare'}</strong>
@@ -126,7 +126,7 @@ export function ArchivedLabor({ job, operators }: { job: RepairJob; operators: P
     <h4>Costo manodopera sulla vettura</h4>
     <div className="summary-grid"><div className="summary-card">
       <span>Costo totale operatori · ore registrate</span>
-      <strong>{labor.laborCents === null ? 'Da completare' : currency.format(labor.laborCents / 100)}</strong>
+      <strong>{labor.laborCents === null ? 'Costo non determinabile' : currency.format(labor.laborCents / 100)}</strong>
       {labor.laborCents === null && <small>Subtotale calcolabile: {currency.format(labor.availableLaborCents / 100)}. Mancano tempi, attribuzioni o costi orari.</small>}
       <small>Ore registrate × costo orario impostato per ciascun operatore, inclusi gli esterni. L’utile operativo sopra usa questi stessi costi effettivi.</small>
     </div></div>
@@ -143,12 +143,13 @@ export function ArchivedLabor({ job, operators }: { job: RepairJob; operators: P
 export function ArchivedOperatingProfit({vehicle,job,jobs,settings}:{vehicle:Vehicle;job:RepairJob;jobs:RepairJob[];settings:PlannerSettings}) {
   const result=vehicleOperatingProfit(vehicle,job,jobs,settings)
   const amount=result.profitCents
-  const money=(value:number|null)=>value===null?'Da completare':currency.format(value/100)
+  const money=(value:number|null)=>value===null?'Dati economici mancanti':currency.format(value/100)
   return <section aria-label="Utile netto operativo della vettura">
     <div className="summary-grid"><div className="summary-card">
       <span>Utile netto operativo vettura · IVA esclusa</span>
-      <strong style={{color:amount===null?'#e6b85c':amount>=0?'#67d9a3':'#ff6b6b'}}>{amount===null?'Da completare':`${amount>0?'+':''}${money(amount)}`}</strong>
+      <strong style={{color:amount===null?'#e6b85c':amount>=0?'#67d9a3':'#ff6b6b'}}>{amount===null?'Utile non determinabile':`${amount>0?'+':''}${money(amount)}`}</strong>
       {amount!==null && <b>{amount>0?'Positivo':amount<0?'Negativo':'In pareggio'}{result.percent!==null?` · ${result.percent.toLocaleString('it-IT',{maximumFractionDigits:2})}%`:''}</b>}
+      {job.status === 'Consegnata' && <small>Vettura consegnata · lavorazioni chiuse. Eventuali dati mancanti riguardano il consuntivo economico.</small>}
       <small>Prima delle imposte aziendali. Spese generali ripartite sulle ore effettive della vettura, escludendo i costi già coperti dalle tariffe degli operatori.</small>
       {(result.materialsEstimated||result.partsEstimated||result.otherEstimated) && <small>Stima parziale: alcuni materiali, ricambi o costi diretti sono ancora preventivati.</small>}
       {result.missing.length>0 && <small>Dati da completare: {result.missing.join('; ')}.</small>}

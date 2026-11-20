@@ -24,6 +24,7 @@ export function vehicleOperatingProfit(vehicle: Vehicle, job: RepairJob, jobs: R
     percent: profitCents !== null && job.taxableAmount > 0 ? profitCents / job.taxableAmount : null,
     materialsEstimated, partsEstimated: closed.partsEstimated,
     otherEstimated: costs?.other === undefined && directLines.length > 0,
-    missing: [!closed.laborComplete && 'ore, attribuzioni o costi orari', closed.materialCents === null && 'materiali',
-      closed.partsCents === null && 'ricambi', overheadCents === null && 'costi di struttura e capacità produttiva', missingOther && 'altri costi diretti'].filter(Boolean) as string[] }
+    missing: [closed.phasesWithoutTime.length > 0 && `tempi non registrati: ${closed.phasesWithoutTime.join(', ')}`,
+      !closed.laborComplete && closed.phasesWithoutTime.length === 0 && 'attribuzioni o costi orari degli operatori', closed.materialCents === null && 'materiali',
+      closed.partsCents === null && 'ricambi', !!structure.error && 'costi di struttura e capacità produttiva', missingOther && 'altri costi diretti'].filter(Boolean) as string[] }
 }

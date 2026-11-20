@@ -15,7 +15,7 @@ it('aggregates repeated phases by operator and includes external actual labor co
 })
 it('does not present an incomplete cost as a complete total',()=>{
  render(<ArchivedLabor job={job} operators={operators.slice(0,1)}/> )
- expect(screen.getByText('Da completare')).toBeInTheDocument()
+ expect(screen.getByText('Costo non determinabile')).toBeInTheDocument()
  expect(screen.getByText('Costo orario da impostare')).toBeInTheDocument()
  expect(screen.getByText(/Subtotale calcolabile/)).toBeInTheDocument()
 })
