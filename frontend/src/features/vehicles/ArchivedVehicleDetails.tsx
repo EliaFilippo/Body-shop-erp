@@ -59,8 +59,9 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJ
   const report = deliveredJobReport(job)
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
-  const finalized = settings ? finalizedJobCosts(job,vehicle,jobs,settings).finalized : false
-  const actual = job.materialActualCost
+  const closure = settings ? finalizedJobCosts(job,vehicle,jobs,settings) : undefined
+  const finalized = closure?.finalized ?? false
+  const actual = job.materialActualCost ?? (closure?.costs?.materials !== undefined ? {amount:closure.costs.materials,at:closure.date,note:'Materiali registrati sulla vettura, riferiti a questa lavorazione.'} : undefined)
   return <section className="vehicle-history-job">
     <h3>{job.number} · {job.status}</h3>
     {job.deliveredAt && <p>Consegna {timestamp(job.deliveredAt)}</p>}
