@@ -1450,7 +1450,7 @@ function App() {
           const result = await productionRpc<{ok:boolean;message?:string}>('production_private_password', {p_company_id:cloudMembership.companyId,p_action:'unlock',p_password:password}, cloudSession, cloudConfig)
           if (!result.ok) throw new Error(result.message || 'Password dei blocchi non corretta.')
         }} isOwner={cloudMembership?.role === 'owner'} data={data} customerById={customerById} query={query} onChange={next => { setData(next); showNewDelivery(next) }} setError={setError} setNotice={setNotice} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
-        {view === 'acceptance' && <AcceptancePage data={data} autosaveState={acceptanceAutosaveState} customerById={customerById} onCreate={(customerId, vehicleId) => {
+        {view === 'acceptance' && <AcceptancePage vehicleWork={vehicleWork} data={data} autosaveState={acceptanceAutosaveState} customerById={customerById} onCreate={(customerId, vehicleId) => {
           const draft = createAcceptanceDraft(customerId, vehicleId, data.plannerSettings, new Date().toISOString().slice(0, 7))
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: [draft, ...existing] })
@@ -1489,12 +1489,12 @@ function App() {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.filter((item) => item.id !== acceptanceId) })
         }} onOpenCustomerModal={(options) => setModal({ type: 'customer', returnToAcceptance: options?.returnToAcceptance, onSavedToAcceptance: options?.onSavedToAcceptance })} onOpenVehicleModal={(options) => setModal({ type: 'vehicle', initialCustomerId: options?.customerId, returnToAcceptance: options?.returnToAcceptance, onSavedToAcceptance: options?.onSavedToAcceptance })} />}
-        {view === 'pending-cases' && <AcceptanceCasesPage data={data} onOpenDocument={entry=>{setQuery(entry.kind==='quote'?'':entry.plate);setView(entry.kind==='quote'?'finance':'estimates-jobs')}} customerById={customerById} onSave={(acceptance) => {
+        {view === 'pending-cases' && <AcceptanceCasesPage vehicleWork={vehicleWork} data={data} onOpenDocument={entry=>{setQuery(entry.kind==='quote'?'':entry.plate);setView(entry.kind==='quote'?'finance':'estimates-jobs')}} customerById={customerById} onSave={(acceptance) => {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
           setNotice('Pratica aggiornata.')
         }} confirmed={false} />}
-        {view === 'confirmed-cases' && <AcceptanceCasesPage data={data} onOpenDocument={entry=>{setQuery(entry.kind==='quote'?'':entry.plate);setView(entry.kind==='quote'?'finance':'estimates-jobs')}} customerById={customerById} onSave={(acceptance) => {
+        {view === 'confirmed-cases' && <AcceptanceCasesPage vehicleWork={vehicleWork} data={data} onOpenDocument={entry=>{setQuery(entry.kind==='quote'?'':entry.plate);setView(entry.kind==='quote'?'finance':'estimates-jobs')}} customerById={customerById} onSave={(acceptance) => {
           const existing = data.acceptances ?? []
           setData({ ...data, acceptances: existing.map((item) => item.id === acceptance.id ? acceptance : item) })
           setNotice('Pratica aggiornata.')
@@ -2187,7 +2187,7 @@ function VehicleForm({ vehicle, initialCustomerId, customers, statusOptions, onC
   return <Modal title={vehicle ? 'Modifica vettura' : 'Nuova vettura'} onClose={onClose}><form onSubmit={submit} className="form-grid"><label>Cliente<select name="customerId" required defaultValue={vehicle?.customerId ?? initialCustomerId ?? ''}><option value="">Seleziona cliente</option>{customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}</select></label><label>Targa<input name="plate" required autoFocus className="uppercase" placeholder="AB123CD" defaultValue={vehicle?.plate} /></label><label>Marca<input name="make" defaultValue={vehicle?.make} /></label><label>Modello<input name="model" defaultValue={vehicle?.model} /></label><label>Colore<input name="color" defaultValue={vehicle?.color} /></label><label>Anno<input name="year" inputMode="numeric" defaultValue={vehicle?.year} /></label><label>Telaio<input name="vin" defaultValue={vehicle?.vin} /></label><label>Chilometraggio<input name="mileage" inputMode="numeric" defaultValue={vehicle?.mileage} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Annulla</button><button className="primary" disabled={saving}>{saving ? 'Salvataggio...' : 'Salva vettura'}</button></div></form></Modal>
 }
 
-function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, onDeleteDraft, onOpenCustomerModal, onOpenVehicleModal, onCreateEstimate, onSaveDamagePreset }: { data: ErpData; onSaveDamagePreset?: (preset: MinorDamagePreset) => void; autosaveState: 'idle' | 'saving' | 'saved'; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => string; onSave: (acceptance: AcceptanceCase) => void; onDeleteDraft: (acceptanceId: string) => void; onOpenCustomerModal: (options?: { returnToAcceptance?: boolean; onSavedToAcceptance?: (customerId: string) => void }) => void; onOpenVehicleModal: (options?: { customerId?: string; returnToAcceptance?: boolean; onSavedToAcceptance?: (vehicleId: string) => void }) => void; onCreateEstimate: (acceptance: AcceptanceCase) => void }) {
+function AcceptancePage({ vehicleWork, data, autosaveState, customerById, onCreate, onSave, onDeleteDraft, onOpenCustomerModal, onOpenVehicleModal, onCreateEstimate, onSaveDamagePreset }: { vehicleWork?: VehicleWork[]; data: ErpData; onSaveDamagePreset?: (preset: MinorDamagePreset) => void; autosaveState: 'idle' | 'saving' | 'saved'; customerById: (id: string) => Customer | undefined; onCreate: (customerId: string, vehicleId: string) => string; onSave: (acceptance: AcceptanceCase) => void; onDeleteDraft: (acceptanceId: string) => void; onOpenCustomerModal: (options?: { returnToAcceptance?: boolean; onSavedToAcceptance?: (customerId: string) => void }) => void; onOpenVehicleModal: (options?: { customerId?: string; returnToAcceptance?: boolean; onSavedToAcceptance?: (vehicleId: string) => void }) => void; onCreateEstimate: (acceptance: AcceptanceCase) => void }) {
   const acceptances = useMemo(() => data.acceptances ?? [], [data.acceptances])
   const draftPractices = useMemo(
     () => acceptances
@@ -2574,7 +2574,7 @@ function AcceptancePage({ data, autosaveState, customerById, onCreate, onSave, o
       </div>
     </section>
 
-    {selected ? <AcceptanceEditor
+    {selected ? <AcceptanceEditor vehicleWork={vehicleWork}
       acceptance={selected}
       data={data}
       customerById={customerById}
@@ -2639,7 +2639,7 @@ function acceptanceConfidenceLabel(confidence: string) {
   return 'Affidabilita non disponibile'
 }
 
-function AcceptanceCasesPage({ data, customerById, onSave, confirmed, onOpenDocument }: { data: ErpData; onOpenDocument:(entry:PracticeQueueEntry)=>void; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; confirmed: boolean }) {
+function AcceptanceCasesPage({ vehicleWork, data, customerById, onSave, confirmed, onOpenDocument }: { vehicleWork?: VehicleWork[]; data: ErpData; onOpenDocument:(entry:PracticeQueueEntry)=>void; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; confirmed: boolean }) {
   const entries = useMemo(() => practiceQueueEntries(data), [data.acceptances,data.estimates,data.quotes,data.jobs,data.vehicles])
   const filtered = useMemo(() => entries.filter(item=>item.confirmed===confirmed),[entries,confirmed])
   const [selectedId, setSelectedId] = useState<string>('')
@@ -2675,7 +2675,7 @@ function AcceptanceCasesPage({ data, customerById, onSave, confirmed, onOpenDocu
         })}
         {!filtered.length && <Empty text={confirmed ? 'Nessuna pratica confermata.' : 'Nessuna pratica da confermare.'} />}
       </div>
-      {selected?.acceptance && <AcceptanceEditor
+      {selected?.acceptance && <AcceptanceEditor vehicleWork={vehicleWork}
         acceptance={selected.acceptance}
         data={data}
         customerById={customerById}
@@ -2692,7 +2692,7 @@ function AcceptanceCasesPage({ data, customerById, onSave, confirmed, onOpenDocu
   </section>
 }
 
-function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEstimate, onSaveDamagePreset, onChangeStatus, openCustomerDetailsRequest, onOpenCustomerDetailsRequestHandled, openVehicleDetailsRequest, onOpenVehicleDetailsRequestHandled, pendingCustomerDocumentForOcr, onPendingCustomerDocumentForOcrHandled, pendingVehicleBookletForOcr, onPendingVehicleBookletForOcrHandled }: { acceptance: AcceptanceCase; data: ErpData; onSaveDamagePreset?: (preset: MinorDamagePreset) => void; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; onCreateEstimate?: (acceptance: AcceptanceCase) => void; onChangeStatus?: (status: AcceptanceCase['status']) => void; openCustomerDetailsRequest?: boolean; onOpenCustomerDetailsRequestHandled?: () => void; openVehicleDetailsRequest?: boolean; onOpenVehicleDetailsRequestHandled?: () => void; pendingCustomerDocumentForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingCustomerDocumentForOcrHandled?: () => void; pendingVehicleBookletForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingVehicleBookletForOcrHandled?: () => void }) {
+function AcceptanceEditor({ vehicleWork, acceptance, data, customerById, onSave, onCreateEstimate, onSaveDamagePreset, onChangeStatus, openCustomerDetailsRequest, onOpenCustomerDetailsRequestHandled, openVehicleDetailsRequest, onOpenVehicleDetailsRequestHandled, pendingCustomerDocumentForOcr, onPendingCustomerDocumentForOcrHandled, pendingVehicleBookletForOcr, onPendingVehicleBookletForOcrHandled }: { vehicleWork?: VehicleWork[]; acceptance: AcceptanceCase; data: ErpData; onSaveDamagePreset?: (preset: MinorDamagePreset) => void; customerById: (id: string) => Customer | undefined; onSave: (acceptance: AcceptanceCase) => void; onCreateEstimate?: (acceptance: AcceptanceCase) => void; onChangeStatus?: (status: AcceptanceCase['status']) => void; openCustomerDetailsRequest?: boolean; onOpenCustomerDetailsRequestHandled?: () => void; openVehicleDetailsRequest?: boolean; onOpenVehicleDetailsRequestHandled?: () => void; pendingCustomerDocumentForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingCustomerDocumentForOcrHandled?: () => void; pendingVehicleBookletForOcr?: { file: File; targetAcceptanceId: string } | null; onPendingVehicleBookletForOcrHandled?: () => void }) {
   const customer = customerById(acceptance.customerId)
   const vehicle = data.vehicles.find((item) => item.id === acceptance.vehicleId)
   const intake = {
@@ -3281,7 +3281,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
       </div>
       {quoteOpen && <div className="panel table-panel">
         <div className="panel-head"><div><span className="eyebrow">PASSAGGIO 3</span><h3>Preventivo</h3><p>Calcolo economico collegato alla pratica.</p></div></div>
-        <DamageQuoteEditor marginTarget={marginTargetRate(data,acceptance.quote.monthKey)} settings={data.plannerSettings} quote={acceptance.quote} onSavePreset={onSaveDamagePreset} onChange={(quote) => {
+        <DamageQuoteEditor marginTarget={marginTargetRate(data,acceptance.quote.monthKey,undefined,undefined,vehicleWork)} settings={data.plannerSettings} quote={acceptance.quote} onSavePreset={onSaveDamagePreset} onChange={(quote) => {
           const current = latestAcceptanceRef.current
           saveAcceptance({ ...current, quote, updatedAt: new Date().toISOString() })
         }} />
