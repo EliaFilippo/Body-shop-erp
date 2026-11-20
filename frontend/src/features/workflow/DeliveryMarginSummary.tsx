@@ -1,3 +1,4 @@
+import { finalizedJobCosts } from '../../services/finalizedJobCosts'
 import { Modal } from '../../components/Modal'
 import { closedJobMargin } from '../../services/closedJobMargin'
 import { reportDuration } from '../../services/deliveredJobReport'
@@ -32,7 +33,7 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
   const deliveredAt = Date.parse(job?.deliveredAt ?? vehicleDelivery ?? '')
   const costs = job && vehicle && Number.isFinite(deliveredAt)
     ? recordedJobVehicleCosts(vehicle, job, data.jobs ?? [], romeDate.format(new Date(deliveredAt))) : undefined
-  const result = job ? closedJobMargin(job, data.plannerSettings.operators, costs?.materials, costs?.parts) : undefined
+  const result = job ? closedJobMargin(job, data.plannerSettings.operators, costs?.materials, costs?.parts, finalizedJobCosts(job,vehicle,data.jobs??[],data.plannerSettings).finalized) : undefined
   const provisional = result && (result.marginCents === null || result.materialsToConfirm || result.partsEstimated)
 
   return <>

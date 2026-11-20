@@ -1,8 +1,9 @@
+import { finalizedJobCosts } from './finalizedJobCosts'
 import type { ErpData } from '../types'
 import { closedJobPartsCost, closedJobMargin, operatorHourlyCost, recordedPhaseLabor } from './closedJobMargin'
 import { deliveredWorkPhases } from './deliveredJobReport'
 import { historicalRevenues, isRealizedInvoice } from './historicalActuals'
-import { calculateJobMaterialMargin, recordedJobVehicleCosts } from './jobMaterialCosts'
+import { calculateJobMaterialMargin } from './jobMaterialCosts'
 import type { VehicleWork } from './productionPlanningState'
 import { isVehicleStatusSemantic } from './vehicleStatuses'
 import { addDays, isWorkingDate, workingMinutesForDate } from './workCalendar'
@@ -59,13 +60,16 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       ? dayOf(vehicle.deliveredAt) : undefined
     const matchingDelivery = vehicleDelivery && vehicleDelivery >= job.entryDate ? vehicleDelivery : undefined
     const deliveryDate = job.status === 'Consegnata' ? dayOf(job.deliveredAt) ?? matchingDelivery : matchingDelivery
+    const closure = finalizedJobCosts(job,vehicle,data.jobs??[],settings)
+    const finalized = closure.finalized
+    const accountingDate = deliveryDate ?? (finalized ? closure.date : undefined)
     const materials = calculateJobMaterialMargin(job)
-    const costs = deliveryDate && vehicle ? recordedJobVehicleCosts(vehicle, job, data.jobs ?? [], deliveryDate) : undefined
-    const materialCost = materials.actualMaterials ?? costs?.materials ?? materials.estimatedMaterials
-    const { partsCents, partsEstimated } = closedJobPartsCost(job, costs?.parts)
-    const provisional = materials.actualMaterials === null || partsEstimated
+    const costs = closure.costs
+    const materialCost = materials.actualMaterials ?? costs?.materials ?? (finalized ? 0 : materials.estimatedMaterials)
+    const { partsCents, partsEstimated } = closedJobPartsCost(job, finalized ? costs?.parts ?? 0 : costs?.parts)
+    const provisional = !finalized && (materials.actualMaterials === null || partsEstimated)
     const netBeforeLabor = Number.isFinite(job.taxableAmount) && partsCents !== null && Number.isFinite(materialCost)
-      ? cents(job.taxableAmount) - partsCents - cents(materialCost) : null
+      ? cents(job.taxableAmount) - partsCents - cents(materialCost) - cents(finalized ? costs?.other ?? 0 : 0) : null
     const phases = deliveredWorkPhases(job)
     const sharedCounts = new Map<string, number>()
     for (const phase of phases) {
@@ -79,19 +83,19 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       const date = phase.status === 'Completata' ? dayOf(phase.completedAt || phase.endedAt) : undefined
       if (!date || date > today || (deliveryDate && date > deliveryDate)) return
       const labor = recordedPhaseLabor(phase, settings.operators)
-      const laborCents = labor.complete
+      const laborCents = finalized || labor.complete
         ? cents(labor.workers.reduce((sum, worker) => sum + worker.seconds / 3600 * (worker.rate ?? 0), 0))
         : null
       const marginCents = netBeforeLabor !== null && laborCents !== null
         ? Math.round(totalWeight > 0 ? netBeforeLabor * weights[index] / totalWeight : 0) - laborCents
         : null
       creditedMargin += marginCents ?? 0
-      production.push({ date, marginCents, provisional: provisional || !deliveryDate })
+      production.push({ date, marginCents, provisional: provisional || !finalized })
     })
-    if (deliveryDate && deliveryDate <= today) {
-      const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts)
-      const marginCents = closed.marginCents === null ? null : closed.marginCents - creditedMargin
-      production.push({ date: deliveryDate, marginCents, provisional })
+    if (accountingDate && accountingDate <= today) {
+      const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts, finalized)
+      const marginCents = closed.marginCents === null ? null : closed.marginCents - cents(finalized ? costs?.other ?? 0 : 0) - creditedMargin
+      production.push({ date: accountingDate, marginCents, provisional })
     }
   }
   const federica = operators.filter(operator => operator.name.trim().toLowerCase() === 'federica')

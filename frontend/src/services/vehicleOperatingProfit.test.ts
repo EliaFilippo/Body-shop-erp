@@ -7,7 +7,7 @@ function fixture(){
  settings.operators=[{id:'a',name:'Anna',dailyHours:8,active:true,hourlyCost:20}]
  settings.internalCostSettings={internalHourlyRate:0,minimumMarginPercent:0,usePlannerCapacity:false,productiveCapacity:{productiveOperators:1,hoursPerOperatorPerDay:10,workingDaysPerMonth:20,efficiencyPercent:100},monthlyCostItems:[{id:'pay',category:'personale',description:'Stipendi',monthlyAmount:4000,active:true},{id:'rent',category:'affitto',description:'Affitto',monthlyAmount:2000,active:true}]}
  const job={id:'j',vehicleId:'v',plate:'TEST',entryDate:'2026-11-10',deliveredAt:'2026-11-18T16:00:00Z',taxableAmount:500,lines:[],phases:[{id:'p',name:'Lucidatura',estimatedMinutes:60,tabletWorkedSeconds:7200,operatorAssignments:[{id:'tablet:a',operatorName:'Anna',workedMinutes:120,endedAt:'2026-11-18T15:00:00Z'}]}]} as unknown as RepairJob
- const vehicle={id:'v',plate:'TEST',costEntries:[{category:'vernice',usedAt:'2026-11-18',total:80},{category:'ricambi',usedAt:'2026-11-18',total:50},{category:'trasporto',usedAt:'2026-11-18',total:10}]} as unknown as Vehicle
+ const vehicle={id:'v',plate:'TEST',status:'In lavorazione',costEntries:[{category:'vernice',usedAt:'2026-11-18',total:80},{category:'ricambi',usedAt:'2026-11-18',total:50},{category:'trasporto',usedAt:'2026-11-18',total:10}]} as unknown as Vehicle
  return {settings,job,vehicle}
 }
 it('subtracts actual materials, parts, labor, other costs and non-payroll overhead once',()=>{
@@ -28,15 +28,26 @@ it('preserves losses and does not present missing labor or overhead as zero',()=
  expect(vehicleOperatingProfit(vehicle,job,[job],settings).profitCents).toBeNull()
 })
 
-it('identifies missing phase times without claiming configured overhead or rates are missing',()=>{
+it('values unrecorded work at zero after delivery without rewriting timers',()=>{
  const {settings,job,vehicle}=fixture()
  job.phases[0].tabletWorkedSeconds=undefined
  job.phases[0].operatorAssignments=[]
  job.phases[0].status='Completata'
  job.status='Consegnata'
  const result=vehicleOperatingProfit(vehicle,job,[job],settings)
- expect(result.profitCents).toBeNull()
- expect(result.missing).toEqual(['tempi non registrati: Lucidatura'])
+ expect(result.profitCents).toBe(36000)
+ expect(result.missing).toEqual([])
  expect(job.status).toBe('Consegnata')
  expect(job.phases[0].tabletWorkedSeconds).toBeUndefined()
+})
+
+it('never falls back to budget costs on closed cars and retains all recorded charges',()=>{
+ const {settings,job,vehicle}=fixture()
+ job.status='Pronta consegna'
+ job.lines=[{category:'ricambi',quantity:1,budgetDirectUnitCost:900,unitPrice:1000}] as RepairJob['lines']
+ vehicle.costEntries=[]
+ const result=vehicleOperatingProfit(vehicle,job,[job],settings)
+ expect(result).toMatchObject({materialCents:0,partsCents:0,otherCents:0,laborCents:4000,overheadCents:2000,profitCents:44000})
+ settings.operators[0].hourlyCost=undefined
+ expect(vehicleOperatingProfit(vehicle,job,[job],settings).laborCents).toBe(0)
 })

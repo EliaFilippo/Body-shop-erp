@@ -1,3 +1,4 @@
+import { finalizedJobCosts } from '../../services/finalizedJobCosts'
 import { vehicleOperatingProfit } from '../../services/vehicleOperatingProfit'
 import { closedJobMargin } from '../../services/closedJobMargin'
 import { archivedJobMaterials } from '../../services/archivedJobMaterials'
@@ -58,6 +59,7 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJ
   const report = deliveredJobReport(job)
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
+  const finalized = settings ? finalizedJobCosts(job,vehicle,jobs,settings).finalized : false
   const actual = job.materialActualCost
   return <section className="vehicle-history-job">
     <h3>{job.number} · {job.status}</h3>
@@ -65,17 +67,17 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJ
     <div className="summary-grid">
       <div className="summary-card"><span>Ore previste</span><strong>{reportDuration(report.plannedSeconds)}</strong></div>
       <div className="summary-card">
-        <span>Ore registrate</span><strong>{report.complete || report.workedSeconds > 0 ? reportDuration(report.workedSeconds) : 'Da registrare'}</strong>
-        {report.missing > 0 && <small>{report.missing} fasi senza tempi registrati</small>}
+        <span>Ore registrate</span><strong>{finalized || report.complete || report.workedSeconds > 0 ? reportDuration(report.workedSeconds) : 'Da registrare'}</strong>
+        {!finalized && report.missing > 0 && <small>{report.missing} fasi senza tempi registrati</small>}
       </div>
       <div className="summary-card"><span>Materiali stimati · IVA esclusa</span><strong>{currency.format(report.materials.estimatedMaterials)}</strong></div>
-      <div className="summary-card"><span>Materiali a consuntivo · IVA esclusa</span><strong>{actual ? currency.format(actual.amount) : 'Da registrare'}</strong>
+      <div className="summary-card"><span>Materiali a consuntivo · IVA esclusa</span><strong>{actual ? currency.format(actual.amount) : finalized ? currency.format(0) : 'Da registrare'}</strong>
         {actual?.note && <small>{actual.note}</small>}
         {actual && <small>{timestamp(actual.at)}</small>}
       </div>
     </div>
     {settings && <ArchivedOperatingProfit vehicle={vehicle} job={job} jobs={jobs} settings={settings} />}
-    <ArchivedLabor job={job} operators={operators} />
+    <ArchivedLabor job={job} operators={operators} finalized={finalized} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>
       <thead><tr><th>Fase e stato</th><th>Inizio / fine</th><th>Tempo registrato</th><th>Operatori</th><th>Note</th></tr></thead>
@@ -120,8 +122,8 @@ export function ArchivedMargin({margin,percent,estimatedMaterials}:{margin:numbe
  </div></section>
 }
 
-export function ArchivedLabor({ job, operators }: { job: RepairJob; operators: PlannerOperator[] }) {
-  const labor = closedJobMargin(job, operators)
+export function ArchivedLabor({ job, operators, finalized = false }: { job: RepairJob; operators: PlannerOperator[]; finalized?: boolean }) {
+  const labor = closedJobMargin(job, operators, undefined, undefined, finalized)
   return <section aria-label="Costo della manodopera registrata">
     <h4>Costo manodopera sulla vettura</h4>
     <div className="summary-grid"><div className="summary-card">
@@ -150,6 +152,7 @@ export function ArchivedOperatingProfit({vehicle,job,jobs,settings}:{vehicle:Veh
       <strong style={{color:amount===null?'#e6b85c':amount>=0?'#67d9a3':'#ff6b6b'}}>{amount===null?'Utile non determinabile':`${amount>0?'+':''}${money(amount)}`}</strong>
       {amount!==null && <b>{amount>0?'Positivo':amount<0?'Negativo':'In pareggio'}{result.percent!==null?` · ${result.percent.toLocaleString('it-IT',{maximumFractionDigits:2})}%`:''}</b>}
       {job.status === 'Consegnata' && <small>Vettura consegnata · lavorazioni chiuse. Eventuali dati mancanti riguardano il consuntivo economico.</small>}
+      <small>Per le vetture completate o consegnate, i costi e i tempi non registrati sono considerati zero. Le spese generali configurate sono ripartite sulle ore registrate.</small>
       <small>Prima delle imposte aziendali. Spese generali ripartite sulle ore effettive della vettura, escludendo i costi già coperti dalle tariffe degli operatori.</small>
       {(result.materialsEstimated||result.partsEstimated||result.otherEstimated) && <small>Stima parziale: alcuni materiali, ricambi o costi diretti sono ancora preventivati.</small>}
       {result.missing.length>0 && <small>Dati da completare: {result.missing.join('; ')}.</small>}

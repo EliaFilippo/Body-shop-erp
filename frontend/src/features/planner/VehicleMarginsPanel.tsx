@@ -1,3 +1,4 @@
+import { finalizedJobCosts } from '../../services/finalizedJobCosts'
 import { useMemo, useState } from 'react'
 import { DeliveryMarginSummary } from '../workflow/DeliveryMarginSummary'
 import { closedJobMargin } from '../../services/closedJobMargin'
@@ -77,7 +78,7 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
       const deliveredAt = job.deliveredAt || matchingDelivery
       const deliveryDate = deliveredAt && Number.isFinite(Date.parse(deliveredAt)) ? romeDate.format(new Date(deliveredAt)) : undefined
       const costs = deliveryDate && vehicle ? recordedJobVehicleCosts(vehicle, job, jobs ?? [], deliveryDate) : undefined
-      return [{ job, deliveredAt, deliveryDate, ...closedJobMargin(job, plannerSettings.operators, costs?.materials, costs?.parts) }]
+      return [{ job, deliveredAt, deliveryDate, ...closedJobMargin(job, plannerSettings.operators, costs?.materials, costs?.parts, finalizedJobCosts(job,vehicle,jobs??[],plannerSettings).finalized) }]
     }).sort((a, b) => (b.deliveredAt ?? b.job.updatedAt).localeCompare(a.deliveredAt ?? a.job.updatedAt))
   }, [jobs, vehicles, plannerSettings])
   const calculated = rows.filter(row => row.marginCents !== null && !row.materialsToConfirm && !row.partsEstimated)

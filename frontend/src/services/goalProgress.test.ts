@@ -102,3 +102,19 @@ it('deducts four office hours plus production time outside cars alongside the lo
     { date: '2026-11-12', operatorId: 'federica', seconds: 32400 },
   ])[0]).toMatchObject({ offVehicleHours: 4, offVehicleCost: 68 })
 })
+
+it('uses recorded costs and zero missing costs for ready and delivered cars, without double counting',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings.operators=[{id:'martin',name:'Martin',hourlyCost:20,dailyHours:8,active:true}]
+ const job={...makeReportJob(),vehicleId:'v',plate:'TEST',entryDate:'2026-11-09',updatedAt:'2026-11-09T11:00:00Z',status:'Pronta consegna' as const,
+  lines:[{category:'ricambi',quantity:1,budgetDirectUnitCost:900,unitPrice:1000}],
+  phases:[completedPhase,{...completedPhase,id:'missing',name:'Verniciatura',tabletWorkedSeconds:undefined,operatorAssignments:[]}]} as RepairJob
+ data.jobs=[job]
+ data.vehicles=[{id:'v',plate:'TEST',status:'Pronta',costEntries:[{category:'vernice',usedAt:'2026-11-09',total:10},{category:'trasporto',usedAt:'2026-11-09',total:5}]}] as typeof data.vehicles
+ const before=JSON.stringify(data)
+ expect(calculateGoalProgress(data,'2026-11-09').map(p=>p.done)).toEqual([465,465,465])
+ expect(calculateGoalProgress(data,'2026-11-09')[2]).toMatchObject({incomplete:false,provisional:false})
+ expect(JSON.stringify(data)).toBe(before)
+ job.status='Consegnata';job.deliveredAt='2026-11-10T11:00:00Z'
+ expect(calculateGoalProgress(data,'2026-11-10')[2].done).toBe(465)
+})
