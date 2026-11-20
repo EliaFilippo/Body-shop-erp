@@ -1507,7 +1507,7 @@ export function InvoiceCreateModal({ customer, vehicles, amounts, defaultVatRate
 
   return <Modal title={`Nuova fattura · ${customer.name}`} onClose={onClose}>
     <form className="form-grid finance-form-grid" onSubmit={submit}>
-      <label>Numero fattura<input value={number} onChange={(event) => setNumber(event.target.value)} required /></label>
+      <p>Per aggiungere vetture a una fattura aperta, inserisci lo stesso numero, cliente, data e condizioni di pagamento. Gli importi delle vetture vengono sommati.</p><label>Numero fattura<input value={number} onChange={(event) => setNumber(event.target.value)} required /></label>
       <label>Data fattura<input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} required /></label>
       <label>Metodo pagamento<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}>{paymentMethods.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label>Aliquota IVA %<input type="number" min="0" step="0.01" value={vatRate} onChange={(event) => setVatRate(Number(event.target.value) || 0)} /></label>

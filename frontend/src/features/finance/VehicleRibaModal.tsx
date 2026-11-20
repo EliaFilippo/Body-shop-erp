@@ -48,7 +48,7 @@ export function VehicleRibaModal({data,vehicleId,onClose,onSave,onAddBank}:{data
   <p>{vehicle ? 'Controlla l’importo e le date della distinta. Per una vettura senza fattura, inserisci o verifica l’importo IVA inclusa.' : 'Seleziona le vetture da includere. Per le vetture senza fattura puoi indicare l’importo IVA inclusa.'}</p>
   {suggestedDue && <p>La scadenza proposta viene dalla fattura. Verifica la data della distinta bancaria.</p>}
   <div className="form-grid">
-   <label>Numero distinta<input required value={number} onChange={e=>setNumber(e.target.value)}/></label>
+   <p>Puoi usare il numero di una distinta già aperta per aggiungere altre vetture: mantieni la stessa banca e le stesse date.</p><label>Numero distinta<input required value={number} onChange={e=>setNumber(e.target.value)}/></label>
    <label>Banca RIBA<select required value={bank} onChange={e=>setBank(e.target.value)}><option value="">Scegli banca</option>{data.bankAccounts.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
    {addingBank ? <fieldset style={{ gridColumn: '1 / -1' }}>
     <legend>Aggiungi banca</legend>

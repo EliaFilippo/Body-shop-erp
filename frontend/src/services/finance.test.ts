@@ -283,3 +283,29 @@ describe('Ri.Ba. prima della fattura', () => {
     expect(() => createInvoice(load(makeData(), 1300), invoice)).toThrow('supera il totale')
   })
 })
+
+it('adds another vehicle to the same invoice and batch without duplicating document totals', () => {
+ const base=makeData();base.vehicles.push(vehicle('2','c1'))
+ let data=createInvoice(base,{customerId:'c1',vehicleIds:['1'],number:'SHARED',issueDate:'2026-03-01'})
+ const invoiceId=data.invoices[0].id
+ data=createInvoice(data,{customerId:'c1',vehicleIds:['2'],number:'SHARED',issueDate:'2026-03-01'})
+ expect(data.invoices).toHaveLength(1)
+ expect(data.invoices[0]).toMatchObject({id:invoiceId,total:2440})
+ expect(data.invoices[0].lines).toHaveLength(2)
+ expect(data.vehicles.every(v=>v.invoiceId===invoiceId)).toBe(true)
+ const input={number:'DIST-SHARED',bankAccountId:'b1',presentationDate:'2026-03-01',dueDate:'2026-03-31',collectionDate:'2026-03-31',mode:'maturity' as const,advanceDate:'2026-03-01',fees:0,interest:0}
+ data=createVehicleRiba(data,{...input,selections:[{key:`${invoiceId}|1`,amount:1220}]})
+ const batchId=data.ribaBatches[0].id
+ data=createVehicleRiba(data,{...input,selections:[{key:`${invoiceId}|2`,amount:1220}]})
+ expect(data.ribaBatches).toHaveLength(1)
+ expect(data.ribaBatches[0]).toMatchObject({id:batchId,total:2440})
+ expect(data.ribaBatches[0].allocations).toHaveLength(1)
+ expect(data.invoices[0].ribaAllocatedAmount).toBe(2440)
+ expect(()=>createInvoice(data,{customerId:'c1',vehicleIds:['1'],number:'SHARED',issueDate:'2026-03-01'})).toThrow()
+ expect(()=>createVehicleRiba(data,{...input,selections:[{key:`${invoiceId}|2`,amount:1220}]})).toThrow()
+})
+it('rejects a repeated invoice number for a different customer or date',()=>{
+ const base=makeData();base.vehicles.push(vehicle('2','c1'))
+ const data=createInvoice(base,{customerId:'c1',vehicleIds:['1'],number:'SHARED',issueDate:'2026-03-01'})
+ expect(()=>createInvoice(data,{customerId:'c1',vehicleIds:['2'],number:'SHARED',issueDate:'2026-03-02'})).toThrow()
+})

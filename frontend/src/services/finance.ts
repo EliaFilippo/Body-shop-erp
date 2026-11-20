@@ -412,7 +412,8 @@ export function createInvoice(
   const customer = data.customers.find((item) => item.id === input.customerId)
   if (!customer) throw new Error('Cliente non trovato.')
   if (!input.number.trim()) throw new Error('Il numero fattura è obbligatorio.')
-  if (data.invoices.some((item) => item.number.trim().toLowerCase() === input.number.trim().toLowerCase())) throw new Error('Numero fattura già presente.')
+  const existing = data.invoices.find(item => item.number.trim().toLowerCase() === input.number.trim().toLowerCase())
+  if (existing && (existing.customerId !== input.customerId || existing.issueDate !== input.issueDate || ['Incassata','Stornata','Insoluta','Contestata'].includes(existing.status))) throw new Error('La fattura esistente deve avere lo stesso cliente e data ed essere ancora aperta.')
   const vehicles = data.vehicles.filter((item) => input.vehicleIds.includes(item.id))
   if (!vehicles.length) throw new Error('Seleziona almeno una vettura da fatturare.')
   if (vehicles.some((item) => item.customerId !== input.customerId)) throw new Error('Tutte le vetture devono appartenere allo stesso cliente.')
@@ -441,12 +442,14 @@ export function createInvoice(
     taxableAmount, vatAmount, total, collectedAmount: 0, ribaAllocatedAmount: 0,
     status: 'Da incassare', notes: input.notes?.trim() ?? '', createdAt: timestamp, updatedAt: timestamp,
   }
+  if (existing && (existing.paymentMethod !== invoice.paymentMethod || existing.dueDate !== invoice.dueDate)) throw new Error('La fattura esistente ha condizioni di pagamento diverse.')
+  const merged: Invoice = existing ? {...existing, lines: [...existing.lines, ...invoice.lines], taxableAmount: roundMoney(existing.taxableAmount + taxableAmount), vatAmount: roundMoney(existing.vatAmount + vatAmount), total: roundMoney(existing.total + total), status: existing.ribaAllocatedAmount > 0 ? 'Parzialmente inserita in R.I.B.A.' : 'Da incassare', updatedAt: timestamp} : invoice
   return linkPendingRibaToInvoice({
     ...data,
-    invoices: [invoice, ...data.invoices],
-    vehicles: data.vehicles.map((vehicle) => input.vehicleIds.includes(vehicle.id) ? { ...vehicle, invoiceId: invoice.id, billingStatus: 'Fatturata' } : vehicle),
-    financialEvents: [event({ type: 'Fattura emessa', date: issueDate, amount: total, customerId: customer.id, invoiceId: invoice.id, note: `Fattura ${invoice.number}` }), ...data.financialEvents],
-  }, invoice.id)
+    invoices: [merged, ...data.invoices.filter(item => item.id !== merged.id)],
+    vehicles: data.vehicles.map((vehicle) => input.vehicleIds.includes(vehicle.id) ? { ...vehicle, invoiceId: merged.id, billingStatus: 'Fatturata' } : vehicle),
+    financialEvents: [event({ type: 'Fattura emessa', date: issueDate, amount: total, customerId: customer.id, invoiceId: merged.id, note: `Fattura ${invoice.number}${existing ? ' · aggiunta vetture' : ''}` }), ...data.financialEvents],
+  }, merged.id)
 }
 
 export function linkPendingRibaToInvoice(data: ErpData, invoiceId: string): ErpData {
@@ -498,7 +501,8 @@ export function createRibaBatch(
 ): ErpData {
   if (!input.number.trim()) throw new Error('Il numero distinta è obbligatorio.')
   for(const value of [input.presentationDate,input.dueDate,input.collectionDate||input.dueDate])if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value)))throw new Error('Controlla le date della distinta RIBA.')
-  if (data.ribaBatches.some((item) => item.number.trim().toLowerCase() === input.number.trim().toLowerCase())) throw new Error('Numero distinta già presente.')
+  const existing = data.ribaBatches.find(item => item.number.trim().toLowerCase() === input.number.trim().toLowerCase() && !['Stornata','Insoluta'].includes(item.status))
+  if (existing && (existing.status !== 'Presentata' || existing.advancedAmount > 0 || existing.bankAdvanceApplied || existing.bankAccountId !== input.bankAccountId || existing.presentationDate !== input.presentationDate || existing.dueDate !== input.dueDate || (existing.collectionDate || existing.dueDate) !== (input.collectionDate || input.dueDate))) throw new Error('Per aggiungere vetture alla distinta usa la stessa banca e le stesse date, prima di anticipi o incassi.')
   const bank = data.bankAccounts.find((item) => item.id === input.bankAccountId)
   if (!bank) throw new Error('Banca non trovata.')
   const pendingVehicleLinks = input.pendingVehicleLinks ?? []
@@ -543,17 +547,25 @@ export function createRibaBatch(
   }
   const timestamp = now()
   const batch: RibaBatch = { collectionDate:input.collectionDate||input.dueDate,vehicleLinks:input.vehicleLinks,pendingVehicleLinks:pendingVehicleLinks.length ? pendingVehicleLinks : undefined, id: id(), number: input.number.trim(), bankAccountId: bank.id, presentationDate: input.presentationDate, dueDate: input.dueDate, allocations, total, advancedAmount: 0, advanceDate: '', fees: 0, interest: 0, status: 'Presentata', createdAt: timestamp, updatedAt: timestamp }
+  const mergedAllocations = [...(existing?.allocations ?? [])]
+  for (const allocation of allocations) {
+    const previous = mergedAllocations.find(item => item.invoiceId === allocation.invoiceId)
+    if (previous) mergedAllocations[mergedAllocations.indexOf(previous)] = {...previous, amount: roundMoney(previous.amount + allocation.amount)}
+    else mergedAllocations.push(allocation)
+  }
+  if (existing && !!existing.vehicleLinks?.length !== !!input.vehicleLinks?.length && existing.allocations.length && allocations.length) throw new Error('La distinta esistente usa un riepilogo diverso: aggiungi le fatture dalla stessa modalità.')
+  const merged: RibaBatch = existing ? {...existing, allocations: mergedAllocations, vehicleLinks: [...(existing.vehicleLinks ?? []), ...(input.vehicleLinks ?? [])], pendingVehicleLinks: [...(existing.pendingVehicleLinks ?? []), ...pendingVehicleLinks], total: roundMoney(existing.total + total), updatedAt: timestamp} : batch
   const allocatedByInvoice = new Map(allocations.map((item) => [item.invoiceId, item.amount]))
   return {
     ...data,
-    ribaBatches: [batch, ...data.ribaBatches],
+    ribaBatches: [merged, ...data.ribaBatches.filter(item => item.id !== merged.id)],
     invoices: data.invoices.map((invoice) => {
       const allocated = allocatedByInvoice.get(invoice.id)
       if (!allocated) return invoice
       const nextAllocated = roundMoney(invoice.ribaAllocatedAmount + allocated)
       return { ...invoice, ribaAllocatedAmount: nextAllocated, status: nextAllocated >= invoice.total - invoice.collectedAmount ? 'Inserita in R.I.B.A.' : 'Parzialmente inserita in R.I.B.A.', updatedAt: timestamp }
     }),
-    financialEvents: [event({ type: 'R.I.B.A. presentata', date: input.presentationDate, amount: total, ribaBatchId: batch.id, bankAccountId: bank.id, note: `Distinta ${batch.number}` }), ...data.financialEvents],
+    financialEvents: [event({ type: 'R.I.B.A. presentata', date: input.presentationDate, amount: total, ribaBatchId: merged.id, bankAccountId: bank.id, note: `Distinta ${batch.number}${existing ? ' · aggiunta vetture' : ''}` }), ...data.financialEvents],
   }
 }
 
