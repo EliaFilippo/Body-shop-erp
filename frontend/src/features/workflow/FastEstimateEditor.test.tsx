@@ -161,6 +161,8 @@ it('permette più tempi sotto lo stesso prezzo nella riga manuale',()=>{
 it('mostra il confronto economico prima della conferma e lo aggiorna cambiando prezzo e tempi',()=>{
  const data=structuredClone(emptyData)
  data.plannerSettings.monthlyRevenueGoal=25000
+ data.plannerSettings.monthlyMarginGoal=16000
+ data.plannerSettings.operators=[{id:'op',name:'Operatore',active:true,dailyHours:8,hourlyCost:20}]
  data.plannerSettings.internalCostSettings={...data.plannerSettings.internalCostSettings!,usePlannerCapacity:false,budgetMaterialsPercent:20,
  monthlyCostItems:[{id:'p',category:'personale',description:'Personale',monthlyAmount:4000,active:true},{id:'s',category:'affitto',description:'Struttura',monthlyAmount:6000,active:true}],
  productiveCapacity:{productiveOperators:2,hoursPerOperatorPerDay:8,workingDaysPerMonth:20,efficiencyPercent:62.5}}
@@ -172,12 +174,12 @@ it('mostra il confronto economico prima della conferma e lo aggiorna cambiando p
  fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'120'}})
  fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'200'}})
  const preview=screen.getByLabelText('Convenienza del preventivo')
- expect(preview).toHaveTextContent('100,00')
- expect(preview).toHaveTextContent('125,00')
+ expect(preview).toHaveTextContent('60,00')
+ expect(preview).toHaveTextContent('Margine orario obiettivo')
  expect(preview).toHaveTextContent('SOTTO L’OBIETTIVO ORARIO')
  fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
  expect(preview).toHaveTextContent('SOTTO L’OBIETTIVO ORARIO')
- fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'15'}})
+ fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'5'}})
  expect(preview).toHaveTextContent('SOPRA L’OBIETTIVO ORARIO')
  expect(done).not.toHaveBeenCalled()
 })
@@ -202,7 +204,7 @@ it('ignora una fase aggiuntiva intatta, mostra ore e tariffa dal listino e confe
  fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
  fireEvent.click(screen.getByRole('button',{name:'+ Aggiungi fase riga 1'}))
  const preview=screen.getByLabelText('Convenienza del preventivo')
- expect(preview).toHaveTextContent('50,00') // 150 € di listino + 50 € manuali / 4 ore
+ expect(preview).toHaveTextContent('Ricavo senza IVA: 200,00')
  expect(preview).toHaveTextContent('4 h 0 min')
  expect(preview).not.toHaveTextContent('Ore disponibili con margine')
  expect(preview).not.toHaveTextContent('Ore a disposizione a pareggio')

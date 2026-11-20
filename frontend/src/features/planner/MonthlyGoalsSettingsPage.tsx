@@ -87,7 +87,7 @@ export function MonthlyGoalsSettingsPage({ data, onSave, vehicleWork }: { data: 
         safetyBuffer: snapshot.safetyBuffer,
         ownerWithdrawalAmount: snapshot.ownerWithdrawalAmount,
         ownerWithdrawalPlannedDate: snapshot.ownerWithdrawalPlannedDate,
-        marginGoal: snapshot.ownerWithdrawalAmount,
+        marginGoal: draft.monthlyMarginGoal ?? 0,
         marginActual: round(snapshot.revenueRealized - snapshot.totalCosts),
         residualNeed: snapshot.residualNeed,
         realCosts: snapshot.realCosts,
@@ -110,7 +110,7 @@ export function MonthlyGoalsSettingsPage({ data, onSave, vehicleWork }: { data: 
       monthlyRevenueGoalManual: snapshot.customRevenueGoal,
       ownerWithdrawalAmount: draft.ownerWithdrawalAmount,
       ownerWithdrawalPlannedDate: draft.ownerWithdrawalPlannedDate,
-      monthlyMarginGoal: snapshot.ownerWithdrawalAmount,
+      monthlyMarginGoal: draft.monthlyMarginGoal,
       monthlyGoalHistory: nextHistory,
     }
 
@@ -128,6 +128,8 @@ export function MonthlyGoalsSettingsPage({ data, onSave, vehicleWork }: { data: 
       <label>Mese di riferimento<select value={selectedMonth} onChange={(event) => openMonth(event.target.value)}>{options.map((month) => <option value={month} key={month}>{month}</option>)}</select></label>
       <label>Modalità obiettivo<div className="segmented"><button className={draft.monthlyRevenueGoalMode !== 'custom' ? 'active' : ''} onClick={() => updateMode('automatic')} type="button">Automatico</button><button className={draft.monthlyRevenueGoalMode === 'custom' ? 'active' : ''} onClick={() => updateMode('custom')} type="button">Personalizzato</button></div></label>
       <div className="hint-block"><small><strong>Automatico:</strong> l'obiettivo viene ricalcolato automaticamente in base a spese previste, prelievo titolare e cuscinetto di liquidità.</small><small><strong>Personalizzato:</strong> il titolare stabilisce manualmente l'obiettivo del mese.</small></div>
+      <label>Obiettivo margine mensile, spese generali incluse (€)<MoneyInput minValue={0} value={draft.monthlyMarginGoal ?? 0} onValueChange={value => setDraft({...draft, monthlyMarginGoal: value ?? 0})}/></label>
+      <small>Questo obiettivo copre le spese generali e il risultato desiderato. Stipendi, materiali e ricambi sono sottratti dalle commesse prima del confronto.</small>
       <label>Prelievo titolare (€)<MoneyInput minValue={0} value={draft.ownerWithdrawalAmount ?? 3000} onValueChange={(value) => setDraft({ ...normalizeDraft(draft), ownerWithdrawalAmount: value ?? 0 })} /></label>
       <label>Data prevista prelievo<input type="date" value={draft.ownerWithdrawalPlannedDate ?? new Date().toISOString().slice(0, 10)} onChange={(event) => setDraft({ ...normalizeDraft(draft), ownerWithdrawalPlannedDate: event.target.value })} /></label>
       <label>Cuscinetto sicurezza (%)<input type="number" min="0" max="100" value={draft.economicSafetyMarginPercent ?? 10} onChange={(event) => setDraft({ ...normalizeDraft(draft), economicSafetyMarginPercent: Number(event.target.value) })} /></label>
@@ -140,7 +142,7 @@ export function MonthlyGoalsSettingsPage({ data, onSave, vehicleWork }: { data: 
     </section>
 
     <section className="panel economic-panel">
-      <div className="panel-head"><div><span className="eyebrow">CONFRONTO OBIETTIVO / RISULTATO</span><h3>{snapshot.monthKey}</h3></div><b className={snapshot.status === 'ok' ? 'goal-ok' : snapshot.status === 'warning' ? 'goal-gap' : 'goal-critical'}>{snapshot.status === 'ok' ? 'In linea' : snapshot.status === 'warning' ? 'Attenzione' : 'In ritardo'}</b></div>
+      <div className="panel-head"><div><span className="eyebrow">FABBISOGNO E FATTURAZIONE · SEPARATI DAL MARGINE</span><h3>{snapshot.monthKey}</h3></div><b className={snapshot.status === 'ok' ? 'goal-ok' : snapshot.status === 'warning' ? 'goal-gap' : 'goal-critical'}>{snapshot.status === 'ok' ? 'In linea' : snapshot.status === 'warning' ? 'Attenzione' : 'In ritardo'}</b></div>
       <div className="goal-meter"><span>Avanzamento cumulativo</span><strong>{snapshot.progressPercent}%</strong><i><b style={{ width: `${snapshot.progressPercent}%` }} /></i></div>
       <div className="economic-grid">
         <div><span>Spese previste</span><strong>{euro(snapshot.plannedCosts)}</strong></div>

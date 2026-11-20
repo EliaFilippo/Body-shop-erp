@@ -500,10 +500,10 @@ export function PlannerPage({ data, vehicleWork, liveForecasts, customerById, on
     </section>
 
     {marginRate && <MarginTargetRatePanel target={marginRate} />}
-    {data.nightlyPlanning?.economics?.monthKey===targetMonth?<NightlyEconomicsPanel snapshot={data.nightlyPlanning.economics}/>:<section className="panel" aria-label="Tariffa oraria obiettivo mensile">
-      <div className="panel-head"><div><span className="eyebrow">{targetMonthLabel}</span><h3>Tariffa oraria per raggiungere l’obiettivo mensile</h3></div></div>
+    {!marginRate && (data.nightlyPlanning?.economics?.monthKey===targetMonth?<NightlyEconomicsPanel snapshot={data.nightlyPlanning.economics}/>:<section className="panel" aria-label="Tariffa oraria obiettivo mensile">
+      <div className="panel-head"><div><span className="eyebrow">{targetMonthLabel}</span><h3>Riferimento separato di fatturato mensile</h3></div></div>
       <div className="planner-detail-summary-grid">
-        <article className="planner-detail-card"><span>Tariffa obiettivo</span><strong>{targetRate.hourlyRate===null?'Da configurare':`${money(targetRate.hourlyRate)}/h`}</strong></article>
+        <article className="planner-detail-card"><span>Fatturato medio per ora</span><strong>{targetRate.hourlyRate===null?'Da configurare':`${money(targetRate.hourlyRate)}/h`}</strong></article>
         <article className="planner-detail-card"><span>Obiettivo fatturato mensile</span><strong>{money(targetRate.goal)}</strong></article>
         <article className="planner-detail-card"><span>Ore produttive del mese</span><strong>{formatHours(targetRate.hours)}</strong></article>
       </div>
@@ -511,9 +511,9 @@ export function PlannerPage({ data, vehicleWork, liveForecasts, customerById, on
       <small>{targetRate.capacitySource==='planner'?'Ore calcolate con orari degli operatori, assenze, chiusure ed efficienza.':'Ore calcolate dalla capacità produttiva mensile configurata, con l’efficienza impostata.'} Il valore si aggiorna quando cambi obiettivo o capacità; non dipende dal costo orario manuale.</small>
       {targetRate.hourlyRate===null&&<p role="status">{targetRate.goal<=0?'Imposta l’obiettivo fatturato mensile nelle impostazioni.':'Configura ore produttive maggiori di zero nelle impostazioni.'}</p>}
       <button type="button" className="secondary" onClick={onOpenSettings}>Modifica obiettivo e ore</button>
-    </section>}
+    </section>)}
 
-    <VehicleMarginsPanel data={data} monthKey={targetMonth} marginHourlyRate={marginRate?.hourlyRate} />
+    <VehicleMarginsPanel data={data} monthKey={targetMonth} marginHourlyRate={marginRate?.marginHourlyRate} />
 
     {!data.plannerSettings.operators.length && <div className="toast warning">Configura almeno un operatore: senza ore lavorabili non e possibile calcolare una consegna.</div>}
 

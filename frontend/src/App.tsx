@@ -1,3 +1,4 @@
+import { marginTargetRate } from './services/marginTargetRate'
 import { RibaManagementPage } from './features/finance/RibaManagementPage'
 import { VehicleScheduleDates } from './features/cones/VehicleScheduleDates'
 import { setVehicleScheduleDates } from './services/vehicleScheduleDates'
@@ -3280,7 +3281,7 @@ function AcceptanceEditor({ acceptance, data, customerById, onSave, onCreateEsti
       </div>
       {quoteOpen && <div className="panel table-panel">
         <div className="panel-head"><div><span className="eyebrow">PASSAGGIO 3</span><h3>Preventivo</h3><p>Calcolo economico collegato alla pratica.</p></div></div>
-        <DamageQuoteEditor settings={data.plannerSettings} quote={acceptance.quote} onSavePreset={onSaveDamagePreset} onChange={(quote) => {
+        <DamageQuoteEditor marginTarget={marginTargetRate(data,acceptance.quote.monthKey)} settings={data.plannerSettings} quote={acceptance.quote} onSavePreset={onSaveDamagePreset} onChange={(quote) => {
           const current = latestAcceptanceRef.current
           saveAcceptance({ ...current, quote, updatedAt: new Date().toISOString() })
         }} />

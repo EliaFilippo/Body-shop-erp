@@ -14,84 +14,65 @@ function fixture(price=200) {
  const quote={...createDefaultQuote(settings,'2026-10'),damageLines:[line],selectedPhases:[]}
  return {settings,quote}
 }
-describe('convenienza prima di confermare il preventivo Fast',()=>{
- it('separa ricavo, obiettivo e margine: sotto obiettivo può restare redditizio',()=>{
-  const {settings,quote}=fixture()
+describe('confronto sul margine dopo i costi diretti',()=>{
+ function prepared(price=200){
+  const value=fixture(price)
+  value.settings.monthlyMarginGoal=12000
+  value.settings.operators=[{id:'op',name:'Operatore',active:true,dailyHours:8,hourlyCost:20}]
+  return value
+ }
+ it('deducts materials and operator costs once and never deducts general expenses',()=>{
+  const {settings,quote}=prepared()
   const before=JSON.stringify(quote)
-  expect(quoteEconomics(quote,settings)).toMatchObject({revenue:200,minutes:120,hourlyRevenue:100,target:{hourlyRate:125},materialsCost:40,hourlyCost:50,personnelAndStructureCost:100,totalCost:140,margin:60,breakEvenRevenue:125,status:'below-target'})
+  const result=quoteEconomics(quote,settings)
+  expect(result).toMatchObject({revenue:200,minutes:120,hourlyRevenue:100,materialsCost:40,personnelAndStructureCost:40,totalCost:80,margin:120,marginHourly:60,target:{hourlyRate:60},objectiveMinutes:120,objectiveHourlyDelta:0,status:'on-target'})
+  settings.internalCostSettings!.monthlyCostItems![1].monthlyAmount=90000
+  expect(quoteEconomics(quote,settings).margin).toBe(120)
   expect(JSON.stringify(quote)).toBe(before)
  })
- it('usa l’obiettivo notturno del mese del preventivo mantenendo il costo di pareggio',()=>{
-  const {settings,quote}=fixture()
-  const nightly={
-   monthKey:quote.monthKey,plannedFor:'2026-10-15',asOf:'2026-10-15T02:00:00Z',
-   monthlyGoal:25000,realizedNetRevenue:19000,residualRevenue:6000,remainingProductiveHours:75,
-   targetHourlyRate:80,productiveHours:40,paidHours:48,accruedOperatingCosts:8000,realHourlyCost:200,
-   utilizationPercent:62.5,capacitySource:'configured' as const,payrollInMonthlyCosts:true,
-   dailyGoal:400,dailyGoals:[],warnings:[],
-  }
-  expect(quoteEconomics(quote,settings,nightly)).toMatchObject({
-   target:{hourlyRate:80,goal:6000,hours:75,isResidual:true},hourlyCost:50,margin:60,status:'on-target',
-  })
-  expect(quoteEconomics(quote,settings,{...nightly,monthKey:'2026-09'}).target).toMatchObject({hourlyRate:125,isResidual:false})
+ it('uses each selected operator rate instead of a company overhead rate',()=>{
+  const {settings,quote}=prepared()
+  settings.operators.push({id:'expensive',name:'Altro',active:true,dailyHours:8,hourlyCost:40})
+  quote.damageLines[0].budgetOperatorId='expensive'
+  expect(quoteEconomics(quote,settings)).toMatchObject({personnelAndStructureCost:80,margin:80,marginHourly:40,status:'below-target'})
  })
- it.each([[50,'loss',-60],[125,'break-even',0],[400,'on-target',220]] as const)('classifica prezzo %s al netto IVA', (price,status,margin)=>{
-  const {settings,quote}=fixture(price)
-  expect(quoteEconomics(quote,settings)).toMatchObject({status,margin})
+ it('compares against residual margin rate rather than gross revenue rate',()=>{
+  const {settings,quote}=prepared(802)
+  quote.damageLines[0].manualPhaseTimes=[{phase:'Verniciatura',minutes:620}]
+  const target={marginHourlyRate:30,hourlyRate:107.89,remainingMargin:8000} as NonNullable<Parameters<typeof quoteEconomics>[3]>
+  const result=quoteEconomics(quote,settings,undefined,target)
+  expect(result.target.hourlyRate).toBe(30)
+  expect(result.marginHourly).toBe(42.09)
+  expect(result.objectiveMinutes).toBe(769)
+  expect(result.status).toBe('on-target')
  })
- it('il lavaggio aumenta tempo e costo, senza aumentare il prezzo o spalmare ore economiche',()=>{
-  const {settings,quote}=fixture()
-  settings.eliasExteriorWashMinutes=25
-  expect(quoteEconomics({...quote,selectedPhases:['Lavaggio esterno']},settings)).toMatchObject({revenue:200,minutes:145,hourlyRevenue:82.76,personnelAndStructureCost:120.83,margin:39.17})
+ it('subtracts parts and other direct costs in the numerator',()=>{
+  const {settings,quote}=prepared()
+  quote.lines.push({id:'parts',source:'manual',kind:'parts',description:'Ricambio',quantity:1,unitPrice:100,unitCost:70,vatRate:22} as typeof quote.lines[number])
+  const result=quoteEconomics(quote,settings)
+  expect(result.directCosts).toBe(70)
+  expect(result.margin).toBe(result.revenue-result.materialsCost-70-40)
  })
- it('non duplica i tempi condivisi di incartare/scartare e smontaggio/rimontaggio',()=>{
-  const {settings,quote}=fixture()
-  const line={...quote.damageLines[0],manualPhaseTimes:undefined,minorDamageTimes:{sr:30,is:20,v:60}}
-  expect(quoteEconomics({...quote,damageLines:[line]},settings).minutes).toBe(110)
+ it('does not replace missing operator costs with overhead or zero',()=>{
+  const {settings,quote}=prepared()
+  settings.operators[0].hourlyCost=undefined
+  expect(quoteEconomics(quote,settings)).toMatchObject({margin:null,marginHourly:null,status:'unknown',objectiveMinutes:null})
  })
- it('non dichiara guadagno con tempi, costi o capacità mancanti',()=>{
-  const {settings,quote}=fixture()
-  expect(quoteEconomics({...quote,damageLines:[{...quote.damageLines[0],manualPhaseTimes:[{phase:'',minutes:0}]}]},settings)).toMatchObject({status:'unknown',margin:null,hourlyRevenue:null})
-  settings.internalCostSettings!.monthlyCostItems=[]
-  expect(quoteEconomics(quote,settings)).toMatchObject({status:'unknown',margin:null,hourlyRevenue:100})
-  settings.internalCostSettings!.productiveCapacity!.productiveOperators=0
-  expect(quoteEconomics(quote,settings)).toMatchObject({status:'unknown',margin:null,target:{hourlyRate:null}})
+ it('has no verdict for missing technical durations or margin target',()=>{
+  const {settings,quote}=prepared()
+  expect(quoteEconomics({...quote,damageLines:[]},settings).status).toBe('unknown')
+  settings.monthlyMarginGoal=0
+  expect(quoteEconomics(quote,settings)).toMatchObject({status:'no-target',objectiveMinutes:null})
  })
- it('non trasforma l’obiettivo mancante in un giudizio positivo sul suo raggiungimento',()=>{
-  const {settings,quote}=fixture()
-  settings.monthlyRevenueGoal=0
-  expect(quoteEconomics(quote,settings)).toMatchObject({status:'no-target',margin:60,target:{hourlyRate:null}})
+ it('includes washing in labor cost without increasing prices or changing phases',()=>{
+  const {settings,quote}=prepared()
+  const result=quoteEconomics({...quote,selectedPhases:['Lavaggio esterno']},settings)
+  expect(result.minutes).toBe(145)
+  expect(result.revenue).toBe(200)
+  expect(result.personnelAndStructureCost).toBe(48.33)
  })
- it('usa il costo mensile complessivo anche quando è registrato in una sola categoria',()=>{
-  const {settings,quote}=fixture(860)
-  settings.internalCostSettings!.monthlyCostItems=[{id:'total',category:'altri-costi-generali',description:'Costi complessivi',monthlyAmount:10000,active:true}]
-  const line={...quote.damageLines[0],estimatedMinutes:595,manualPhaseTimes:[{phase:'Lattoneria',minutes:595}]}
-  expect(quoteEconomics({...quote,damageLines:[line]},settings)).toMatchObject({minutes:595,hourlyRevenue:86.72,hourlyCost:50,maxMinutes:825,targetMinutes:825,costError:'',margin:192.17})
+ it('keeps negative contribution negative',()=>{
+  const {settings,quote}=prepared(10)
+  expect(quoteEconomics(quote,settings)).toMatchObject({margin:-32,marginHourly:-16,status:'loss'})
  })
- it('mostra il ricavo sui minuti inseriti anche se manca la scelta di una fase, senza dichiarare un margine valido',()=>{
-  const {settings,quote}=fixture(860)
-  const line={...quote.damageLines[0],estimatedMinutes:595,manualPhaseTimes:[{phase:'',minutes:595}]}
-  const result=quoteEconomics({...quote,damageLines:[line]},settings)
-  expect(result).toMatchObject({minutes:595,hourlyRevenue:86.72,margin:null,status:'unknown'})
-  expect(result.timingError).toContain('Riga 1')
-  expect(result.timingError).toContain('Scegli la fase 1')
- })
- it('non conta i segnaposto vuoti e non aggiunge due volte il lavaggio manuale',()=>{
-  const {settings,quote}=fixture()
-  const line={...quote.damageLines[0],estimatedMinutes:25,manualPhaseTimes:[{phase:'Lavaggio esterno',minutes:25},{phase:'',minutes:0}]}
-  expect(quoteEconomics({...quote,damageLines:[line],selectedPhases:['Lavaggio esterno']},settings)).toMatchObject({minutes:25,hourlyRevenue:480,timingError:''})
- })
-})
-
-it('derives the objective time from full net revenue and the same target rate, independently of break-even costs',()=>{
- const {settings,quote}=fixture(802)
- quote.damageLines[0].manualPhaseTimes=[{phase:'Verniciatura',minutes:610}]
- const target={hourlyRate:108.31} as NonNullable<Parameters<typeof quoteEconomics>[3]>
- const result=quoteEconomics(quote,settings,undefined,target)
- expect(result).toMatchObject({revenue:802,minutes:610,objectiveMinutes:444,objectiveDelta:-166})
- expect(result.objectiveHourlyDelta).toBeLessThan(0)
- settings.internalCostSettings!.minimumMarginPercent=80
- settings.internalCostSettings!.monthlyCostItems![0].monthlyAmount=100
- expect(quoteEconomics(quote,settings,undefined,target).objectiveMinutes).toBe(444)
- expect(quoteEconomics(quote,settings,undefined,{...target,hourlyRate:null}).objectiveMinutes).toBeNull()
 })

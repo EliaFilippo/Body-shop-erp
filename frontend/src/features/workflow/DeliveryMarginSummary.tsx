@@ -1,3 +1,6 @@
+import { vehicleOperatingProfit } from '../../services/vehicleOperatingProfit'
+import { marginTargetRate } from '../../services/marginTargetRate'
+import { HourlyRevenueComparison } from '../vehicles/HourlyRevenueComparison'
 import { finalizedJobCosts } from '../../services/finalizedJobCosts'
 import { Modal } from '../../components/Modal'
 import { closedJobMargin } from '../../services/closedJobMargin'
@@ -34,6 +37,8 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
   const costs = job && vehicle && Number.isFinite(deliveredAt)
     ? recordedJobVehicleCosts(vehicle, job, data.jobs ?? [], romeDate.format(new Date(deliveredAt))) : undefined
   const result = job ? closedJobMargin(job, data.plannerSettings.operators, costs?.materials, costs?.parts, finalizedJobCosts(job,vehicle,data.jobs??[],data.plannerSettings).finalized) : undefined
+  const contribution = job && vehicle ? vehicleOperatingProfit(vehicle,job,data.jobs??[],data.plannerSettings).contributionCents : result?.marginCents
+  const otherCost = job && vehicle ? vehicleOperatingProfit(vehicle,job,data.jobs??[],data.plannerSettings).otherCents : 0
   const provisional = result && (result.marginCents === null || result.materialsToConfirm || result.partsEstimated)
 
   return <>
@@ -41,15 +46,18 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
       <p>{job.number} · Importi IVA esclusa</p>
       {result.zeroMissingCosts && <p>Consuntivo chiuso: costi e tempi non registrati considerati zero.</p>}
       <div className="summary-grid">
-        <div className="summary-card"><span>{provisional ? 'Margine provvisorio' : 'Margine a consuntivo'}</span><strong>{money(result.availableMarginCents)}</strong></div>
+        <div className="summary-card"><span>{provisional ? 'Margine provvisorio' : 'Margine a consuntivo'}</span><strong>{money(contribution ?? null)}</strong></div>
         <div className="summary-card"><span>Importo concordato</span><strong>{money(result.revenueCents)}</strong></div>
         <div className="summary-card"><span>{result.laborComplete ? 'Costo operatori' : 'Costo operatori registrato'}</span><strong>{money(result.availableLaborCents)}</strong></div>
         <div className="summary-card"><span>Materiali{result.materialsToConfirm ? ' da confermare' : ''}</span><strong>{money(result.materialCents)}</strong></div>
         <div className="summary-card"><span>{result.partsCents === null ? 'Ricambi · costo parziale' : result.partsEstimated ? 'Ricambi da preventivo' : 'Ricambi'}</span><strong>{money(result.availablePartsCents)}</strong></div>
+        <div className="summary-card"><span>Altri costi diretti</span><strong>{money(otherCost ?? null)}</strong></div>
         {result.operatorLabor.map(worker => <div className="summary-card" key={worker.id}>
           <span>{worker.name} · {reportDuration(worker.seconds)}</span><strong>{money(worker.costCents)}</strong>
         </div>)}
       </div>
+      <HourlyRevenueComparison net revenue={contribution === null || contribution === undefined ? NaN : contribution / 100} seconds={result.workedSeconds} target={marginTargetRate(data,romeDate.format(new Date()).slice(0,7))?.marginHourlyRate??null}/>
+      <p>Le spese generali sono comprese nell’obiettivo: il margine sottrae una sola volta i costi diretti e la manodopera registrata.</p>
       {!result.zeroMissingCosts && result.phasesWithoutTime.length > 0 && <p>Ore mancanti o parziali per {result.phasesWithoutTime.map(phaseDisplayName).join(', ')}.</p>}
       {!result.laborComplete && <p>Il costo operatori include le ore attribuite a operatori con tariffa disponibile.</p>}
       {result.materialCents === null && <p>Registra il totale dei materiali nella scheda commessa, anche se è zero.</p>}

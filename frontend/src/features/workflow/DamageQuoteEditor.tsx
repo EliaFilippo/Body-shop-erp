@@ -1,3 +1,4 @@
+import type { marginTargetRate } from '../../services/marginTargetRate'
 import { OptionalPanelPhases } from './OptionalPanelPhases'
 import { quoteCustomerLines } from '../../services/quotePricing'
 import { useId, useState } from 'react'
@@ -7,15 +8,14 @@ import { buildAcceptanceQuoteSummary } from '../../services/acceptance'
 import { chooseEliasPrice, damageQuoteError, makeDamageLine, makeMinorDamagePreset, minorDamageLines, recalculateDamageLine } from '../../services/damageQuote'
 import { ELIAS_PRICE_LIST, MINOR_TIME_LABELS, eliasEntryForWork, eliasPricesForPanel } from '../../services/eliasPriceList'
 import { PANEL_CATALOG, QUOTE_PANELS, type VehicleViewId } from './vehiclePanels'
-import { calculateQuoteHourBudget } from '../../services/quoteHourBudget'
 import { QuoteHourBudget } from './QuoteHourBudget'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
 const duration = (minutes: number) => `${Math.floor(minutes / 60)} h ${Math.round(minutes % 60)} min`
 const views: Array<{ id: VehicleViewId; label: string }> = [{ id: 'left', label: 'Sinistra' }, { id: 'right', label: 'Destra' }, { id: 'top', label: 'Alto' }]
 
-export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
-  settings: PlannerSettings
+export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset, marginTarget }: {
+  marginTarget?: ReturnType<typeof marginTargetRate>; settings: PlannerSettings
   quote: AcceptanceQuote
   onChange: (quote: AcceptanceQuote) => void
   onSavePreset?: (preset: MinorDamagePreset) => void
@@ -31,7 +31,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
   const selected = lines.filter((line) => line.panelId === activeId)
   const catalogLines = selected.filter((line) => eliasEntryForWork(line.standardWorkId))
   const works = (settings.standardWorks ?? []).filter((work) => work.active).sort((a, b) => a.cycleOrder - b.cycleOrder)
-  const hourBudget = calculateQuoteHourBudget(quote, settings)
+  
   const summary = buildAcceptanceQuoteSummary(quote)
   const error = damageQuoteError(lines)
 
@@ -69,7 +69,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
 
   return <section className="damage-quote" aria-label="Preventivo grafico">
     <div className="panel-head"><div><span className="eyebrow">PREVENTIVO RAPIDO · LISTINO ELIAS</span><h3>Tocca la parte danneggiata</h3><p>Scegli il pannello e la voce del tuo listino. Prezzi IVA esclusa, materiali già compresi. Per i danni lievi il tempario è già compilato. S/R, I/S e verniciatura hanno ciascuno un tempo totale condiviso. La lattoneria si aggiunge manualmente; per i danni gravi inserisci tempi e prezzo.</p></div></div>
-    <QuoteHourBudget quote={quote} settings={settings} activePanelId={activeId} onChange={onChange} />
+    <QuoteHourBudget marginTarget={marginTarget} quote={quote} settings={settings} activePanelId={activeId} onChange={onChange} />
     <div className="damage-quote-layout">
       <div className="damage-car-column">
         <div className="damage-views" role="group" aria-label="Vista vettura">{views.map((item) => <button type="button" key={item.id} aria-pressed={view === item.id} className={view === item.id ? 'primary' : 'secondary'} onClick={() => setView(item.id)}>{item.label}</button>)}</div>
@@ -156,7 +156,7 @@ export function DamageQuoteEditor({ settings, quote, onChange, onSavePreset }: {
         </>}
       </div>
     </div>
-    <div className="damage-total" aria-live="polite"><div><span>Ore a disposizione</span><strong>{hourBudget.baseMaxMinutes === null ? 'Da configurare' : duration(hourBudget.baseMaxMinutes)}</strong></div><div><span>Tempo tecnico previsto</span><strong>{duration(lines.reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</strong></div><div><span>Imponibile complessivo</span><strong>{money(summary.taxableAmount)}</strong></div><div><span>Totale IVA inclusa</span><strong>{money(summary.total)}</strong></div></div>
+    <div className="damage-total" aria-live="polite"><div><span>Tempo tecnico previsto</span><strong>{duration(lines.reduce((sum, line) => sum + (line.estimatedMinutes ?? 0), 0))}</strong></div><div><span>Imponibile complessivo</span><strong>{money(summary.taxableAmount)}</strong></div><div><span>Totale IVA inclusa</span><strong>{money(summary.total)}</strong></div></div>
     <p>Prezzi fissi scelti da te. Materiali interni esclusi dai ricarichi automatici; eventuali materiali aggiunti manualmente: {money(summary.materials.total)}.</p>
     <details className="damage-extra-details"><summary>Vedi tutto il listino della foto</summary><p>IVA esclusa · materiali inclusi. I prezzi doppi restano a scelta, senza assegnarli a categorie non indicate nel foglio. Parabrezza: +15 € con sensore pioggia.</p><div className="elias-price-table"><table><thead><tr><th>Lavorazione</th><th>Prezzo</th></tr></thead><tbody>{ELIAS_PRICE_LIST.map((entry) => <tr key={entry.id}><td>{entry.name}</td><td>{entry.prices.map(money).join(' / ')}</td></tr>)}</tbody></table></div></details>
     {quoteCustomerLines(quote).some((line) => line.kind === 'labor' && line.quantity > 0) && <p className="damage-incomplete">La pratica contiene anche ore di manodopera aggiuntive: controllale in «Altri importi, materiali e IVA» per evitare di conteggiarle due volte.</p>}
