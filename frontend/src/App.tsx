@@ -1,3 +1,4 @@
+import { RibaManagementPage } from './features/finance/RibaManagementPage'
 import { VehicleScheduleDates } from './features/cones/VehicleScheduleDates'
 import { setVehicleScheduleDates } from './services/vehicleScheduleDates'
 import type { ComponentProps } from 'react'
@@ -86,7 +87,7 @@ const nav: { id: View; label: string }[] = [
   { id: 'pending-cases', label: 'Pratiche da confermare' },
   { id: 'confirmed-cases', label: 'Pratiche confermate' },
   { id: 'estimates-jobs', label: 'Preventivi / Commesse' },
-  { id: 'finance', label: 'Finance' },
+  { id: 'finance', label: 'Finance' }, {id:'riba-management',label:'Gestione RiBa'},
 ]
 const settingsNav: { id: View; label: string }[] = [
   { id: 'planner-settings', label: 'Planner e tempi' },
@@ -1428,6 +1429,7 @@ function App() {
           setData(reloaded)
         }} setNotice={setNotice} setError={setError} /></>}
         {view === 'price-list' && <><EliasCatalogSettings settings={data.plannerSettings} onSave={plannerSettings => { setData({ ...data, plannerSettings }); setNotice('Tempi e prezzi preimpostati salvati.'); setError('') }} /><details className="panel"><summary>Listino avanzato e altre lavorazioni</summary><PriceListPage data={data} query={query} onChange={setData} setNotice={setNotice} setError={setError} /></details></>}
+        {view === 'riba-management' && <RibaManagementPage data={data} onChange={setData} />}
         {view === 'finance' && <FinancePage passwordConnection={cloudConfig && cloudSession && cloudMembership ? {config:cloudConfig,session:cloudSession,companyId:cloudMembership.companyId} : undefined} data={data} onChange={setData} customerById={customerById} setError={setError} setNotice={setNotice} />}
         {(view === 'estimates-jobs' || view === 'cones') && <WorkflowPage key={view}
           renderSummary={view === 'cones' ? renderEstimateActions => <Cones data={displayData} customerById={customerById}

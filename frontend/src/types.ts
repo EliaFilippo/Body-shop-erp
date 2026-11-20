@@ -1,4 +1,4 @@
-export type View = 'dashboard' | 'today-shop' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'settings' | 'planner-settings' | 'vehicle-statuses' | 'work-hours' | 'price-list' | 'internal-costs' | 'operator-program' | 'monthly-goals' | 'database-diagnostics' | 'users' | 'acceptance' | 'pending-cases' | 'confirmed-cases' | 'finance' | 'estimates-jobs'
+export type View = 'dashboard' | 'today-shop' | 'customers' | 'vehicles' | 'cones' | 'planner' | 'settings' | 'planner-settings' | 'vehicle-statuses' | 'work-hours' | 'price-list' | 'internal-costs' | 'operator-program' | 'monthly-goals' | 'database-diagnostics' | 'users' | 'acceptance' | 'pending-cases' | 'confirmed-cases' | 'riba-management' | 'finance' | 'estimates-jobs'
 export type UserRole = 'owner' | 'office' | 'production'
 
 export interface AppUser {
