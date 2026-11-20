@@ -39,6 +39,7 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
   return <>
     {job && result ? <>
       <p>{job.number} · Importi IVA esclusa</p>
+      {result.zeroMissingCosts && <p>Consuntivo chiuso: costi e tempi non registrati considerati zero.</p>}
       <div className="summary-grid">
         <div className="summary-card"><span>{provisional ? 'Margine provvisorio' : 'Margine a consuntivo'}</span><strong>{money(result.availableMarginCents)}</strong></div>
         <div className="summary-card"><span>Importo concordato</span><strong>{money(result.revenueCents)}</strong></div>
@@ -49,7 +50,7 @@ export function DeliveryMarginDetails({ data, job, vehicle }: { data: ErpData; j
           <span>{worker.name} · {reportDuration(worker.seconds)}</span><strong>{money(worker.costCents)}</strong>
         </div>)}
       </div>
-      {result.phasesWithoutTime.length > 0 && <p>Ore mancanti o parziali per {result.phasesWithoutTime.map(phaseDisplayName).join(', ')}.</p>}
+      {!result.zeroMissingCosts && result.phasesWithoutTime.length > 0 && <p>Ore mancanti o parziali per {result.phasesWithoutTime.map(phaseDisplayName).join(', ')}.</p>}
       {!result.laborComplete && <p>Il costo operatori include le ore attribuite a operatori con tariffa disponibile.</p>}
       {result.materialCents === null && <p>Registra il totale dei materiali nella scheda commessa, anche se è zero.</p>}
       {result.partsCents === null && <p>Registra il costo d’acquisto dei ricambi nella scheda vettura.</p>}

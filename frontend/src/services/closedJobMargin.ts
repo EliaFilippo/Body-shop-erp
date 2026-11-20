@@ -80,7 +80,7 @@ export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], re
   const availableMarginCents = revenueCents === null ? null
     : revenueCents - (materialCents ?? 0) - availablePartsCents - availableLaborCents
 
-  return { complete: finalized || complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, laborComplete, operatorLabor,
+  return { zeroMissingCosts: finalized, complete: finalized || complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, laborComplete, operatorLabor,
     materialsToConfirm, materialCents, laborCents, partsCents, partsEstimated, phasesWithoutTime: [...phasesWithoutTime],
     availableMarginCents, availableLaborCents, availablePartsCents }
 }
