@@ -46,7 +46,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     return total > 0 ? target * capacity(date) / total : 0
   }
 
-  const production: Array<{ date: string; marginCents: number | null; provisional: boolean }> = []
+  const production: Array<{ date: string; marginCents: number | null; provisional: boolean; internalLaborCents: number }> = []
   const vehicles = new Map(data.vehicles.map(vehicle => [vehicle.id, vehicle]))
   const jobsByVehicle = new Map<string, number>()
   for (const job of data.jobs ?? []) {
@@ -79,6 +79,8 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       ? phase.sharedTimeMinutes / (sharedCounts.get(phase.sharedTimeKey) ?? 1) : phase.estimatedMinutes || 0))
     const totalWeight = weights.reduce((a, b) => a + b, 0)
     let creditedMargin = 0
+    let creditedInternalLabor = 0
+    const internalIds = new Set(settings.operators.filter(op => op.costMode !== 'external-extra').map(op => op.id))
     phases.forEach((phase, index) => {
       const date = phase.status === 'Completata' ? dayOf(phase.completedAt || phase.endedAt) : undefined
       if (!date || date > today || (deliveryDate && date > deliveryDate)) return
@@ -90,12 +92,15 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
         ? Math.round(totalWeight > 0 ? netBeforeLabor * weights[index] / totalWeight : 0) - laborCents
         : null
       creditedMargin += marginCents ?? 0
-      production.push({ date, marginCents, provisional: provisional || !finalized })
+      const internalLaborCents = marginCents === null ? 0 : cents(labor.workers.filter(worker => internalIds.has(worker.id)).reduce((sum, worker) => sum + worker.seconds / 3600 * (worker.rate ?? 0), 0))
+      creditedInternalLabor += internalLaborCents
+      production.push({ date, marginCents, provisional: provisional || !finalized, internalLaborCents })
     })
     if (accountingDate && accountingDate <= today) {
       const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts, finalized)
       const marginCents = closed.marginCents === null ? null : closed.marginCents - cents(finalized ? costs?.other ?? 0 : 0) - creditedMargin
-      production.push({ date: accountingDate, marginCents, provisional })
+      const internalLaborCents = marginCents === null ? 0 : closed.operatorLabor.filter(worker => internalIds.has(worker.id)).reduce((sum, worker) => sum + (worker.costCents ?? 0), 0) - creditedInternalLabor
+      production.push({ date: accountingDate, marginCents, provisional, internalLaborCents })
     }
   }
   const federica = operators.filter(operator => operator.name.trim().toLowerCase() === 'federica')
@@ -113,7 +118,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
   const currentCalendar = { ...settings, operatorDayExtensions: [] }
   const currentWeekStart = goalWeekStart(today)
   const liveWorkStart = currentWeekStart < month + '-01' ? currentWeekStart : month + '-01'
-  const outsideCosts: Array<{ date: string; seconds: number | null; costCents: number | null }> = []
+  const outsideCosts: Array<{ date: string; seconds: number | null; costCents: number | null; internal: boolean }> = []
   const intervals = [[day, day], [monday, weekEnd], [month + '-01', today]]
   const periodDays = new Set<string>()
   for (const [start, end] of intervals) {
@@ -129,7 +134,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       const rate = operatorHourlyCost(operator)
       const costCents = seconds === null || (seconds > 0 && rate === null)
         ? null : cents(seconds / 3600 * (rate ?? 0))
-      outsideCosts.push({ date, seconds, costCents })
+      outsideCosts.push({ date, seconds, costCents, internal: operator.costMode !== 'external-extra' })
     }
   }
   const billed = [
@@ -141,7 +146,10 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const recognized = production.filter(entry => includes(entry.date))
     const expenses = outsideCosts.filter(entry => includes(entry.date))
     const offVehicleCostCents = expenses.reduce((sum, entry) => sum + (entry.costCents ?? 0), 0)
-    const done = (recognized.reduce((sum, entry) => sum + (entry.marginCents ?? 0), 0) - offVehicleCostCents) / 100
+    const recognizedInternalLabor = (recognized.reduce((sum, entry) => sum + entry.internalLaborCents, 0) + expenses.filter(entry => entry.internal).reduce((sum, entry) => sum + (entry.costCents ?? 0), 0)) / 100
+    const payrollActual = label === 'Mese' ? [...(settings.monthlyPayrollActuals ?? [])].filter(entry => entry.monthKey === month && Number.isFinite(entry.amount) && entry.amount >= 0).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt))[0] : undefined
+    const payrollAdjustment = payrollActual ? cents(payrollActual.amount - recognizedInternalLabor) / 100 : 0
+    const done = (recognized.reduce((sum, entry) => sum + (entry.marginCents ?? 0), 0) - offVehicleCostCents) / 100 - payrollAdjustment
     const offVehicleTimeIncomplete = expenses.some(entry => entry.seconds === null)
     const offVehicleCostIncomplete = expenses.some(entry => entry.costCents === null)
     const incomplete = recognized.some(entry => entry.marginCents === null) || offVehicleCostIncomplete
@@ -149,7 +157,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const hasMargin = !incomplete || recognized.some(entry => entry.marginCents !== null) || offVehicleCostCents > 0
     const invoiced = billed.reduce((sum, entry) => includes(entry.date) ? sum + entry.amount : sum, 0)
     const target = cents(goal) / 100
-    return { label, goal: target, done, billed: cents(invoiced) / 100, incomplete, provisional, hasMargin,
+    return { label, recognizedInternalLabor, payrollActual: payrollActual?.amount, payrollAdjustment, goal: target, done, billed: cents(invoiced) / 100, incomplete, provisional, hasMargin,
       offVehicleHours: expenses.reduce((sum, entry) => sum + (entry.seconds ?? 0), 0) / 3600,
       offVehicleCost: offVehicleCostCents / 100, offVehicleCostIncomplete, offVehicleTimeIncomplete,
       gap: Math.max(0, cents(target - done)) / 100, percent: target > 0 && !incomplete ? 100 * done / target : null }

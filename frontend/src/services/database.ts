@@ -665,6 +665,9 @@ export function normalizeData(value: unknown): ErpData {
           }
         })
       : [],
+    monthlyPayrollActuals: Array.isArray(candidate.plannerSettings?.monthlyPayrollActuals)
+      ? candidate.plannerSettings.monthlyPayrollActuals.filter(entry => /^\d{4}-(0[1-9]|1[0-2])$/.test(entry.monthKey) && Number.isFinite(entry.amount) && entry.amount >= 0).map(entry => ({ ...entry }))
+      : [],
     monthlyGoalHistory: Array.isArray(candidate.plannerSettings?.monthlyGoalHistory)
       ? candidate.plannerSettings.monthlyGoalHistory.map((entry) => ({ ...entry }))
       : [],

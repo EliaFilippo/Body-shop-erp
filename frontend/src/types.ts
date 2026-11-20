@@ -652,6 +652,7 @@ export interface PlannerSettings {
   ownerWithdrawalSettledAt?: string | null
   economicSafetyMarginPercent?: number
   monthlyMarginGoal: number | null
+  monthlyPayrollActuals?: { id: string; monthKey: string; amount: number; note: string; updatedAt: string }[]
   monthlyGoalHistory?: MonthlyGoalRecord[]
   phaseTrackingMetric?: PlannerPhaseTrackingMetric
   deliveryBufferMode?: 'percent' | 'hours'

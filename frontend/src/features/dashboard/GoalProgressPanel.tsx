@@ -67,6 +67,7 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
             : reached ? (partial ? 'Stima sopra o pari all’obiettivo · da confermare' : 'Obiettivo raggiunto')
             : historical ? (partial ? 'Scostamento · stima parziale' : 'Scostamento dall’obiettivo')
             : (partial ? 'Da raggiungere · stima parziale' : 'Da raggiungere')}</small>
+          {period.payrollActual !== undefined && <small>Conguaglio dipendenti: {money.format(period.payrollAdjustment)} di costo aggiuntivo</small>}
           {historical && period.label === 'Oggi' && <>
             <small>Obiettivo base del giorno: {hasGoal ? money.format(period.goal) : '—'}</small>
             <small>{partial ? 'Margine provvisorio' : 'Margine registrato'}: {period.hasMargin ? money.format(period.done) : '—'}</small>

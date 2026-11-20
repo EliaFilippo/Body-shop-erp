@@ -1411,7 +1411,7 @@ function App() {
             throw new Error('Salvataggio costi interni non riuscito')
           }
         }} />}
-        {view === 'monthly-goals' && <MonthlyGoalsSettingsPage data={data} onSave={(plannerSettings) => {
+        {view === 'monthly-goals' && <MonthlyGoalsSettingsPage data={data} vehicleWork={vehicleWork} onSave={(plannerSettings) => {
           setData({ ...data, plannerSettings })
           setNotice('Obiettivi salvati e storicizzati.')
         }} />}

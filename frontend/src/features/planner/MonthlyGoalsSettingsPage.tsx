@@ -1,3 +1,5 @@
+import type { VehicleWork } from '../../services/productionPlanningState'
+import { MonthlyPayrollActuals } from './MonthlyPayrollActuals'
 import { useMemo, useState } from 'react'
 import { MoneyInput } from '../../components/MoneyInput'
 import { calculateEconomicGoalSnapshot } from '../../services/economic'
@@ -23,7 +25,7 @@ const normalizeDraft = (draft: PlannerSettings): PlannerSettings => ({
   economicSafetyMarginPercent: Number(draft.economicSafetyMarginPercent ?? 10),
 })
 
-export function MonthlyGoalsSettingsPage({ data, onSave }: { data: ErpData; onSave: (settings: PlannerSettings) => void }) {
+export function MonthlyGoalsSettingsPage({ data, onSave, vehicleWork }: { data: ErpData; vehicleWork?: VehicleWork[]; onSave: (settings: PlannerSettings) => void }) {
   const [draft, setDraft] = useState(() => normalizeDraft(structuredClone(data.plannerSettings)))
   const [selectedMonth, setSelectedMonth] = useState(monthKey())
   const [saved, setSaved] = useState(false)
@@ -101,6 +103,7 @@ export function MonthlyGoalsSettingsPage({ data, onSave }: { data: ErpData; onSa
 
     const nextDraft = {
       ...normalizeDraft(draft),
+      monthlyPayrollActuals: data.plannerSettings.monthlyPayrollActuals,
       monthlyRevenueGoal: appliedRevenueGoal,
       monthlyRevenueGoalMode: snapshot.mode,
       monthlyRevenueGoalSuggested: snapshot.suggestedRevenueGoal,
@@ -120,6 +123,7 @@ export function MonthlyGoalsSettingsPage({ data, onSave }: { data: ErpData; onSa
     <div className="welcome"><div><span className="eyebrow">OBIETTIVI DINAMICI</span><h2>Impostazioni → Obiettivi mensili</h2><p>Il sistema ricalcola fabbisogno, suggerimento e residuo partendo da spese previste, prelievo titolare e fatturato già emesso.</p></div><button className="primary" onClick={save}>Salva obiettivi</button></div>
     {saved && <div className="toast success">Obiettivi mensili salvati e storicizzati.</div>}
 
+    <MonthlyPayrollActuals data={data} vehicleWork={vehicleWork} onSave={onSave} />
     <section className="panel form-grid planner-config">
       <label>Mese di riferimento<select value={selectedMonth} onChange={(event) => openMonth(event.target.value)}>{options.map((month) => <option value={month} key={month}>{month}</option>)}</select></label>
       <label>Modalità obiettivo<div className="segmented"><button className={draft.monthlyRevenueGoalMode !== 'custom' ? 'active' : ''} onClick={() => updateMode('automatic')} type="button">Automatico</button><button className={draft.monthlyRevenueGoalMode === 'custom' ? 'active' : ''} onClick={() => updateMode('custom')} type="button">Personalizzato</button></div></label>

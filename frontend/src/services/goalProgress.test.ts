@@ -131,3 +131,23 @@ it('reconciles every remaining weekly amount to the monthly residual without cha
  expect(periods[1].gap).toBeLessThanOrEqual(residual)
  expect(calculateGoalProgress(data,'2026-11-18',undefined,{day:'2026-11-17',week:'2026-11-09'})[2]).toEqual(periods[2])
 })
+
+it('reconciles monthly internal payroll once, excludes contractors and preserves job records',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings.operators=[{id:'martin',name:'Martin',costMode:'external-extra',externalHourlyCost:40,dailyHours:8,active:true},{id:'other',name:'Altro',hourlyCost:30,dailyHours:8,active:true}]
+ const job=makeReportJob()
+ job.status='Consegnata';job.deliveredAt='2026-11-10T17:00:00Z';job.entryDate='2026-11-01'
+ job.phases=[completedPhase,{...completedPhase,id:'internal',operatorAssignments:[{...completedPhase.operatorAssignments[0],id:'tablet:other',operatorName:'Altro'}]}]
+ data.jobs=[job]
+ const before=JSON.stringify(data.jobs)
+ const baseline=calculateGoalProgress(data,'2026-11-30')[2]
+ expect(baseline.recognizedInternalLabor).toBe(30)
+ data.plannerSettings.monthlyPayrollActuals=[{id:'a',monthKey:'2026-11',amount:100,note:'',updatedAt:'2026-12-05T10:00:00Z'}]
+ const adjusted=calculateGoalProgress(data,'2026-11-30')[2]
+ expect(adjusted.payrollAdjustment).toBe(70)
+ expect(adjusted.done).toBe(baseline.done-70)
+ expect(calculateGoalProgress(data,'2026-12-31')[2].payrollAdjustment).toBe(0)
+ data.plannerSettings.monthlyPayrollActuals.push({id:'b',monthKey:'2026-11',amount:0,note:'rettifica',updatedAt:'2026-12-06T10:00:00Z'})
+ expect(calculateGoalProgress(data,'2026-11-30')[2].done).toBe(baseline.done+30)
+ expect(JSON.stringify(data.jobs)).toBe(before)
+})
