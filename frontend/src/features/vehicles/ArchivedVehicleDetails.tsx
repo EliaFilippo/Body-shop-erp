@@ -1,3 +1,4 @@
+import { archivedJobMaterials } from '../../services/archivedJobMaterials'
 import { Modal } from '../../components/Modal'
 import { deliveredJobReport, deliveredPhaseTime, reportDuration } from '../../services/deliveredJobReport'
 import { phaseDisplayName } from '../../services/workCycle'
@@ -7,10 +8,11 @@ const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: '
 const dateTime = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })
 const timestamp = (iso?: string) => iso && Number.isFinite(Date.parse(iso)) ? dateTime.format(new Date(iso)) : '—'
 
-export function ArchivedVehicleDetails({ vehicle, customer, jobs, logs, onClose }: {
+export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, logs, onClose }: {
   vehicle: Vehicle
   customer: string
   jobs: RepairJob[]
+  allJobs?: RepairJob[]
   logs: ProductionWorkLog[]
   onClose: () => void
 }) {
@@ -19,7 +21,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, logs, onClose 
   return <Modal title={`Lavorazioni e materiali · ${vehicle.plate}`} onClose={onClose} className="vehicle-history-detail">
     {customer && <p>{customer}</p>}
     {!jobs.length && <p>Nessuna commessa collegata alla vettura.</p>}
-    {jobs.map(job => <ArchivedJob key={job.id} job={job} />)}
+    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} />)}
 
     <section>
       <h3>Materiali, ricambi e costi registrati sulla vettura</h3>

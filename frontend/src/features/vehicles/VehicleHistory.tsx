@@ -89,7 +89,7 @@ export function VehicleHistory({ data, query, renderActions, renderStatus }: {
         </div>
       </section>,
     )}
-    {selected && <ArchivedVehicleDetails vehicle={selected.vehicle} customer={selected.customer} jobs={selected.jobs}
+    {selected && <ArchivedVehicleDetails vehicle={selected.vehicle} customer={selected.customer} jobs={selected.jobs} allJobs={data.jobs??[]}
       logs={(data.production?.workLogs ?? []).filter(log => log.vehicleId === selected.vehicle.id)}
       onClose={() => setSelectedId(undefined)} />}
   </section>
