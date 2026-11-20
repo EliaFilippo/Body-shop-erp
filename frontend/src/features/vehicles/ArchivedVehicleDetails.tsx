@@ -1,18 +1,20 @@
+import { closedJobMargin } from '../../services/closedJobMargin'
 import { archivedJobMaterials } from '../../services/archivedJobMaterials'
 import { Modal } from '../../components/Modal'
 import { deliveredJobReport, deliveredPhaseTime, reportDuration } from '../../services/deliveredJobReport'
 import { phaseDisplayName } from '../../services/workCycle'
-import type { ProductionWorkLog, RepairJob, Vehicle } from '../../types'
+import type { PlannerOperator, ProductionWorkLog, RepairJob, Vehicle } from '../../types'
 
 const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const dateTime = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })
 const timestamp = (iso?: string) => iso && Number.isFinite(Date.parse(iso)) ? dateTime.format(new Date(iso)) : '—'
 
-export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, logs, onClose }: {
+export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, operators = [], logs, onClose }: {
   vehicle: Vehicle
   customer: string
   jobs: RepairJob[]
   allJobs?: RepairJob[]
+  operators?: PlannerOperator[]
   logs: ProductionWorkLog[]
   onClose: () => void
 }) {
@@ -21,7 +23,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, logs,
   return <Modal title={`Lavorazioni e materiali · ${vehicle.plate}`} onClose={onClose} className="vehicle-history-detail">
     {customer && <p>{customer}</p>}
     {!jobs.length && <p>Nessuna commessa collegata alla vettura.</p>}
-    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} />)}
+    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} operators={operators} />)}
 
     <section>
       <h3>Materiali, ricambi e costi registrati sulla vettura</h3>
@@ -50,7 +52,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, logs,
   </Modal>
 }
 
-function ArchivedJob({ job }: { job: RepairJob }) {
+function ArchivedJob({ job, operators }: { job: RepairJob; operators: PlannerOperator[] }) {
   const report = deliveredJobReport(job)
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
@@ -71,6 +73,7 @@ function ArchivedJob({ job }: { job: RepairJob }) {
       </div>
     </div>
     <ArchivedMargin margin={report.materials.margin} percent={report.materials.marginPercent} estimatedMaterials={report.materials.actualMaterials===null} />
+    <ArchivedLabor job={job} operators={operators} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>
       <thead><tr><th>Fase e stato</th><th>Inizio / fine</th><th>Tempo registrato</th><th>Operatori</th><th>Note</th></tr></thead>
@@ -113,4 +116,24 @@ export function ArchivedMargin({margin,percent,estimatedMaterials}:{margin:numbe
   <b>{state}{margin!==null&&percent!==null?` · ${percent.toLocaleString('it-IT')}%`:''}</b>
   <small>{margin===null?'Completa i costi delle lavorazioni per calcolare il margine.':`Stima: ricavo meno materiali ${estimatedMaterials?'stimati':'a consuntivo'} e costi interni/diretti della commessa. La manodopera usa i costi preventivati; non è un utile netto definitivo.`}</small>
  </div></section>
+}
+
+export function ArchivedLabor({ job, operators }: { job: RepairJob; operators: PlannerOperator[] }) {
+  const labor = closedJobMargin(job, operators)
+  return <section aria-label="Costo della manodopera registrata">
+    <h4>Costo manodopera sulla vettura</h4>
+    <div className="summary-grid"><div className="summary-card">
+      <span>Costo totale operatori · ore registrate</span>
+      <strong>{labor.laborCents === null ? 'Da completare' : currency.format(labor.laborCents / 100)}</strong>
+      {labor.laborCents === null && <small>Subtotale calcolabile: {currency.format(labor.availableLaborCents / 100)}. Mancano tempi, attribuzioni o costi orari.</small>}
+      <small>Ore registrate × costo orario impostato per ciascun operatore, inclusi gli esterni. Il margine sopra usa invece la manodopera preventivata.</small>
+    </div></div>
+    {labor.operatorLabor.length > 0 ? <div className="table-wrap"><table>
+      <thead><tr><th>Operatore</th><th>Ore registrate</th><th>Costo sulla vettura</th></tr></thead>
+      <tbody>{labor.operatorLabor.map(worker => <tr key={worker.id}>
+        <th scope="row">{worker.name}</th><td>{reportDuration(worker.seconds)}</td>
+        <td>{worker.costCents === null ? 'Costo orario da impostare' : currency.format(worker.costCents / 100)}</td>
+      </tr>)}</tbody>
+    </table></div> : <p>Nessuna ora attribuita agli operatori.</p>}
+  </section>
 }
