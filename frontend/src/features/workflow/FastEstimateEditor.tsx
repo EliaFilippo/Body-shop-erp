@@ -16,7 +16,7 @@ import { eliasPricesForPanel, eliasEntryForWork } from '../../services/eliasPric
 import { createFastEstimate } from '../../services/fastEstimate'
 import { fastEstimateWhatsAppLink } from '../../services/fastEstimateWhatsApp'
 import { normalizePlate } from '../../services/erp'
-import { WORK_CYCLE, phaseDisplayName } from '../../services/workCycle'
+import { WORK_CYCLE, phaseDisplayName, SHARED_TIME_PHASES } from '../../services/workCycle'
 import { QUOTE_PANELS } from './vehiclePanels'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
 
@@ -140,6 +140,7 @@ export function FastEstimateEditor({data,livePrograms,vehicleWork,initial,onDone
     </section>}
     {lineIssue?.lineId===line.id&&<p className="damage-incomplete">{lineIssue.message}</p>}
     <OptionalPanelPhases line={line} settings={data.plannerSettings} onChange={updated=>setLines(lines.map(item=>item.id===line.id?updated:item))}/><details open={line.manualFastLine||undefined}><summary>Modifica prezzo e tempi</summary><label>Prezzo riga {index+1} €<MoneyInput value={line.unitPrice} onValueChange={n=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,unitPrice:n??0},data.plannerSettings)))}/></label>
+    {!line.manualFastLine && line.minorDamageTimes && <fieldset><legend>Fasi e tempi preimpostati</legend>{Object.entries(line.minorDamageTimes).map(([key,minutes])=><label key={key}>{SHARED_TIME_PHASES[key as keyof typeof SHARED_TIME_PHASES].map(phaseDisplayName).join(' / ')} · minuti riga {index+1}<input type="number" min="0" value={minutes??0} onChange={e=>setLines(current=>current.map(item=>item.id!==line.id?item:recalculateDamageLine({...item,minorDamageTimes:{...item.minorDamageTimes,[key]:Math.max(0,Number(e.target.value))}},data.plannerSettings)))}/></label>)}<small>I tempi condivisi vengono conteggiati una sola volta. Le modifiche valgono per questa riga del preventivo.</small></fieldset>}
     {(!line.manualFastLine&&(!line.minorDamageTimes||eliasEntryForWork(line.standardWorkId)?.manualPricing))&&<label>Minuti riga {index+1}<input type="number" min="1" value={line.estimatedMinutes||0} onChange={e=>setLines(lines.map(l=>l.id!==line.id?l:recalculateDamageLine({...l,estimatedMinutes:Number(e.target.value),minorDamageTimes:undefined},data.plannerSettings)))}/></label>}
     </details><button type="button" className="secondary" onClick={()=>setLines(lines.filter(l=>l.id!==line.id))}>Rimuovi {line.standardWorkName}</button>
    </section>)}
