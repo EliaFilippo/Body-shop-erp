@@ -619,7 +619,18 @@ export interface ManualOperatorDay {
   assignments: { operatorId: string; jobId: string; phaseId: string }[]
 }
 
+export interface MonthlyPayrollActual {
+  month: string
+  total: number
+  officeCost: number
+  estimated: number
+  productionFactor?: number
+  updatedAt: string
+  history: { at: string; total: number; officeCost: number }[]
+}
+
 export interface PlannerSettings {
+  monthlyPayrollActuals?: MonthlyPayrollActual[]
   manualOperatorDays?: ManualOperatorDay[]
   operatorProgramEditedAt?: string
   operatorDayExtensions?: OperatorDayExtension[]

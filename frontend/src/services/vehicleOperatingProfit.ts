@@ -8,7 +8,7 @@ const cents = (n: number) => Math.round((n + Number.EPSILON) * 100)
 /** Operating result before company taxes; overhead is allocated, never claimed as an actual tax-net profit. */
 export function vehicleOperatingProfit(vehicle: Vehicle, job: RepairJob, jobs: RepairJob[], settings: PlannerSettings) {
   const {finalized,date,costs} = finalizedJobCosts(job,vehicle,jobs,settings)
-  const closed = closedJobMargin(job, settings.operators, costs?.materials, costs?.parts, finalized)
+  const closed = closedJobMargin(job, settings.operators, costs?.materials, costs?.parts, finalized, settings.monthlyPayrollActuals)
   const structure = quoteStructureRate(settings, date?.slice(0, 7))
   const overheadCents = finalized && structure.error ? 0 : !structure.error && closed.complete ? cents(closed.workedSeconds / 3600 * structure.rate) : null
   const directLines = job.lines.filter(line => !isProductionLabourLine(line) && line.category !== 'ricambi' && line.category !== 'materiali' && line.quantity > 0)
