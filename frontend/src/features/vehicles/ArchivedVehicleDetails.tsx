@@ -68,6 +68,7 @@ function ArchivedJob({ job }: { job: RepairJob }) {
         {actual && <small>{timestamp(actual.at)}</small>}
       </div>
     </div>
+    <ArchivedMargin margin={report.materials.margin} percent={report.materials.marginPercent} estimatedMaterials={report.materials.actualMaterials===null} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>
       <thead><tr><th>Fase e stato</th><th>Inizio / fine</th><th>Tempo registrato</th><th>Operatori</th><th>Note</th></tr></thead>
@@ -100,4 +101,14 @@ function ArchivedJob({ job }: { job: RepairJob }) {
         {entry.note && ` · ${entry.note}`}</li>)}</ul>
     </details>}
   </section>
+}
+
+export function ArchivedMargin({margin,percent,estimatedMaterials}:{margin:number|null;percent:number|null;estimatedMaterials:boolean}) {
+ const state=margin===null?'Da completare':margin>0?'Positivo':margin<0?'Negativo':'In pareggio'
+ return <section className="summary-grid" aria-label="Margine della commessa"><div className="summary-card">
+  <span>Margine commessa · IVA esclusa</span>
+  <strong style={{color:margin===null?'#e6b85c':margin>0?'#67d9a3':margin<0?'#ff6b6b':undefined}}>{margin===null?'Costi incompleti':`${margin>0?'+':''}${currency.format(margin)}`}</strong>
+  <b>{state}{margin!==null&&percent!==null?` · ${percent.toLocaleString('it-IT')}%`:''}</b>
+  <small>{margin===null?'Completa i costi delle lavorazioni per calcolare il margine.':`Stima: ricavo meno materiali ${estimatedMaterials?'stimati':'a consuntivo'} e costi interni/diretti della commessa. La manodopera usa i costi preventivati; non è un utile netto definitivo.`}</small>
+ </div></section>
 }
