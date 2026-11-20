@@ -1,3 +1,4 @@
+import { HourlyRevenueComparison } from './HourlyRevenueComparison'
 import { finalizedJobCosts } from '../../services/finalizedJobCosts'
 import { vehicleOperatingProfit } from '../../services/vehicleOperatingProfit'
 import { closedJobMargin } from '../../services/closedJobMargin'
@@ -11,12 +12,13 @@ const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: '
 const dateTime = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })
 const timestamp = (iso?: string) => iso && Number.isFinite(Date.parse(iso)) ? dateTime.format(new Date(iso)) : '—'
 
-export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, operators = [], settings, logs, onClose }: {
+export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, operators = [], settings, hourlyTarget = null, logs, onClose }: {
   vehicle: Vehicle
   customer: string
   jobs: RepairJob[]
   allJobs?: RepairJob[]
   operators?: PlannerOperator[]
+  hourlyTarget?: number | null
   settings?: PlannerSettings
   logs: ProductionWorkLog[]
   onClose: () => void
@@ -26,7 +28,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, opera
   return <Modal title={`Lavorazioni e materiali · ${vehicle.plate}`} onClose={onClose} className="vehicle-history-detail">
     {customer && <p>{customer}</p>}
     {!jobs.length && <p>Nessuna commessa collegata alla vettura.</p>}
-    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} operators={operators} vehicle={vehicle} jobs={allJobs??jobs} settings={settings} />)}
+    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} operators={operators} vehicle={vehicle} jobs={allJobs??jobs} settings={settings} hourlyTarget={hourlyTarget} />)}
 
     <section>
       <h3>Materiali, ricambi e costi registrati sulla vettura</h3>
@@ -55,7 +57,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, opera
   </Modal>
 }
 
-function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJob; operators: PlannerOperator[]; vehicle: Vehicle; jobs: RepairJob[]; settings?: PlannerSettings }) {
+function ArchivedJob({ job, operators, vehicle, jobs, settings, hourlyTarget }: { job: RepairJob; operators: PlannerOperator[]; vehicle: Vehicle; jobs: RepairJob[]; settings?: PlannerSettings; hourlyTarget: number | null }) {
   const report = deliveredJobReport(job)
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
@@ -78,6 +80,7 @@ function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJ
       </div>
     </div>
     {settings && <ArchivedOperatingProfit vehicle={vehicle} job={job} jobs={jobs} settings={settings} />}
+    <HourlyRevenueComparison revenue={job.taxableAmount} seconds={report.workedSeconds} target={hourlyTarget} />
     <ArchivedLabor job={job} operators={operators} finalized={finalized} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>

@@ -1305,7 +1305,7 @@ function App() {
           setQuery(plate)
         }} onChange={next=>setData(stripCompletionOverlay(next,data,displayData))} setNotice={setNotice} setError={setError} onUpdateVehicleStatus={updateStatus} statusOptions={vehicleStatusOptions} statusLabel={statusLabel} />}
         {view === 'customers' && <Customers customers={filteredCustomers} data={data} onAdd={() => setModal({ type: 'customer' })} onEdit={(item) => setModal({ type: 'customer', item })} onDelete={(id) => { try { allowCountReductionRef.current = true; setData(deleteCustomer(data, id)); setError('') } catch (problem) { allowCountReductionRef.current = false; setError(problem instanceof Error ? problem.message : 'Operazione non riuscita.') } }} />}
-        {view === 'vehicles' && <VehicleHistory data={data} query={query}
+        {view === 'vehicles' && <VehicleHistory data={data} vehicleWork={vehicleWork} query={query}
           renderActions={renderVehicleActions} renderStatus={renderVehicleStatus} />}
         {selectedInvoiceVehicle && invoiceCustomer && <InvoiceCreateModal
           key={selectedInvoiceVehicle.id}
