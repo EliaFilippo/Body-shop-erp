@@ -50,8 +50,17 @@ const consumableCategories = new Set<VehicleCostCategory>([
 
 const costDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' })
 
+/** Actual work or delivery can precede a rescheduled planned entry date. */
+function visitStart(job: RepairJob) {
+ const timestamps = [job.deliveredAt, ...(job.phases ?? []).flatMap(phase => [phase.startedAt, phase.endedAt, phase.completedAt])]
+ const days = timestamps.filter((value): value is string => !!value && Number.isFinite(Date.parse(value))).map(value => costDate.format(new Date(value)))
+ if (job.entryDate) days.push(job.entryDate)
+ return days.sort()[0]
+}
+
 export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: RepairJob[], deliveryDate: string) {
- const inVisit = (vehicle.costEntries ?? []).filter(entry => job.entryDate && entry.usedAt >= job.entryDate && entry.usedAt <= deliveryDate)
+ const start = visitStart(job)
+ const inVisit = (vehicle.costEntries ?? []).filter(entry => start && entry.usedAt >= start && entry.usedAt <= deliveryDate)
  if (!inVisit.length) return { materials: undefined, parts: undefined, other: undefined }
 
  const plateKey = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -59,7 +68,7 @@ export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: 
   && (other.vehicleId ? other.vehicleId === vehicle.id : plateKey(other.plate) === plateKey(vehicle.plate)))
   .map(other => {
    const delivered = Date.parse(other.deliveredAt ?? '')
-   return { start: other.entryDate, end: Number.isFinite(delivered) ? costDate.format(new Date(delivered)) : undefined }
+   return { start: visitStart(other), end: Number.isFinite(delivered) ? costDate.format(new Date(delivered)) : undefined }
   })
  const entries = inVisit.filter(entry => !competing.some(visit => (!visit.start || entry.usedAt >= visit.start)
    && (!visit.end || entry.usedAt <= visit.end)))

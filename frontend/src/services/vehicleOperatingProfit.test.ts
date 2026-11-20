@@ -63,3 +63,12 @@ it('uses a single contribution before general expenses for both total and hourly
  expect(vehicleOperatingProfit(vehicle,job,[job],settings).contributionCents).toBe(32000)
  expect(JSON.stringify({job,vehicle})).toBe(before)
 })
+
+it('subtracts registered materials in the margin when delivery precedes planned entry',()=>{
+ const {settings,job,vehicle}=fixture()
+ job.status='Consegnata'
+ job.entryDate='2026-11-19'
+ const before=JSON.stringify({job,vehicle})
+ expect(vehicleOperatingProfit(vehicle,job,[job],settings)).toMatchObject({materialCents:8000,partsCents:5000,laborCents:4000,otherCents:1000,contributionCents:32000})
+ expect(JSON.stringify({job,vehicle})).toBe(before)
+})

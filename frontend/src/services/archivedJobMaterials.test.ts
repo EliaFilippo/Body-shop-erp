@@ -17,3 +17,13 @@ it('does not attribute costs from other or ambiguous visits',()=>{
  expect(archivedJobMaterials(vehicle,job,[job,{...job,id:'other'}]).materialActualCost).toBeUndefined()
  expect(archivedJobMaterials({...vehicle,costEntries:[{...vehicle.costEntries![0],usedAt:'2026-11-19'}]},job,[job]).materialActualCost).toBeUndefined()
 })
+
+it('includes recorded materials when actual work and delivery precede the planned entry date',()=>{
+ const closed={...job,entryDate:'2026-11-21',deliveredAt:'2026-11-20T16:47:56Z',phases:[{startedAt:'2026-11-18T08:00:00Z'}]} as RepairJob
+ const car={...vehicle,costEntries:[{category:'vernice',usedAt:'2026-11-20',total:109}]} as Vehicle
+ const before=JSON.stringify({closed,car})
+ expect(archivedJobMaterials(car,closed,[closed]).materialActualCost?.amount).toBe(109)
+ expect(JSON.stringify({closed,car})).toBe(before)
+ expect(archivedJobMaterials(car,closed,[closed,{...closed,id:'overlap'}]).materialActualCost).toBeUndefined()
+ expect(archivedJobMaterials({...car,costEntries:[{...car.costEntries![0],usedAt:'2026-11-17'}]},closed,[closed]).materialActualCost).toBeUndefined()
+})
