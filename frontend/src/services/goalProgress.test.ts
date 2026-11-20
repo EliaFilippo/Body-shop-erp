@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import type { JobPhase, RepairJob } from '../types'
 import { emptyData } from './erp'
-import { calculateGoalProgress } from './goalProgress'
+import { calculateGoalProgress, remainingWeeklyMarginGoals } from './goalProgress'
 
 function makeReportJob() {
   return { id: 'j1', status: 'Pianificata', taxableAmount: 500, lines: [], phases: [] } as unknown as RepairJob
@@ -117,4 +117,17 @@ it('uses recorded costs and zero missing costs for ready and delivered cars, wit
  expect(JSON.stringify(data)).toBe(before)
  job.status='Consegnata';job.deliveredAt='2026-11-10T11:00:00Z'
  expect(calculateGoalProgress(data,'2026-11-10')[2].done).toBe(465)
+})
+
+it('reconciles every remaining weekly amount to the monthly residual without changing historical periods',()=>{
+ const data=structuredClone(emptyData)
+ data.plannerSettings.monthlyMarginGoal=3000
+ data.plannerSettings.operators=[]
+ const periods=calculateGoalProgress(data,'2026-11-18')
+ const residual=periods[2].gap
+ const allocation=remainingWeeklyMarginGoals(data,'2026-11-18',residual)
+ expect(Math.round((allocation.weeks.reduce((sum,week)=>sum+week.amount,0)+allocation.unallocated)*100)).toBe(Math.round(residual*100))
+ expect(periods[0].gap).toBeLessThanOrEqual(residual)
+ expect(periods[1].gap).toBeLessThanOrEqual(residual)
+ expect(calculateGoalProgress(data,'2026-11-18',undefined,{day:'2026-11-17',week:'2026-11-09'})[2]).toEqual(periods[2])
 })

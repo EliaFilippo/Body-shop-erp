@@ -174,11 +174,11 @@ it('mostra il confronto economico prima della conferma e lo aggiorna cambiando p
  const preview=screen.getByLabelText('Convenienza del preventivo')
  expect(preview).toHaveTextContent('100,00')
  expect(preview).toHaveTextContent('125,00')
- expect(preview).toHaveTextContent('IN GUADAGNO · sotto l’obiettivo orario')
+ expect(preview).toHaveTextContent('SOTTO L’OBIETTIVO ORARIO')
  fireEvent.change(screen.getByLabelText('Prezzo riga 1 €'),{target:{value:'50'}})
- expect(preview).toHaveTextContent('SOTTOCOSTO')
+ expect(preview).toHaveTextContent('SOTTO L’OBIETTIVO ORARIO')
  fireEvent.change(screen.getByLabelText('Minuti riga 1'),{target:{value:'15'}})
- expect(preview).toHaveTextContent('IN GUADAGNO · obiettivo orario raggiunto')
+ expect(preview).toHaveTextContent('SOPRA L’OBIETTIVO ORARIO')
  expect(done).not.toHaveBeenCalled()
 })
 
@@ -204,7 +204,9 @@ it('ignora una fase aggiuntiva intatta, mostra ore e tariffa dal listino e confe
  const preview=screen.getByLabelText('Convenienza del preventivo')
  expect(preview).toHaveTextContent('50,00') // 150 € di listino + 50 € manuali / 4 ore
  expect(preview).toHaveTextContent('4 h 0 min')
- expect(preview).toHaveTextContent('3 h 12 min') // (200 - 20% materiali) / 50 €/h
+ expect(preview).not.toHaveTextContent('Ore disponibili con margine')
+ expect(preview).not.toHaveTextContent('Ore a disposizione a pareggio')
+ expect(preview).toHaveTextContent('Tempo massimo per rispettare l’obiettivo')
  expect(preview).not.toHaveTextContent('Completa i costi mensili')
  expect(screen.getByRole('button',{name:'Salva preventivo fast'})).toBeEnabled()
  // A partially filled phase remains actionable and blocks confirmation.

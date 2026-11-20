@@ -38,6 +38,10 @@ export function quoteEconomics(quote:AcceptanceQuote, settings:PlannerSettings, 
   ? round((personnelAndStructureCost + budget.directCosts) / (1 - budget.materialPercent / 100)) : null
  const status:QuoteEconomicStatus = margin === null ? 'unknown' : margin < 0 ? 'loss' : margin === 0 ? 'break-even'
   : target.hourlyRate === null ? 'no-target' : hourlyRevenue! < target.hourlyRate ? 'below-target' : 'on-target'
- return {revenue:budget.revenue,minutes,hourlyRevenue,target,maxMinutes:!costError ? budget.baseMaxMinutes : null,targetMinutes:!costError ? budget.baseTargetMinutes : null,materialPercent:budget.materialPercent,materialsCost:budget.materialsCost,
+ const objectiveMinutes = target.hourlyRate !== null && Number.isFinite(target.hourlyRate) && target.hourlyRate > 0
+  ? Math.max(0,Math.floor(budget.revenue / target.hourlyRate * 60 + 1e-8)) : null
+ const objectiveDelta = objectiveMinutes === null || timingError ? null : objectiveMinutes - minutes
+ const objectiveHourlyDelta = target.hourlyRate !== null && hourlyRevenue !== null && !timingError ? round(hourlyRevenue-target.hourlyRate) : null
+ return {objectiveHourlyDelta,objectiveMinutes,objectiveDelta,revenue:budget.revenue,minutes,hourlyRevenue,target,maxMinutes:!costError ? budget.baseMaxMinutes : null,targetMinutes:!costError ? budget.baseTargetMinutes : null,materialPercent:budget.materialPercent,materialsCost:budget.materialsCost,
   directCosts:budget.directCosts,hourlyCost,personnelAndStructureCost,totalCost,margin,breakEvenRevenue,status,timingError,costError}
 }

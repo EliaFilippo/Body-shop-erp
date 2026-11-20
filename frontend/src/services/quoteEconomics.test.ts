@@ -82,3 +82,16 @@ describe('convenienza prima di confermare il preventivo Fast',()=>{
   expect(quoteEconomics({...quote,damageLines:[line],selectedPhases:['Lavaggio esterno']},settings)).toMatchObject({minutes:25,hourlyRevenue:480,timingError:''})
  })
 })
+
+it('derives the objective time from full net revenue and the same target rate, independently of break-even costs',()=>{
+ const {settings,quote}=fixture(802)
+ quote.damageLines[0].manualPhaseTimes=[{phase:'Verniciatura',minutes:610}]
+ const target={hourlyRate:108.31} as NonNullable<Parameters<typeof quoteEconomics>[3]>
+ const result=quoteEconomics(quote,settings,undefined,target)
+ expect(result).toMatchObject({revenue:802,minutes:610,objectiveMinutes:444,objectiveDelta:-166})
+ expect(result.objectiveHourlyDelta).toBeLessThan(0)
+ settings.internalCostSettings!.minimumMarginPercent=80
+ settings.internalCostSettings!.monthlyCostItems![0].monthlyAmount=100
+ expect(quoteEconomics(quote,settings,undefined,target).objectiveMinutes).toBe(444)
+ expect(quoteEconomics(quote,settings,undefined,{...target,hourlyRate:null}).objectiveMinutes).toBeNull()
+})
