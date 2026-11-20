@@ -60,7 +60,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, opera
 function ArchivedJob({ job, operators, vehicle, jobs, settings, hourlyTarget }: { job: RepairJob; operators: PlannerOperator[]; vehicle: Vehicle; jobs: RepairJob[]; settings?: PlannerSettings; hourlyTarget: number | null }) {
   const report = deliveredJobReport(job)
   const economics = settings ? vehicleOperatingProfit(vehicle,job,jobs,settings) : undefined
-  const contribution = economics?.marginCents !== null && economics?.marginCents !== undefined && economics.otherCents !== null ? (economics.marginCents-economics.otherCents)/100 : null
+  const contribution = economics?.contributionCents !== null && economics?.contributionCents !== undefined ? economics.contributionCents/100 : null
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
   const closure = settings ? finalizedJobCosts(job,vehicle,jobs,settings) : undefined
@@ -136,7 +136,7 @@ export function ArchivedLabor({ job, operators, finalized = false }: { job: Repa
       <span>Costo totale operatori · ore registrate</span>
       <strong>{labor.laborCents === null ? 'Costo non determinabile' : currency.format(labor.laborCents / 100)}</strong>
       {labor.laborCents === null && <small>Subtotale calcolabile: {currency.format(labor.availableLaborCents / 100)}. Mancano tempi, attribuzioni o costi orari.</small>}
-      <small>Ore registrate × costo orario impostato per ciascun operatore, inclusi gli esterni. L’utile operativo sopra usa questi stessi costi effettivi.</small>
+      <small>Ore registrate × costo orario impostato per ciascun operatore, inclusi gli esterni. Il margine sopra usa questi stessi costi effettivi.</small>
     </div></div>
     {labor.operatorLabor.length > 0 ? <div className="table-wrap"><table>
       <thead><tr><th>Operatore</th><th>Ore registrate</th><th>Costo sulla vettura</th></tr></thead>
@@ -150,16 +150,17 @@ export function ArchivedLabor({ job, operators, finalized = false }: { job: Repa
 
 export function ArchivedOperatingProfit({vehicle,job,jobs,settings}:{vehicle:Vehicle;job:RepairJob;jobs:RepairJob[];settings:PlannerSettings}) {
   const result=vehicleOperatingProfit(vehicle,job,jobs,settings)
-  const amount=result.profitCents
+  const amount=result.contributionCents
+  const contributionPercent=amount!==null&&job.taxableAmount>0?amount/job.taxableAmount:null
   const money=(value:number|null)=>value===null?'Dati economici mancanti':currency.format(value/100)
-  return <section aria-label="Utile netto operativo della vettura">
+  return <section aria-label="Margine della vettura per coprire l’obiettivo">
     <div className="summary-grid"><div className="summary-card">
-      <span>Utile netto operativo vettura · IVA esclusa</span>
-      <strong style={{color:amount===null?'#e6b85c':amount>=0?'#67d9a3':'#ff6b6b'}}>{amount===null?'Utile non determinabile':`${amount>0?'+':''}${money(amount)}`}</strong>
-      {amount!==null && <b>{amount>0?'Positivo':amount<0?'Negativo':'In pareggio'}{result.percent!==null?` · ${result.percent.toLocaleString('it-IT',{maximumFractionDigits:2})}%`:''}</b>}
+      <span>Margine dopo i costi diretti · IVA esclusa</span>
+      <strong style={{color:amount===null?'#e6b85c':amount>=0?'#67d9a3':'#ff6b6b'}}>{amount===null?'Margine non determinabile':`${amount>0?'+':''}${money(amount)}`}</strong>
+      {amount!==null && <b>{amount>0?'Positivo':amount<0?'Negativo':'In pareggio'}{contributionPercent!==null?` · ${contributionPercent.toLocaleString('it-IT',{maximumFractionDigits:2})}%`:''}</b>}
       {job.status === 'Consegnata' && <small>Vettura consegnata · lavorazioni chiuse. Eventuali dati mancanti riguardano il consuntivo economico.</small>}
-      <small>Per le vetture completate o consegnate, i costi e i tempi non registrati sono considerati zero. Le spese generali configurate sono ripartite sulle ore registrate.</small>
-      <small>Prima delle imposte aziendali. Spese generali ripartite sulle ore effettive della vettura, escludendo i costi già coperti dalle tariffe degli operatori.</small>
+      <small>Per le vetture completate o consegnate, i costi e i tempi non registrati sono considerati zero.</small>
+      <small>Le spese generali sono già comprese nell’obiettivo mensile e non vengono sottratte da questo margine. Il personale viene sottratto una sola volta: ore registrate × costo orario di ogni operatore. Questo margine serve a coprire l’obiettivo; non è un utile netto dopo tutte le spese.</small>
       {(result.materialsEstimated||result.partsEstimated||result.otherEstimated) && <small>Stima parziale: alcuni materiali, ricambi o costi diretti sono ancora preventivati.</small>}
       {result.missing.length>0 && <small>Dati da completare: {result.missing.join('; ')}.</small>}
     </div></div>
@@ -169,8 +170,7 @@ export function ArchivedOperatingProfit({vehicle,job,jobs,settings}:{vehicle:Veh
       <tr><th>Ricambi</th><td>{money(result.partsCents)}</td></tr>
       <tr><th>Manodopera effettiva</th><td>{money(result.laborCents)}</td></tr>
       <tr><th>Altri costi diretti</th><td>{money(result.otherCents)}</td></tr>
-      <tr><th>Quota spese generali</th><td>{money(result.overheadCents)}<small>{currency.format(result.structureRate)}/h × {reportDuration(result.workedSeconds)} · quota calcolata sulle impostazioni dei costi</small></td></tr>
-      <tr><th>Utile netto operativo · prima delle imposte</th><td>{money(amount)}</td></tr>
+      <tr><th>Margine disponibile per l’obiettivo</th><td>{money(amount)}</td></tr>
     </tbody></table></div>
   </section>
 }

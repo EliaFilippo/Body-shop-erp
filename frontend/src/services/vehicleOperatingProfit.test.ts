@@ -51,3 +51,15 @@ it('never falls back to budget costs on closed cars and retains all recorded cha
  settings.operators[0].hourlyCost=undefined
  expect(vehicleOperatingProfit(vehicle,job,[job],settings).laborCents).toBe(0)
 })
+
+it('uses a single contribution before general expenses for both total and hourly objective comparison',()=>{
+ const {settings,job,vehicle}=fixture()
+ job.status='Consegnata'
+ const before=JSON.stringify({job,vehicle})
+ const result=vehicleOperatingProfit(vehicle,job,[job],settings)
+ expect(result.contributionCents).toBe(32000)
+ expect(result.contributionCents! / 100 / (result.workedSeconds/3600)).toBe(160)
+ settings.internalCostSettings!.monthlyCostItems![1].monthlyAmount=10000
+ expect(vehicleOperatingProfit(vehicle,job,[job],settings).contributionCents).toBe(32000)
+ expect(JSON.stringify({job,vehicle})).toBe(before)
+})

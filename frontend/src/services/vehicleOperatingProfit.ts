@@ -14,10 +14,11 @@ export function vehicleOperatingProfit(vehicle: Vehicle, job: RepairJob, jobs: R
   const directLines = job.lines.filter(line => !isProductionLabourLine(line) && line.category !== 'ricambi' && line.category !== 'materiali' && line.quantity > 0)
   const missingOther = !finalized && costs?.other === undefined && directLines.some(line => line.budgetDirectUnitCost === undefined)
   const otherCents = missingOther ? null : cents(costs?.other ?? (finalized ? 0 : directLines.reduce((sum, line) => sum + Math.max(0,line.budgetDirectUnitCost ?? 0) * line.quantity, 0)))
+  const contributionCents = closed.marginCents !== null && otherCents !== null ? closed.marginCents - otherCents : null
   const profitCents = closed.marginCents !== null && overheadCents !== null && otherCents !== null
     ? closed.marginCents - overheadCents - otherCents : null
   const materialsEstimated = !finalized && job.materialActualCost === undefined && costs?.materials === undefined
-  return { ...closed, overheadCents, otherCents, profitCents, structureRate: structure.rate,
+  return { ...closed, contributionCents, overheadCents, otherCents, profitCents, structureRate: structure.rate,
     percent: profitCents !== null && job.taxableAmount > 0 ? profitCents / job.taxableAmount : null,
     materialsEstimated, partsEstimated: closed.partsEstimated,
     otherEstimated: !finalized && costs?.other === undefined && directLines.length > 0,
