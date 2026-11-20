@@ -52,7 +52,7 @@ const costDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Rome', yea
 
 export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: RepairJob[], deliveryDate: string) {
  const inVisit = (vehicle.costEntries ?? []).filter(entry => job.entryDate && entry.usedAt >= job.entryDate && entry.usedAt <= deliveryDate)
- if (!inVisit.length) return { materials: undefined, parts: undefined }
+ if (!inVisit.length) return { materials: undefined, parts: undefined, other: undefined }
 
  const plateKey = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
  const competing = jobs.filter(other => other.id !== job.id && other.status !== 'Annullata'
@@ -67,5 +67,6 @@ export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: 
  return {
   materials: sum(entries.filter(entry => consumableCategories.has(entry.category))),
   parts: sum(entries.filter(entry => entry.category === 'ricambi')),
+  other: sum(entries.filter(entry => entry.category !== 'ricambi' && !consumableCategories.has(entry.category))),
  }
 }

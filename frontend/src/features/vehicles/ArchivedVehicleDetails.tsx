@@ -1,20 +1,22 @@
+import { vehicleOperatingProfit } from '../../services/vehicleOperatingProfit'
 import { closedJobMargin } from '../../services/closedJobMargin'
 import { archivedJobMaterials } from '../../services/archivedJobMaterials'
 import { Modal } from '../../components/Modal'
 import { deliveredJobReport, deliveredPhaseTime, reportDuration } from '../../services/deliveredJobReport'
 import { phaseDisplayName } from '../../services/workCycle'
-import type { PlannerOperator, ProductionWorkLog, RepairJob, Vehicle } from '../../types'
+import type { PlannerSettings, PlannerOperator, ProductionWorkLog, RepairJob, Vehicle } from '../../types'
 
 const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' })
 const dateTime = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })
 const timestamp = (iso?: string) => iso && Number.isFinite(Date.parse(iso)) ? dateTime.format(new Date(iso)) : '—'
 
-export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, operators = [], logs, onClose }: {
+export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, operators = [], settings, logs, onClose }: {
   vehicle: Vehicle
   customer: string
   jobs: RepairJob[]
   allJobs?: RepairJob[]
   operators?: PlannerOperator[]
+  settings?: PlannerSettings
   logs: ProductionWorkLog[]
   onClose: () => void
 }) {
@@ -23,7 +25,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, opera
   return <Modal title={`Lavorazioni e materiali · ${vehicle.plate}`} onClose={onClose} className="vehicle-history-detail">
     {customer && <p>{customer}</p>}
     {!jobs.length && <p>Nessuna commessa collegata alla vettura.</p>}
-    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} operators={operators} />)}
+    {jobs.map(job => <ArchivedJob key={job.id} job={archivedJobMaterials(vehicle,job,allJobs??jobs)} operators={operators} vehicle={vehicle} jobs={allJobs??jobs} settings={settings} />)}
 
     <section>
       <h3>Materiali, ricambi e costi registrati sulla vettura</h3>
@@ -52,7 +54,7 @@ export function ArchivedVehicleDetails({ vehicle, customer, jobs, allJobs, opera
   </Modal>
 }
 
-function ArchivedJob({ job, operators }: { job: RepairJob; operators: PlannerOperator[] }) {
+function ArchivedJob({ job, operators, vehicle, jobs, settings }: { job: RepairJob; operators: PlannerOperator[]; vehicle: Vehicle; jobs: RepairJob[]; settings?: PlannerSettings }) {
   const report = deliveredJobReport(job)
   const phases = job.phases.filter(phase => !phase.notRequired || phase.actualMinutes > 0 || phase.notes
     || phase.blockedReason || phase.operatorAssignments?.length || (phase.tabletWorkedSeconds ?? 0) > 0)
@@ -72,7 +74,7 @@ function ArchivedJob({ job, operators }: { job: RepairJob; operators: PlannerOpe
         {actual && <small>{timestamp(actual.at)}</small>}
       </div>
     </div>
-    <ArchivedMargin margin={report.materials.margin} percent={report.materials.marginPercent} estimatedMaterials={report.materials.actualMaterials===null} />
+    {settings && <ArchivedOperatingProfit vehicle={vehicle} job={job} jobs={jobs} settings={settings} />}
     <ArchivedLabor job={job} operators={operators} />
     <h4>Fasi e operatori</h4>
     {phases.length ? <div className="table-wrap"><table>
@@ -126,7 +128,7 @@ export function ArchivedLabor({ job, operators }: { job: RepairJob; operators: P
       <span>Costo totale operatori · ore registrate</span>
       <strong>{labor.laborCents === null ? 'Da completare' : currency.format(labor.laborCents / 100)}</strong>
       {labor.laborCents === null && <small>Subtotale calcolabile: {currency.format(labor.availableLaborCents / 100)}. Mancano tempi, attribuzioni o costi orari.</small>}
-      <small>Ore registrate × costo orario impostato per ciascun operatore, inclusi gli esterni. Il margine sopra usa invece la manodopera preventivata.</small>
+      <small>Ore registrate × costo orario impostato per ciascun operatore, inclusi gli esterni. L’utile operativo sopra usa questi stessi costi effettivi.</small>
     </div></div>
     {labor.operatorLabor.length > 0 ? <div className="table-wrap"><table>
       <thead><tr><th>Operatore</th><th>Ore registrate</th><th>Costo sulla vettura</th></tr></thead>
@@ -135,5 +137,30 @@ export function ArchivedLabor({ job, operators }: { job: RepairJob; operators: P
         <td>{worker.costCents === null ? 'Costo orario da impostare' : currency.format(worker.costCents / 100)}</td>
       </tr>)}</tbody>
     </table></div> : <p>Nessuna ora attribuita agli operatori.</p>}
+  </section>
+}
+
+export function ArchivedOperatingProfit({vehicle,job,jobs,settings}:{vehicle:Vehicle;job:RepairJob;jobs:RepairJob[];settings:PlannerSettings}) {
+  const result=vehicleOperatingProfit(vehicle,job,jobs,settings)
+  const amount=result.profitCents
+  const money=(value:number|null)=>value===null?'Da completare':currency.format(value/100)
+  return <section aria-label="Utile netto operativo della vettura">
+    <div className="summary-grid"><div className="summary-card">
+      <span>Utile netto operativo vettura · IVA esclusa</span>
+      <strong style={{color:amount===null?'#e6b85c':amount>=0?'#67d9a3':'#ff6b6b'}}>{amount===null?'Da completare':`${amount>0?'+':''}${money(amount)}`}</strong>
+      {amount!==null && <b>{amount>0?'Positivo':amount<0?'Negativo':'In pareggio'}{result.percent!==null?` · ${result.percent.toLocaleString('it-IT',{maximumFractionDigits:2})}%`:''}</b>}
+      <small>Prima delle imposte aziendali. Spese generali ripartite sulle ore effettive della vettura, escludendo i costi già coperti dalle tariffe degli operatori.</small>
+      {(result.materialsEstimated||result.partsEstimated||result.otherEstimated) && <small>Stima parziale: alcuni materiali, ricambi o costi diretti sono ancora preventivati.</small>}
+      {result.missing.length>0 && <small>Dati da completare: {result.missing.join('; ')}.</small>}
+    </div></div>
+    <div className="table-wrap"><table><thead><tr><th>Calcolo sulla vettura</th><th>Importo</th></tr></thead><tbody>
+      <tr><th>Ricavo · IVA esclusa</th><td>{money(result.revenueCents)}</td></tr>
+      <tr><th>Materiali</th><td>{money(result.materialCents)}</td></tr>
+      <tr><th>Ricambi</th><td>{money(result.partsCents)}</td></tr>
+      <tr><th>Manodopera effettiva</th><td>{money(result.laborCents)}</td></tr>
+      <tr><th>Altri costi diretti</th><td>{money(result.otherCents)}</td></tr>
+      <tr><th>Quota spese generali</th><td>{money(result.overheadCents)}<small>{currency.format(result.structureRate)}/h × {reportDuration(result.workedSeconds)} · quota calcolata sulle impostazioni dei costi</small></td></tr>
+      <tr><th>Utile netto operativo · prima delle imposte</th><td>{money(amount)}</td></tr>
+    </tbody></table></div>
   </section>
 }
