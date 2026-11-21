@@ -99,6 +99,15 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
  </section>
 }
 
+function efficiencyIndicator(score: number | null) {
+ if (score === null || !Number.isFinite(score)) {
+  return { color: '#4b5563', backgroundColor: '#f3f4f6', label: 'Non valutabile' }
+ }
+ if (score > 100) return { color: '#14532d', backgroundColor: '#dcfce7', label: 'Tempo risparmiato' }
+ if (score < 100) return { color: '#991b1b', backgroundColor: '#fee2e2', label: 'Tempo sforato' }
+ return { color: '#374151', backgroundColor: '#f9fafb', label: 'In linea' }
+}
+
 function PrivateProductivity({connection,from,to}:{connection:NoticesConnection;from:string;to:string}) {
  const [report,setReport]=useState<ProductionControlReport|null>(null)
  const [error,setError]=useState('')
@@ -133,8 +142,16 @@ function PrivateProductivity({connection,from,to}:{connection:NoticesConnection;
   }
  }, [connection.companyId, connection.session.accessToken, connection.config.url, connection.config.anonKey, from, to])
  return <>{error&&<p role="alert">{error}</p>}   <p>Punteggio = tempo assegnato ÷ tempo lavorato × 100. 100 rispetta il tempo, oltre 100 indica tempo risparmiato. Solo fasi concluse; pause e attese tecniche escluse. I tempi di S/R e I/S contano una sola volta, dopo entrambe le fasi.</p>
-   {report && <div className="production-score-table"><table><thead><tr><th>Operatore</th><th>Assegnato</th><th>Lavorato</th><th>Punteggio</th><th>Gruppi conclusi</th><th>Condiviso senza quota personale</th></tr></thead>
-    <tbody>{report.operators.map(o => <tr key={o.operatorId}><th>{o.name}</th><td>{duration(o.assignedSeconds)}</td><td>{duration(o.workedSeconds)}</td><td>{o.score === null ? '—' : o.score.toLocaleString('it-IT')}</td><td>{o.completedGroups}</td><td>{duration(o.unscoredSharedSeconds)}</td></tr>)}</tbody></table></div>}
+   {report && <div className="production-score-table"><table><thead><tr><th>Operatore</th><th>Assegnato</th><th>Lavorato</th><th>Efficienza e saldo</th><th>Gruppi conclusi</th><th>Condiviso senza quota personale</th></tr></thead>
+    <tbody>{report.operators.map(o => {
+     const score = o.score === null ? null : Math.round(o.score * 10) / 10
+     const { label, ...colors } = efficiencyIndicator(score)
+     const balance = o.assignedSeconds - o.workedSeconds
+     return <tr key={o.operatorId}><th>{o.name}</th><td>{duration(o.assignedSeconds)}</td><td>{duration(o.workedSeconds)}</td>
+      <td><strong style={{ ...colors, padding: '0.2rem 0.4rem', borderRadius: '0.25rem' }}>{label}</strong>
+       {score !== null && Number.isFinite(score) && <div>{score.toLocaleString('it-IT')}% · {balance > 0 ? '+' : balance < 0 ? '−' : ''}{duration(Math.abs(balance))}</div>}
+      </td><td>{o.completedGroups}</td><td>{duration(o.unscoredSharedSeconds)}</td></tr>
+    })}</tbody></table></div>}
    {report && !report.operators.length && <p>Nessuna fase conclusa con tempo standard e lavoro registrato in questo mese.</p>}
    <p>Le quote personali dei lavori condivisi vengono conservate al primo Start. Senza una ripartizione affidabile, il risultato resta della squadra e non modifica il punteggio individuale. Il punteggio misura i tempi, non la qualità né gli incassi.</p>
    {!!report?.teams.length && <details><summary>Risultati delle squadre</summary>{report.teams.map(t => <p key={`${t.jobId}:${t.phase}`}>{t.plate} · {t.phase} · {t.operators.map(o => o.name).join(', ')}: {t.score.toLocaleString('it-IT')} punti ({duration(t.assignedSeconds)} assegnate / {duration(t.workedSeconds)} lavorate)</p>)}</details>}
