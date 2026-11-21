@@ -141,6 +141,7 @@ describe('cashflow and credit control', () => {
     expect(snapshot.baseLiquidity).toBe(2000)
     expect(snapshot.windows[0].days).toBe(30)
     expect(snapshot.windows[0].inflow).toBeGreaterThan(0)
+    expect(snapshot.windows[0].outflow).toBe(250)
     expect(snapshot.windows[1].days).toBe(60)
     expect(snapshot.windows[2].days).toBe(90)
     expect(snapshot.overdue).toBe(610)
@@ -177,7 +178,7 @@ describe('cashflow and credit control', () => {
     const snapshot = calculateCashFlowSnapshot(data, '2026-05-01')
     const events = buildCalendarEvents(data, '2026-05-01', 'mese')
 
-    expect(snapshot.windows[0].outflow).toBe(3500)
+    expect(snapshot.windows[0].outflow).toBe(750)
     expect(events.some((event) => event.type === 'vat-quarter' && event.amount === 500)).toBe(true)
   })
 })

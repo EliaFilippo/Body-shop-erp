@@ -2,7 +2,7 @@ import type { PlannerSettings, RepairJob, Vehicle } from '../types'
 import { isVehicleStatusSemantic } from './vehicleStatuses'
 import { recordedJobVehicleCosts } from './jobMaterialCosts'
 
-/** A read-only accounting rule. Missing records are zero only after work is closed. */
+/** Resolve the accounting date and recorded costs for the visit without altering the job. */
 export function finalizedJobCosts(job: RepairJob, vehicle: Vehicle | undefined, jobs: RepairJob[], settings: PlannerSettings) {
  const ownClosed = job.status === 'Consegnata' || job.status === 'Pronta consegna'
  const latestVisit = vehicle && !jobs.some(other => other.id !== job.id && other.vehicleId === vehicle.id && other.status !== 'Annullata' && other.entryDate > job.entryDate)

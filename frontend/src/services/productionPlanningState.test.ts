@@ -66,7 +66,9 @@ describe('canonical operational replanning',()=>{
  it('waits for the cloud to stop a tablet timer before counting its final operator time',()=>{
   const data=applyProductionPlanningState(fixture(),state)
   const deliveryAt='2026-10-27T08:20:00Z'
-  const delivered=syncOperationalStateFromJobs({...data,jobs:[completeJobDelivery(data.jobs![0],deliveryAt)]})
+  const closedJob = completeJobDelivery(data.jobs![0], deliveryAt)
+  expect(completeJobDelivery(closedJob, '2026-10-27T09:00:00Z')).toBe(closedJob)
+  const delivered=syncOperationalStateFromJobs({...data,jobs:[closedJob]})
   expect(delivered.jobs![0].phases[0].operatorAssignments[0]).toMatchObject({activityStatus:'Attivo',workedMinutes:10})
   const closed=applyProductionPlanningState(delivered,{...state,serverNow:deliveryAt,entries:[
    {...state.entries[0],runningSince:null,lastEndedAt:deliveryAt,closedSeconds:1200},

@@ -1,5 +1,7 @@
 import type { ErpData, FinanceSettings, PlannerSettings, Vehicle } from '../types'
 import { addDays, isWorkingDay, remainingHours, todayKey } from './planner'
+import { receivableFlows } from './receivableFlows'
+import { isRealizedInvoice } from './historicalActuals'
 import { calculateVatQuarterOutflows } from './vatQuarterly'
 
 export type EconomicGoalMode = 'automatic' | 'custom'
@@ -295,33 +297,18 @@ export function calculateExecutiveDashboardSnapshot(
 ): ExecutiveDashboardSnapshot {
   const monthKey = referenceDate.slice(0, 7)
   const currentDay = referenceDate.slice(0, 10)
-  const openInvoices = data.invoices.filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status))
-  const monthInvoices = data.invoices.filter((invoice) => invoice.issueDate.startsWith(monthKey))
+  const monthInvoices = data.invoices.filter((invoice) => isRealizedInvoice(invoice) && invoice.issueDate.startsWith(monthKey))
   const monthEvents = data.financialEvents.filter((event) => event.type === 'Incasso definitivo' && event.date.startsWith(monthKey))
   const availableLiquidity = data.bankAccounts.reduce((sum, account) => sum + account.currentBalance, 0)
   const monthlyRevenue = monthInvoices.reduce((sum, invoice) => sum + invoice.total, 0)
   const monthlyCollected = monthEvents.reduce((sum, event) => sum + event.amount, 0)
   const monthSummary = calculateEconomicGoalSnapshot(data, referenceDate)
-  const projectedCollections = {
-    days30: openInvoices.filter((invoice) => {
-      const due = new Date(`${invoice.dueDate}T12:00:00`).getTime()
-      const nowMs = new Date(`${currentDay}T12:00:00`).getTime()
-      const diff = Math.ceil((due - nowMs) / 86400000)
-      return diff >= 0 && diff <= 30
-    }).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0),
-    days60: openInvoices.filter((invoice) => {
-      const due = new Date(`${invoice.dueDate}T12:00:00`).getTime()
-      const nowMs = new Date(`${currentDay}T12:00:00`).getTime()
-      const diff = Math.ceil((due - nowMs) / 86400000)
-      return diff >= 0 && diff <= 60
-    }).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0),
-    days90: openInvoices.filter((invoice) => {
-      const due = new Date(`${invoice.dueDate}T12:00:00`).getTime()
-      const nowMs = new Date(`${currentDay}T12:00:00`).getTime()
-      const diff = Math.ceil((due - nowMs) / 86400000)
-      return diff >= 0 && diff <= 90
-    }).reduce((sum, invoice) => sum + Math.max(0, invoice.total - invoice.collectedAmount), 0),
+  const plannedReceipts = receivableFlows(data).filter(receipt => receipt.kind !== 'forecast' && receipt.dueDate >= currentDay)
+  const collectionsThrough = (days: number) => {
+    const end = addDays(currentDay, days)
+    return plannedReceipts.reduce((sum, receipt) => receipt.dueDate <= end ? sum + receipt.amount : sum, 0)
   }
+  const projectedCollections = { days30: collectionsThrough(30), days60: collectionsThrough(60), days90: collectionsThrough(90) }
   const vehiclesPresent = data.vehicles.filter((vehicle) => normalizeStatus(vehicle.status) !== 'consegnata').length
   const vehiclesInProgress = data.vehicles.filter((vehicle) => normalizeStatus(vehicle.status) === 'in lavorazione').length
   const vehiclesReady = data.vehicles.filter((vehicle) => normalizeStatus(vehicle.status) === 'pronta').length

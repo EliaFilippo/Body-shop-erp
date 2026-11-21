@@ -1,4 +1,5 @@
 import type { JobPhase, PlannerOperator, RepairJob } from '../types'
+import { isProductionLabourLine } from './liveProduction'
 import { deliveredJobReport, deliveredPhaseTime, deliveredWorkPhases } from './deliveredJobReport'
 
 const cents = (amount: number) => Math.round((amount + Number.EPSILON) * 100)
@@ -42,13 +43,26 @@ export function closedJobPartsCost(job: RepairJob, recordedParts?: number) {
   return { partsCents: missingPartsCost ? null : cents(parts), availablePartsCents: cents(parts), partsEstimated }
 }
 
+export function jobOtherDirectCost(job: RepairJob, recorded: number | undefined, finalized: boolean) {
+  if (knownAmount(recorded)) return { cents: cents(recorded), estimated: false }
+  const directLines = job.lines.filter(line => line.quantity > 0 && !isProductionLabourLine(line)
+    && line.category !== 'ricambi' && line.category !== 'materiali')
+  if (directLines.some(line => finalized || !knownAmount(line.budgetDirectUnitCost))) {
+    return { cents: null, estimated: false }
+  }
+  return {
+    cents: cents(directLines.reduce((sum, line) => sum + (line.budgetDirectUnitCost ?? 0) * line.quantity, 0)),
+    estimated: directLines.length > 0,
+  }
+}
+
 export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], recordedMaterials?: number, recordedParts?: number, finalized = false) {
   const { complete, workedSeconds, materials } = deliveredJobReport(job)
   const revenueCents = knownAmount(job.taxableAmount) ? cents(job.taxableAmount) : null
   const hourlyRevenue = complete && workedSeconds > 0 && revenueCents !== null
     ? revenueCents / 100 * 3600 / workedSeconds
     : null
-  const { partsCents, availablePartsCents, partsEstimated } = closedJobPartsCost(job, finalized ? recordedParts ?? 0 : recordedParts)
+  const { partsCents, availablePartsCents, partsEstimated } = closedJobPartsCost(job, recordedParts)
 
   const workers = new Map<string, ReturnType<typeof recordedPhaseLabor>['workers'][number]>()
   let laborComplete = complete
@@ -64,23 +78,22 @@ export function closedJobMargin(job: RepairJob, operators: PlannerOperator[], re
     }
   }
   const operatorLabor = [...workers.values()].map(({ id, name, seconds, rate }) => ({
-    id, name, seconds, costCents: rate === null ? (finalized ? 0 : null) : cents(seconds / 3600 * rate),
+    id, name, seconds, costCents: rate === null ? null : cents(seconds / 3600 * rate),
   }))
   const availableLaborCents = operatorLabor.reduce((sum, worker) => sum + (worker.costCents ?? 0), 0)
-  if (finalized) laborComplete = true
   const laborCents = laborComplete ? availableLaborCents : null
   const materialCost = materials.actualMaterials ?? recordedMaterials
-    ?? (finalized ? 0 : job.lines.length > 0 ? materials.estimatedMaterials : undefined)
+    ?? (!finalized && job.lines.length > 0 ? materials.estimatedMaterials : undefined)
   const materialCents = knownAmount(materialCost) ? cents(materialCost) : null
-  const materialsToConfirm = !finalized && materials.actualMaterials === null && materialCents !== null
-  const marginCents = revenueCents !== null && materialCents !== null && partsCents !== null && laborCents !== null
+  const materialsToConfirm = materials.actualMaterials === null && recordedMaterials === undefined && materialCents !== null
+  const marginCents = (!finalized || !partsEstimated) && revenueCents !== null && materialCents !== null && partsCents !== null && laborCents !== null
     ? revenueCents - materialCents - partsCents - laborCents
     : null
 
   const availableMarginCents = revenueCents === null ? null
     : revenueCents - (materialCents ?? 0) - availablePartsCents - availableLaborCents
 
-  return { zeroMissingCosts: finalized, complete: finalized || complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, laborComplete, operatorLabor,
+  return { complete, workedSeconds, revenueCents, hourlyRevenue, marginCents, laborComplete, operatorLabor,
     materialsToConfirm, materialCents, laborCents, partsCents, partsEstimated, phasesWithoutTime: [...phasesWithoutTime],
     availableMarginCents, availableLaborCents, availablePartsCents }
 }

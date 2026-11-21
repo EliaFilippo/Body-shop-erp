@@ -1,6 +1,6 @@
 import { finalizedJobCosts } from './finalizedJobCosts'
 import type { ErpData } from '../types'
-import { closedJobPartsCost, closedJobMargin, operatorHourlyCost, recordedPhaseLabor } from './closedJobMargin'
+import { closedJobPartsCost, closedJobMargin, jobOtherDirectCost, operatorHourlyCost, recordedPhaseLabor } from './closedJobMargin'
 import { deliveredWorkPhases } from './deliveredJobReport'
 import { historicalRevenues, isRealizedInvoice } from './historicalActuals'
 import { calculateJobMaterialMargin } from './jobMaterialCosts'
@@ -46,12 +46,13 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     return total > 0 ? target * capacity(date) / total : 0
   }
 
-  const production: Array<{ date: string; marginCents: number | null; provisional: boolean; internalLaborCents: number }> = []
+  const production: Array<{ date: string; marginCents: number | null; provisional: boolean; internalLaborCents: number; producedCents: number }> = []
   const vehicles = new Map(data.vehicles.map(vehicle => [vehicle.id, vehicle]))
   const jobsByVehicle = new Map<string, number>()
   for (const job of data.jobs ?? []) {
     if (job.vehicleId) jobsByVehicle.set(job.vehicleId, (jobsByVehicle.get(job.vehicleId) ?? 0) + 1)
   }
+  const internalIds = new Set(settings.operators.filter(op => op.costMode !== 'external-extra' && !op.isOwner).map(op => op.id))
   for (const job of data.jobs ?? []) {
     const vehicle = job.vehicleId ? vehicles.get(job.vehicleId) : undefined
     if (job.status === 'Annullata' || (vehicle && isVehicleStatusSemantic(settings, vehicle.status, 'cancelled'))) continue
@@ -65,11 +66,12 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const accountingDate = deliveryDate ?? (finalized ? closure.date : undefined)
     const materials = calculateJobMaterialMargin(job)
     const costs = closure.costs
-    const materialCost = materials.actualMaterials ?? costs?.materials ?? (finalized ? 0 : materials.estimatedMaterials)
-    const { partsCents, partsEstimated } = closedJobPartsCost(job, finalized ? costs?.parts ?? 0 : costs?.parts)
-    const provisional = !finalized && (materials.actualMaterials === null || partsEstimated)
-    const netBeforeLabor = Number.isFinite(job.taxableAmount) && partsCents !== null && Number.isFinite(materialCost)
-      ? cents(job.taxableAmount) - partsCents - cents(materialCost) - cents(finalized ? costs?.other ?? 0 : 0) : null
+    const materialCost = materials.actualMaterials ?? costs?.materials ?? (finalized ? undefined : materials.estimatedMaterials)
+    const { partsCents, partsEstimated } = closedJobPartsCost(job, costs?.parts)
+    const other = jobOtherDirectCost(job, costs?.other, finalized)
+    const provisional = materials.actualMaterials === null && costs?.materials === undefined || partsEstimated || other.estimated
+    const netBeforeLabor = Number.isFinite(job.taxableAmount) && partsCents !== null && (!finalized || !partsEstimated) && materialCost !== undefined && Number.isFinite(materialCost) && other.cents !== null
+      ? cents(job.taxableAmount) - partsCents - cents(materialCost) - other.cents : null
     const phases = deliveredWorkPhases(job)
     const sharedCounts = new Map<string, number>()
     for (const phase of phases) {
@@ -80,27 +82,31 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const totalWeight = weights.reduce((a, b) => a + b, 0)
     let creditedMargin = 0
     let creditedInternalLabor = 0
-    const internalIds = new Set(settings.operators.filter(op => op.costMode !== 'external-extra').map(op => op.id))
+    let creditedRevenue = 0
+    const revenueCents = Number.isFinite(job.taxableAmount) ? cents(job.taxableAmount) : 0
     phases.forEach((phase, index) => {
       const date = phase.status === 'Completata' ? dayOf(phase.completedAt || phase.endedAt) : undefined
       if (!date || date > today || (deliveryDate && date > deliveryDate)) return
       const labor = recordedPhaseLabor(phase, settings.operators)
-      const laborCents = finalized || labor.complete
+      const laborCents = labor.complete
         ? cents(labor.workers.reduce((sum, worker) => sum + worker.seconds / 3600 * (worker.rate ?? 0), 0))
         : null
       const marginCents = netBeforeLabor !== null && laborCents !== null
         ? Math.round(totalWeight > 0 ? netBeforeLabor * weights[index] / totalWeight : 0) - laborCents
         : null
+      const producedCents = phase.completedByName === 'Ufficio · Consegna' || totalWeight === 0
+        ? 0 : Math.min(revenueCents - creditedRevenue, Math.round(revenueCents * weights[index] / totalWeight))
+      creditedRevenue += producedCents
       creditedMargin += marginCents ?? 0
       const internalLaborCents = marginCents === null ? 0 : cents(labor.workers.filter(worker => internalIds.has(worker.id)).reduce((sum, worker) => sum + worker.seconds / 3600 * (worker.rate ?? 0), 0))
       creditedInternalLabor += internalLaborCents
-      production.push({ date, marginCents, provisional: provisional || !finalized, internalLaborCents })
+      production.push({ date, marginCents, provisional: provisional || !finalized, internalLaborCents, producedCents })
     })
     if (accountingDate && accountingDate <= today) {
-      const closed = closedJobMargin(job, settings.operators, materialCost, costs?.parts, finalized)
-      const marginCents = closed.marginCents === null ? null : closed.marginCents - cents(finalized ? costs?.other ?? 0 : 0) - creditedMargin
+      const closed = closedJobMargin(job, settings.operators, costs?.materials, costs?.parts, finalized)
+      const marginCents = closed.marginCents === null || other.cents === null ? null : closed.marginCents - other.cents - creditedMargin
       const internalLaborCents = marginCents === null ? 0 : closed.operatorLabor.filter(worker => internalIds.has(worker.id)).reduce((sum, worker) => sum + (worker.costCents ?? 0), 0) - creditedInternalLabor
-      production.push({ date: accountingDate, marginCents, provisional, internalLaborCents })
+      production.push({ date: accountingDate, marginCents, provisional, internalLaborCents, producedCents: revenueCents - creditedRevenue })
     }
   }
   const federica = operators.filter(operator => operator.name.trim().toLowerCase() === 'federica')
@@ -134,7 +140,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
       const rate = operatorHourlyCost(operator)
       const costCents = seconds === null || (seconds > 0 && rate === null)
         ? null : cents(seconds / 3600 * (rate ?? 0))
-      outsideCosts.push({ date, seconds, costCents, internal: operator.costMode !== 'external-extra' })
+      outsideCosts.push({ date, seconds, costCents, internal: operator.costMode !== 'external-extra' && !operator.isOwner })
     }
   }
   const billed = [
@@ -157,7 +163,9 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const hasMargin = !incomplete || recognized.some(entry => entry.marginCents !== null) || offVehicleCostCents > 0
     const invoiced = billed.reduce((sum, entry) => includes(entry.date) ? sum + entry.amount : sum, 0)
     const target = cents(goal) / 100
-    return { label, recognizedInternalLabor, payrollActual: payrollActual?.amount, payrollAdjustment, goal: target, done, billed: cents(invoiced) / 100, incomplete, provisional, hasMargin,
+    const produced = recognized.reduce((sum, entry) => sum + entry.producedCents, 0) / 100
+    const revenueGoal = label === 'Mese' ? Math.max(0, settings.monthlyRevenueGoal || 0) : null
+    return { label, produced, revenueGoal, recognizedInternalLabor, payrollActual: payrollActual?.amount, payrollAdjustment, goal: target, done, billed: cents(invoiced) / 100, incomplete, provisional, hasMargin,
       offVehicleHours: expenses.reduce((sum, entry) => sum + (entry.seconds ?? 0), 0) / 3600,
       offVehicleCost: offVehicleCostCents / 100, offVehicleCostIncomplete, offVehicleTimeIncomplete,
       gap: Math.max(0, cents(target - done)) / 100, percent: target > 0 && !incomplete ? 100 * done / target : null }

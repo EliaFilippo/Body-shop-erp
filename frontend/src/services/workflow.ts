@@ -1575,7 +1575,11 @@ export function updateJobPhase(data: ErpData, jobId: string, phaseId: string, in
 	const phase = current.phases.find((item) => item.id === phaseId)
 	if (!phase) throw new Error('Fase non trovata.')
 	const phaseIndex = current.phases.findIndex((item) => item.id === phaseId)
-	if (phaseIndex < 0) throw new Error('Fase non trovata.')
+	if (current.status === 'Consegnata' || current.status === 'Annullata') throw new Error('La commessa è chiusa.')
+	if (phase.status === 'Completata' && input.status === 'Completata'
+		&& input.operatorName === undefined && input.activeOperators === undefined
+		&& (input.notes ?? phase.notes) === phase.notes
+		&& (input.notRequired ?? phase.notRequired) === phase.notRequired) return data
 	if (phase.name === 'Controllo qualità' && input.notRequired) {
 		throw new Error('Il Controllo qualità non può essere marcato come non necessario.')
 	}
@@ -1597,7 +1601,11 @@ export function updateJobPhase(data: ErpData, jobId: string, phaseId: string, in
 			blockedReason: input.status === 'Bloccata' ? (input.blockedReason?.trim() || item.blockedReason) : '',
 		}
 		if (input.status === 'In lavorazione' && !nextPhase.startedAt) nextPhase.startedAt = timestamp
-		if (input.status === 'Completata' && !nextPhase.endedAt) nextPhase.endedAt = timestamp
+		if (input.status === 'Completata' && item.status !== 'Completata') {
+			nextPhase.endedAt = timestamp
+			nextPhase.completedAt = timestamp
+			nextPhase.completedByName = 'Ufficio'
+		}
 		const explicitOperators = input.activeOperators ?? (input.operatorName ? [input.operatorName] : undefined)
 		if (explicitOperators) {
 			nextPhase = updatePhaseOperators(nextPhase, explicitOperators, timestamp)

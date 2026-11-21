@@ -469,6 +469,7 @@ export function closeDeliveredJobPhases(job: RepairJob, deliveredAt = job.delive
 }
 
 export function completeJobDelivery(job: RepairJob, deliveredAt: string): RepairJob {
+  if (job.status === 'Consegnata' && job.deliveredAt) return closeDeliveredJobPhases(job)
   return {
     ...closeDeliveredJobPhases(job, deliveredAt), status: 'Consegnata', deliveredAt, updatedAt: deliveredAt,
     history: [{ id: id(), at: deliveredAt, actor: 'Ufficio', message: 'Consegna registrata e fasi residue chiuse.' }, ...(job.history ?? [])],

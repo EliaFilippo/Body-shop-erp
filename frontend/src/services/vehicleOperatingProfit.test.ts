@@ -28,15 +28,15 @@ it('preserves losses and does not present missing labor or overhead as zero',()=
  expect(vehicleOperatingProfit(vehicle,job,[job],settings).profitCents).toBeNull()
 })
 
-it('values unrecorded work at zero after delivery without rewriting timers',()=>{
+it('keeps unrecorded time incomplete after delivery without rewriting timers',()=>{
  const {settings,job,vehicle}=fixture()
  job.phases[0].tabletWorkedSeconds=undefined
  job.phases[0].operatorAssignments=[]
  job.phases[0].status='Completata'
  job.status='Consegnata'
  const result=vehicleOperatingProfit(vehicle,job,[job],settings)
- expect(result.profitCents).toBe(36000)
- expect(result.missing).toEqual([])
+ expect(result.profitCents).toBeNull()
+ expect(result.missing).toContain('tempi non registrati: Lucidatura')
  expect(job.status).toBe('Consegnata')
  expect(job.phases[0].tabletWorkedSeconds).toBeUndefined()
 })
@@ -47,9 +47,9 @@ it('never falls back to budget costs on closed cars and retains all recorded cha
  job.lines=[{category:'ricambi',quantity:1,budgetDirectUnitCost:900,unitPrice:1000}] as RepairJob['lines']
  vehicle.costEntries=[]
  const result=vehicleOperatingProfit(vehicle,job,[job],settings)
- expect(result).toMatchObject({materialCents:0,partsCents:0,otherCents:0,laborCents:4000,overheadCents:2000,profitCents:44000})
+ expect(result).toMatchObject({materialCents:null,partsCents:90000,partsEstimated:true,otherCents:0,laborCents:4000,overheadCents:2000,profitCents:null})
  settings.operators[0].hourlyCost=undefined
- expect(vehicleOperatingProfit(vehicle,job,[job],settings).laborCents).toBe(0)
+ expect(vehicleOperatingProfit(vehicle,job,[job],settings).laborCents).toBeNull()
 })
 
 it('uses a single contribution before general expenses for both total and hourly objective comparison',()=>{

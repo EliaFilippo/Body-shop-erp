@@ -3,6 +3,7 @@ export { confirmedQuoteForecasts } from './receivableFlows'
 import type { ErpData } from '../types'
 import { invoiceDocumentStatus } from './documents'
 import { calculateOwnerWithdrawalSnapshot } from './finance'
+import { treasuryPlan } from './treasury'
 import { calculateVatQuarterOutflows } from './vatQuarterly'
 
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
@@ -77,6 +78,8 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
   const baseLiquidity = data.bankAccounts.length ? round(data.bankAccounts.reduce((sum, item) => sum + item.currentBalance, 0)) : null
   const openInvoices = data.invoices.filter((invoice) => !['Incassata', 'Stornata'].includes(invoice.status))
   const ownerWithdrawal = calculateOwnerWithdrawalSnapshot(data, referenceDate)
+  const projectedWithdrawal = Math.min(ownerWithdrawal.amount, treasuryPlan(data, referenceDate).withdrawable ?? 0)
+  const withdrawalDate = ownerWithdrawal.plannedDate < referenceDate ? referenceDate : ownerWithdrawal.plannedDate
   const vatQuarterOutflows = calculateVatQuarterOutflows(data)
   const quoteForecasts = confirmedQuoteForecasts(data)
 
@@ -91,22 +94,18 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
 
   const outflowInWindow = (days: number) => {
     const end = addDays(referenceDate, days)
-    const plannedCosts = data.vehicles.reduce((sum, vehicle) => sum + (vehicle.costEntries ?? []).reduce((lineSum, line) => {
-      const usedAt = line.usedAt?.slice(0, 10)
-      return lineSum + (usedAt && usedAt >= referenceDate && usedAt <= end ? (line.total || 0) : 0)
-    }, 0), 0)
     const expectedEvents = data.financialEvents
-      .filter((event) => event.type === 'Uscita prevista' && event.date >= referenceDate && event.date <= end)
+      .filter((event) => event.type === 'Uscita prevista' && event.date && event.date <= end)
       .reduce((sum, event) => sum + event.amount, 0)
     const payableInstallments = (data.payables ?? [])
       .flatMap((payable) => payable.installments.map((installment) => ({ payable, installment })))
-      .filter(({ installment }) => installment.status !== 'Pagato' && installment.dueDate >= referenceDate && installment.dueDate <= end)
+      .filter(({ installment }) => installment.status !== 'Pagato' && installment.dueDate && installment.dueDate <= end)
       .reduce((sum, { installment }) => sum + installment.amount, 0)
-    const ownerWithdrawalOutflow = ownerWithdrawal.plannedDate >= referenceDate && ownerWithdrawal.plannedDate <= end ? ownerWithdrawal.amount : 0
+    const ownerWithdrawalOutflow = withdrawalDate <= end ? projectedWithdrawal : 0
     const vatOutflow = vatQuarterOutflows
-      .filter((item) => item.dueDate >= referenceDate && item.dueDate <= end)
+      .filter((item) => item.dueDate <= end)
       .reduce((sum, item) => sum + item.amount, 0)
-    return round(plannedCosts + expectedEvents + payableInstallments + ownerWithdrawalOutflow + vatOutflow)
+    return round(expectedEvents + payableInstallments + ownerWithdrawalOutflow + vatOutflow)
   }
 
   const windows: CashFlowWindow[] = [30, 60, 90].map((days) => {
@@ -139,7 +138,7 @@ export function calculateCashFlowSnapshot(data: ErpData, referenceDate = todayKe
     const liquidBalance = round((baseLiquidity ?? 0) + inflow - outflow)
     const overdueAtPoint = round(invoicesWithResidual.filter((item) => item.invoice.dueDate < date).reduce((sum, item) => sum + item.residual, 0))
     const expectedAtPoint = round(invoicesWithResidual.filter((item) => item.invoice.dueDate >= date).reduce((sum, item) => sum + item.residual, 0))
-    const ownerWithdrawalOutflow = ownerWithdrawal.plannedDate <= date ? ownerWithdrawal.amount : 0
+    const ownerWithdrawalOutflow = withdrawalDate <= date ? projectedWithdrawal : 0
     return {
       label: offset === 0 ? 'Oggi' : `+${offset}g`,
       date,

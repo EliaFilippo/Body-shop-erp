@@ -9,7 +9,6 @@ import { normalizePlate } from '../../services/erp'
 import { marginTargetRate } from '../../services/marginTargetRate'
 import { vehicleOperatingProfit } from '../../services/vehicleOperatingProfit'
 import { plannedJobContribution } from '../../services/plannedJobContribution'
-import { recordedJobVehicleCosts } from '../../services/jobMaterialCosts'
 import type { ErpData } from '../../types'
 
 const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
@@ -76,13 +75,14 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
       const vehicleDelivery = vehicle && uniqueVehicleJob && isVehicleDeliveredStatus(plannerSettings, vehicle.status) ? vehicle.deliveredAt : undefined
       const matchingDelivery = vehicleDelivery && Number.isFinite(Date.parse(vehicleDelivery))
         && romeDate.format(new Date(vehicleDelivery)) >= job.entryDate ? vehicleDelivery : undefined
-      if (job.status === 'Annullata' || !finalizedJobCosts(job,vehicle,jobs??[],plannerSettings).finalized) return []
+      const closure = finalizedJobCosts(job, vehicle, jobs ?? [], plannerSettings)
+      if (!closure.finalized) return []
       const deliveredAt = job.deliveredAt || matchingDelivery || job.phases.map(p=>p.completedAt??p.endedAt??'').sort().at(-1) || job.updatedAt
       const deliveryDate = deliveredAt && Number.isFinite(Date.parse(deliveredAt)) ? romeDate.format(new Date(deliveredAt)) : undefined
-      const costs = deliveryDate && vehicle ? recordedJobVehicleCosts(vehicle, job, jobs ?? [], deliveryDate) : undefined
-      const result = closedJobMargin(job, plannerSettings.operators, costs?.materials, costs?.parts, finalizedJobCosts(job,vehicle,jobs??[],plannerSettings).finalized)
+      const costs = closure.costs
+      const result = closedJobMargin(job, plannerSettings.operators, costs?.materials, costs?.parts, closure.finalized)
       const contribution = vehicle ? vehicleOperatingProfit(vehicle,job,jobs??[],plannerSettings).contributionCents : result.marginCents
-      return [{ job, deliveredAt, deliveryDate, ...result, marginCents: contribution, availableMarginCents: contribution,
+      return [{ job, deliveredAt, deliveryDate, ...result, marginCents: contribution,
         hourlyRevenue: contribution !== null && result.workedSeconds > 0 ? contribution / 100 / (result.workedSeconds / 3600) : null }]
     }).sort((a, b) => (b.deliveredAt ?? b.job.updatedAt).localeCompare(a.deliveredAt ?? a.job.updatedAt))
   }, [jobs, vehicles, plannerSettings])
@@ -115,7 +115,7 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
           const deliveryMonth = row.deliveryDate?.slice(0, 7) ?? monthKey
           if (!targets.has(deliveryMonth)) {
             targets.set(deliveryMonth, deliveryMonth === monthKey && marginHourlyRate !== undefined ? marginHourlyRate
-              : marginTargetRate(data, monthKey)?.marginHourlyRate ?? null)
+              : marginTargetRate(data, deliveryMonth)?.marginHourlyRate ?? null)
           }
           const target = targets.get(deliveryMonth) ?? null
           const { job } = row
@@ -133,7 +133,7 @@ function ClosedJobMargins({ data, monthKey, marginHourlyRate }: { data: ErpData;
             </div>) : '—'}{!row.laborComplete && <small>Controlla ore e tariffe</small>}</td>
             <td>{row.hourlyRevenue === null ? '—' : `${money(row.hourlyRevenue)}/h`}</td>
             <td style={{color:row.hourlyRevenue===null||target===null?undefined:row.hourlyRevenue<target?'#ff6b6b':'#67d9a3'}}>{row.hourlyRevenue === null || target === null ? '—' : row.hourlyRevenue < target ? 'Sotto obiettivo' : 'Obiettivo raggiunto'}</td>
-            <td>{row.availableMarginCents === null ? 'Ricavo da registrare' : <strong>{money(row.availableMarginCents / 100)}</strong>}{row.marginCents === null && row.availableMarginCents !== null && <small> · Parziale</small>}{row.marginCents !== null && row.materialsToConfirm && <small> · Materiali da confermare</small>}{row.marginCents !== null && row.partsEstimated && <small> · Ricambi stimati</small>}</td>
+            <td>{row.marginCents === null ? 'Consuntivo da completare' : <strong>{money(row.marginCents / 100)}</strong>}</td>
           </tr>
         })}</tbody>
       </table>

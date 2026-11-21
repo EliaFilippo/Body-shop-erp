@@ -1,4 +1,5 @@
 import type { ErpData } from '../types'
+import { isRealizedInvoice } from './historicalActuals'
 import { expectedPaymentDate } from './paymentTerms'
 const round=(amount:number)=>Math.round(amount*100)/100
 export function confirmedQuoteForecasts(data: ErpData) {
@@ -20,7 +21,7 @@ export function confirmedQuoteForecasts(data: ErpData) {
         && !data.vehicles.some(vehicle => vehicle.id === vehicleId && Boolean(vehicle.invoiceId))
     })
   const quotes = (data.quotes ?? []).filter(quote => quote.status === 'accettato' && !quote.invoiceId && quote.paymentTerms && Boolean(expectedPaymentDate(quote.paymentTerms,data.vehicles.find(vehicle=>vehicle.id===quote.vehicleId)?.requestedDeliveryDate)))
-    .filter(quote => !estimates.some(estimate => estimate.id === quote.estimateId) && !invoices.some(invoice => invoice.quoteId === quote.id || invoice.vehicleId === quote.vehicleId || invoice.lines.some(line => line.vehicleId === quote.vehicleId)))
+    .filter(quote => !estimates.some(estimate => estimate.id === quote.estimateId) && !invoices.some(invoice => invoice.quoteId === quote.id || Boolean(quote.vehicleId) && (invoice.vehicleId === quote.vehicleId || invoice.lines.some(line => line.vehicleId === quote.vehicleId))))
   return [...estimates, ...quotes].flatMap(document => {
     const estimateId = 'estimateId' in document ? document.estimateId : document.id
     const job = estimateId ? (data.jobs ?? []).find(item => item.estimateId === estimateId) : undefined
@@ -37,7 +38,7 @@ export function confirmedQuoteForecasts(data: ErpData) {
 
 export function receivableFlows(data:ErpData){
  const active=data.ribaBatches.filter(batch=>['Presentata','Anticipata'].includes(batch.status))
- const invoices=data.invoices.filter(invoice=>!['Incassata','Stornata','Insoluta','Contestata'].includes(invoice.status)).map(invoice=>{
+ const invoices=data.invoices.filter(invoice=>isRealizedInvoice(invoice)&&!['Incassata','Insoluta','Contestata'].includes(invoice.status)).map(invoice=>{
   const assigned=active.reduce((sum,batch)=>sum+batch.allocations.filter(item=>item.invoiceId===invoice.id).reduce((value,item)=>value+item.amount,0),0)
   return {dueDate:invoice.dueDate,amount:round(Math.max(0,invoice.total-invoice.collectedAmount-Math.max(invoice.ribaAllocatedAmount,assigned))),kind:'invoice' as const}
  })

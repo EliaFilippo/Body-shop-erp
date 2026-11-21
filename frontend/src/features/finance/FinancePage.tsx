@@ -6,6 +6,7 @@ import type { NoticesConnection } from '../production/PhaseNotices'
 import { QuoteActions } from './QuoteActions'
 import { SupplierInvoiceCapture } from './SupplierInvoiceCapture'
 import { TreasuryPanel } from './TreasuryPanel'
+import { CASH_RESERVE, treasuryPlan } from '../../services/treasury'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Modal } from '../../components/Modal'
@@ -15,6 +16,8 @@ import type { Customer, ErpData, PayableCategory, PayableEntry, PayableInstallme
 import {
   addVatQuarterAdjustment,
   calculateInvoiceTotalWithVat,
+  canRegisterInvoiceReceipt,
+  registerInvoiceReceipt,
   calculateOwnerWithdrawalSnapshot,
   calculateVatAmount,
   createInvoice,
@@ -94,7 +97,7 @@ type OutflowEntry = {
   amount: number
   label: string
   category: OutflowCategory
-  kind: 'financial-event' | 'vehicle-cost' | 'owner-withdrawal' | 'payable-installment'
+  kind: 'financial-event' | 'owner-withdrawal' | 'payable-installment'
 }
 
 type LiquidityProjection = {
@@ -145,12 +148,12 @@ const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typ
   receivableFlows(data).filter(item=>item.dueDate>=referenceDate&&item.dueDate<=endDate).forEach(item=>addInflow(item.dueDate,item.amount))
 
   data.financialEvents
-    .filter((event) => event.type === 'Uscita prevista' && event.date >= referenceDate && event.date <= endDate)
+    .filter((event) => event.type === 'Uscita prevista' && event.date && event.date <= endDate)
     .forEach((event) => {
       const amount = round(Math.max(0, event.amount))
       if (!amount) return
       addOutflow({
-        date: event.date,
+        date: event.date < referenceDate ? referenceDate : event.date,
         amount,
         label: event.note || 'Uscita prevista',
         category: resolveOutflowCategory(event.note || 'Uscita prevista'),
@@ -158,30 +161,12 @@ const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typ
       })
     })
 
-  data.vehicles.forEach((vehicle) => {
-    ;(vehicle.costEntries ?? [])
-      .filter((entry) => !!entry.usedAt)
-      .forEach((entry) => {
-        const date = entry.usedAt.slice(0, 10)
-        if (date < referenceDate || date > endDate) return
-        const amount = round(Math.max(0, entry.total || 0))
-        if (!amount) return
-        addOutflow({
-          date,
-          amount,
-          label: entry.description || entry.category || 'Costo lavorazione',
-          category: resolveOutflowCategory(`${entry.category || ''} ${entry.description || ''}`),
-          kind: 'vehicle-cost',
-        })
-      })
-  })
-
   ;(data.payables ?? [])
     .flatMap((payable) => payable.installments.map((installment) => ({ payable, installment })))
     .filter(({ installment }) => installment.status !== 'Pagato')
     .forEach(({ payable, installment }) => {
-      const date = installment.dueDate
-      if (date < referenceDate || date > endDate) return
+      const date = installment.dueDate < referenceDate ? referenceDate : installment.dueDate
+      if (date > endDate) return
       addOutflow({
         date,
         amount: round(Math.max(0, installment.amount)),
@@ -192,9 +177,9 @@ const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typ
     })
 
   vatQuarterOutflows.forEach((entry) => {
-    if (entry.dueDate < referenceDate || entry.dueDate > endDate) return
+    if (entry.dueDate > endDate) return
     addOutflow({
-      date: entry.dueDate,
+      date: entry.dueDate < referenceDate ? referenceDate : entry.dueDate,
       amount: round(Math.max(0, entry.amount)),
       label: `IVA trimestrale ${entry.quarterKey}`,
       category: 'f24-imposte',
@@ -202,9 +187,9 @@ const buildLiquidityProjection = (data: ErpData, ownerWithdrawal: ReturnType<typ
     })
   })
 
-  if (ownerWithdrawal.plannedDate >= referenceDate && ownerWithdrawal.plannedDate <= endDate && ownerWithdrawal.amount > 0) {
+  if (ownerWithdrawal.plannedDate <= endDate && ownerWithdrawal.amount > 0) {
     addOutflow({
-      date: ownerWithdrawal.plannedDate,
+      date: ownerWithdrawal.plannedDate < referenceDate ? referenceDate : ownerWithdrawal.plannedDate,
       amount: round(ownerWithdrawal.amount),
       label: 'Prelievo titolare',
       category: 'prelievo-titolare',
@@ -278,6 +263,7 @@ type FinanceModalState =
   | { type: 'invoice-create'; customerId: string; vehicleIds: string[] }
   | { type: 'riba-vehicles'; vehicleId?: string; customerId?: string }
   | { type: 'riba-create'; invoiceId: string }
+  | { type: 'invoice-receipt'; invoiceId: string }
   | { type: 'riba-advance'; batchId: string }
   | { type: 'communication'; draft: CommunicationDraft }
 
@@ -326,8 +312,12 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   const economicGoal = useMemo(() => calculateEconomicGoalSnapshot(data), [data])
   const nightlyEconomics=data.nightlyPlanning?.economics?.monthKey===economicGoal.monthKey?data.nightlyPlanning.economics:null
   const ownerWithdrawal = useMemo(() => calculateOwnerWithdrawalSnapshot(data), [data])
-  const liquidityProjection = useMemo(() => buildLiquidityProjection(data, ownerWithdrawal, liquidityRange), [data, ownerWithdrawal, liquidityRange])
-  const liquidityProjection30 = useMemo(() => buildLiquidityProjection(data, ownerWithdrawal, 30), [data, ownerWithdrawal])
+  const withdrawalLimit = useMemo(() => treasuryPlan(data, today()).withdrawable, [data])
+  const projectedWithdrawal = useMemo(() => ({ ...ownerWithdrawal,
+    amount: ownerWithdrawal.settled ? 0 : Math.min(ownerWithdrawal.amount, withdrawalLimit ?? 0),
+  }), [ownerWithdrawal, withdrawalLimit])
+  const liquidityProjection = useMemo(() => buildLiquidityProjection(data, projectedWithdrawal, liquidityRange), [data, projectedWithdrawal, liquidityRange])
+  const liquidityProjection30 = useMemo(() => buildLiquidityProjection(data, projectedWithdrawal, 30), [data, projectedWithdrawal])
   const creditRows = useMemo(() => calculateCreditControl(data, { state: creditState }), [data, creditState])
   const calendarEvents = useMemo(() => buildCalendarEvents(data, today(), calendarView), [data, calendarView])
   const payables = data.payables ?? []
@@ -478,8 +468,8 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
   ].filter(Boolean)
 
   const liquidityWarnings = [
-    minLiquidityPoint && minLiquidityPoint.balance < 0
-      ? `Liquidità prevista sotto zero: minimo ${money(minLiquidityPoint.balance)} il ${minLiquidityPoint.date}.`
+    minLiquidityPoint && minLiquidityPoint.balance < CASH_RESERVE
+      ? `Liquidità prevista sotto la riserva di ${money(CASH_RESERVE)}: minimo ${money(minLiquidityPoint.balance)} il ${minLiquidityPoint.date}.`
       : '',
     paymentCritical
       ? `Pagamento importante senza copertura sufficiente prima della scadenza: ${paymentCritical.label} (${money(paymentCritical.amount)}) il ${paymentCritical.date}.`
@@ -547,7 +537,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
 
     <section className="panel">
       <div className="panel-head"><div><span className="eyebrow">PRELIEVO TITOLARE</span><h3>Voce finanziaria separata</h3></div><div className="row-actions"><button onClick={() => setModal({ type: 'owner-withdrawal' })}>Modifica</button><button className="primary" onClick={() => run(() => markOwnerWithdrawalSettled(data), 'Prelievo titolare segnato come effettuato.')}>{ownerWithdrawal.settled ? 'Effettuato' : 'Marca effettuato'}</button></div></div>
-      <div className="stat-grid"><div className="stat-card"><span>Importo mensile</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Separa cassa personale e costi aziendali</small></div><div className="stat-card"><span>Data prevista</span><strong>{ownerWithdrawal.plannedDate}</strong><small>{ownerWithdrawal.settled ? 'Già effettuato questo mese' : 'In attesa di prelievo'}</small></div><div className="stat-card"><span>Stato</span><strong>{ownerWithdrawal.settled ? 'Effettuato' : 'Da effettuare'}</strong><small>{ownerWithdrawal.settledAt ? new Date(ownerWithdrawal.settledAt).toLocaleString('it-IT') : 'Non ancora registrato'}</small></div><div className="stat-card"><span>Impatto cash flow</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Considerato nella previsione di liquidità</small></div></div>
+      <div className="stat-grid"><div className="stat-card"><span>Importo mensile</span><strong>{money(ownerWithdrawal.amount)}</strong><small>Separa cassa personale e costi aziendali</small></div><div className="stat-card"><span>Data prevista</span><strong>{ownerWithdrawal.plannedDate}</strong><small>{ownerWithdrawal.settled ? 'Già effettuato questo mese' : 'In attesa di prelievo'}</small></div><div className="stat-card"><span>Stato</span><strong>{ownerWithdrawal.settled ? 'Effettuato' : 'Da effettuare'}</strong><small>{ownerWithdrawal.settledAt ? new Date(ownerWithdrawal.settledAt).toLocaleString('it-IT') : 'Non ancora registrato'}</small></div><div className="stat-card"><span>Prelievo previsto entro la riserva</span><strong>{money(projectedWithdrawal.amount)}</strong><small>Considerato nella previsione di liquidità</small></div></div>
     </section>
 
     <OwnerPasswordGate title="Preventivi confermati in finanza" connection={passwordConnection} onAccessChange={setConfirmedUnlocked}>{() => <p>Modifiche sbloccate per 5 minuti.</p>}</OwnerPasswordGate>
@@ -571,7 +561,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">LAVORAZIONI CONSEGNATE</span><h3>Vetture da fatturare</h3></div></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Vetture</th><th>Imponibile previsto</th><th>Azione</th></tr></thead><tbody>{groups.map(([customerId, vehicles]) => <tr key={customerId}><td><strong>{customerById(customerId)?.name ?? 'Cliente'}</strong></td><td>{vehicles.map((vehicle) => vehicle.plate).join(', ')}</td><td>{vehicles.some(vehicle => invoiceAmounts.get(vehicle.id) == null)
         ? 'Importi da verificare'
-        : money(vehicles.reduce((sum, vehicle) => sum + (invoiceAmounts.get(vehicle.id) ?? 0), 0))}</td><td><button className="primary" onClick={() => setModal({ type: 'invoice-create', customerId, vehicleIds: vehicles.map((vehicle) => vehicle.id) })}>Crea fattura</button></td></tr>)}</tbody></table></div>{!groups.length && <div className="empty"><div>◇</div><p>Nessuna vettura consegnata da fatturare.</p></div>}</section>
+        : money(vehicles.reduce((sum, vehicle) => sum + (invoiceAmounts.get(vehicle.id) ?? 0), 0))}</td><td><button className="primary" onClick={() => setModal({ type: 'invoice-create', customerId, vehicleIds: vehicles.map((vehicle) => vehicle.id) })}>Crea fattura</button></td></tr>)}</tbody></table></div>{!groups.length && <div className="empty"><div>◇</div><p>Nessuna vettura con lavorazioni completate da fatturare.</p></div>}</section>
 
     <section className="panel cashflow-visual-panel">
       <div className="panel-head"><div><span className="eyebrow">LIQUIDITÀ PREVISTA</span><h3>Scadenzario visivo e immediato</h3></div><div className="row-actions">{([7, 30, 60, 90] as const).map((days) => <button key={days} className={liquidityRange === days ? 'active-filter' : ''} onClick={() => setLiquidityRange(days)}>{days} giorni</button>)}</div></div>
@@ -787,7 +777,7 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       </div>
     </section>
 
-    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">SCADENZIARIO</span><h3>Fatture e residui</h3></div></div><div className="table-wrap"><table><thead><tr><th>Fattura</th><th>Cliente</th><th>Scadenza</th><th>Totale</th><th>In R.I.B.A.</th><th>Residuo disponibile</th><th>Stato</th><th>Azione</th></tr></thead><tbody>{data.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.number}</strong><small>{invoice.issueDate}</small></td><td>{customerById(invoice.customerId)?.name ?? '—'}</td><td>{invoice.dueDate}</td><td>{money(invoice.total)}</td><td>{money(invoice.ribaAllocatedAmount)}</td><td>{money(invoiceResidual(invoice))}</td><td><span className="tag">{invoice.status}</span></td><td>{invoiceResidual(invoice) > 0 && invoice.paymentMethod === 'R.I.B.A.' ? <button onClick={() => setModal({ type: 'riba-create', invoiceId: invoice.id })}>Inserisci in R.I.B.A.</button> : '—'}</td></tr>)}</tbody></table></div>{!data.invoices.length && <div className="empty"><div>◇</div><p>Nessuna fattura emessa.</p></div>}</section>
+    <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">SCADENZIARIO</span><h3>Fatture e residui</h3></div></div><div className="table-wrap"><table><thead><tr><th>Fattura</th><th>Cliente</th><th>Scadenza</th><th>Totale</th><th>In R.I.B.A.</th><th>Residuo disponibile</th><th>Stato</th><th>Azione</th></tr></thead><tbody>{data.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.number}</strong><small>{invoice.issueDate}</small></td><td>{customerById(invoice.customerId)?.name ?? '—'}</td><td>{invoice.dueDate}</td><td>{money(invoice.total)}</td><td>{money(invoice.ribaAllocatedAmount)}</td><td>{money(invoiceResidual(invoice))}</td><td><span className="tag">{invoice.status}</span></td><td>{invoiceResidual(invoice) > 0 && invoice.documentStatus !== 'bozza' && !['Incassata','Stornata','Contestata'].includes(invoice.status) && invoice.paymentMethod === 'R.I.B.A.' ? <button onClick={() => setModal({ type: 'riba-create', invoiceId: invoice.id })}>Inserisci in R.I.B.A.</button> : canRegisterInvoiceReceipt(invoice) ? <button onClick={() => setModal({ type: 'invoice-receipt', invoiceId: invoice.id })}>Registra accredito</button> : '—'}</td></tr>)}</tbody></table></div>{!data.invoices.length && <div className="empty"><div>◇</div><p>Nessuna fattura emessa.</p></div>}</section>
 
     <section className="panel table-panel"><div className="panel-head"><div><span className="eyebrow">FATTURE PROFESSIONALI</span><h3>Comunicazioni e stampa documento</h3></div><button onClick={() => run(() => syncInvoiceDocumentStatuses(data), 'Stati documento fattura sincronizzati.')}>Sincronizza stati</button></div>
       <div className="table-wrap"><table><thead><tr><th>Numero</th><th>Cliente</th><th>Scadenza</th><th>Totale</th><th>Incassato</th><th>Residuo</th><th>Stato doc.</th><th>Azioni</th></tr></thead><tbody>{data.invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.number}</strong><small>{invoice.issueDate}</small></td><td>{customerById(invoice.customerId)?.name ?? '—'}</td><td>{invoice.dueDate}</td><td>{money(invoice.total)}</td><td>{money(invoice.collectedAmount)}</td><td>{money(Math.max(0, invoice.total - invoice.collectedAmount))}</td><td><span className="tag">{invoice.documentStatus ?? 'emessa'}</span></td><td><div className="row-actions"><button onClick={() => printDocument('fattura', invoice.id)}>PDF</button><button onClick={() => setModal({ type: 'communication', draft: { documentType: 'fattura', documentId: invoice.id, customerId: invoice.customerId, vehicleId: invoice.vehicleId, number: invoice.number, total: invoice.total, dueDate: invoice.dueDate } })}>Comunica</button></div></td></tr>)}</tbody></table></div>
@@ -949,7 +939,37 @@ export function FinancePage({ data, onChange, customerById, setError, setNotice,
       setModal(null)
       requestAnimationFrame(() => document.getElementById('riba-batches')?.scrollIntoView?.({block:'start'}))
     }}/>}
-    {modal?.type === 'riba-create' && (() => {
+    {modal?.type === 'invoice-receipt' && (() => {
+      const invoice = data.invoices.find(item => item.id === modal.invoiceId)
+      if (!invoice) return null
+      return <Modal title={`Accredito fattura ${invoice.number}`} onClose={() => setModal(null)}>
+        <form onSubmit={event => {
+          event.preventDefault()
+          const fields = new FormData(event.currentTarget)
+          run(() => {
+            const next = registerInvoiceReceipt(data, invoice.id, {
+              bankId: String(fields.get('bankId')),
+              date: String(fields.get('date')),
+              amount: parseMoneyDraft(String(fields.get('amount'))) ?? NaN,
+              reference: String(fields.get('reference')),
+            })
+            setModal(null)
+            return next
+          }, 'Accredito registrato sul conto e sulla fattura.')
+        }}>
+          <label>Conto dell’accredito<select name="bankId" defaultValue="" required>
+            <option value="" disabled>Seleziona il conto</option>
+            {data.bankAccounts.map(bank => <option key={bank.id} value={bank.id}>{bank.name}</option>)}
+          </select></label>
+          <label>Data effettiva<input name="date" type="date" min={invoice.issueDate} max={today()} defaultValue={today()} required /></label>
+          <label>Importo accreditato<input name="amount" inputMode="decimal" defaultValue={invoiceResidual(invoice).toFixed(2).replace('.', ',')} required /></label>
+          <label>Riferimento del movimento<input name="reference" required /></label>
+          <button className="primary" disabled={!data.bankAccounts.length}>Registra accredito</button>
+        </form>
+      </Modal>
+    })()}
+
+    {modal?.type === 'riba-create'  && (() => {
       const invoice = data.invoices.find((item) => item.id === modal.invoiceId)
       if (!invoice) return null
       return <RibaCreateModal

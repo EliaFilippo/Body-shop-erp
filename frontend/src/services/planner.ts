@@ -511,7 +511,7 @@ function computePriorityScore(input: {
   }
 }
 
-function phaseManWorkedMinutes(phase: JobPhase, atIso: string) {
+export function phaseManWorkedMinutes(phase: JobPhase, atIso: string) {
   return (phase.operatorAssignments ?? []).reduce((sum, assignment) => {
     if (assignment.endedAt) return sum + Math.max(0, assignment.workedMinutes)
     if (assignment.activityStatus === 'Attivo') {

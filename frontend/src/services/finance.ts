@@ -417,7 +417,7 @@ export function createInvoice(
   const vehicles = data.vehicles.filter((item) => input.vehicleIds.includes(item.id))
   if (!vehicles.length) throw new Error('Seleziona almeno una vettura da fatturare.')
   if (vehicles.some((item) => item.customerId !== input.customerId)) throw new Error('Tutte le vetture devono appartenere allo stesso cliente.')
-  if (vehicles.some((item) => item.invoiceId || item.billingStatus === 'Fatturata')) throw new Error('Una o più vetture risultano già fatturate.')
+  if (vehicles.some((item) => item.invoiceId || item.billingStatus === 'Fatturata' || data.invoices.some(invoice => invoice.status !== 'Stornata' && (invoice.vehicleId === item.id || invoice.lines.some(line => line.vehicleId === item.id))))) throw new Error('Una o più vetture risultano già fatturate.')
   if (vehicles.some((item) => !vehicleReadyForInvoice(data, item))) throw new Error('Puoi fatturare le vetture consegnate o con tutte le lavorazioni completate.')
 
   const vatRate = Number.isFinite(input.vatRate) ? Number(input.vatRate) : data.financeSettings.defaultVatRate
@@ -527,7 +527,7 @@ export function createRibaBatch(
     if (seen.has(allocation.invoiceId)) throw new Error('La stessa fattura non può comparire due volte nella distinta.')
     seen.add(allocation.invoiceId)
     const invoice = data.invoices.find((item) => item.id === allocation.invoiceId)
-    if (!invoice) throw new Error('Fattura non trovata.')
+    if (!invoice || invoice.documentStatus === 'bozza' || ['Incassata', 'Stornata', 'Contestata'].includes(invoice.status)) throw new Error('Fattura non disponibile per la Ri.Ba.')
     const amount = roundMoney(Number(allocation.amount))
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('L’importo R.I.B.A. deve essere maggiore di zero.')
     const residual = invoiceResidual(invoice)
@@ -566,6 +566,36 @@ export function createRibaBatch(
       return { ...invoice, ribaAllocatedAmount: nextAllocated, status: nextAllocated >= invoice.total - invoice.collectedAmount ? 'Inserita in R.I.B.A.' : 'Parzialmente inserita in R.I.B.A.', updatedAt: timestamp }
     }),
     financialEvents: [event({ type: 'R.I.B.A. presentata', date: input.presentationDate, amount: total, ribaBatchId: merged.id, bankAccountId: bank.id, note: `Distinta ${batch.number}${existing ? ' · aggiunta vetture' : ''}` }), ...data.financialEvents],
+  }
+}
+
+export function canRegisterInvoiceReceipt(invoice: Invoice) {
+  return invoice.documentStatus !== 'bozza' && invoice.paymentMethod !== 'R.I.B.A.'
+    && !['Incassata', 'Stornata', 'Contestata'].includes(invoice.status) && invoiceResidual(invoice) > 0
+}
+
+export function registerInvoiceReceipt(data: ErpData, invoiceId: string, input: { bankId: string; date: string; amount: number; reference: string }): ErpData {
+  const invoice = data.invoices.find(item => item.id === invoiceId)
+  if (!invoice || !canRegisterInvoiceReceipt(invoice)) throw new Error('Fattura non disponibile per l’incasso diretto.')
+  const bank = data.bankAccounts.find(item => item.id === input.bankId)
+  if (!bank) throw new Error('Seleziona il conto dell’accredito.')
+  validateActualBankDate(input.date)
+  if (input.date < invoice.issueDate) throw new Error('La data di accredito precede la fattura.')
+  const amount = roundMoney(input.amount)
+  const reference = input.reference.trim()
+  if (!reference) throw new Error('Inserisci il riferimento del movimento bancario.')
+  if (!Number.isFinite(amount) || amount <= 0 || amount > invoiceResidual(invoice)) throw new Error('L’importo deve essere positivo e rientrare nel residuo disponibile.')
+  if (data.financialEvents.some(item => item.invoiceId === invoiceId && item.type === 'Incasso definitivo' && item.reference?.toLowerCase() === reference.toLowerCase())) {
+    throw new Error('Questo movimento risulta già registrato sulla fattura.')
+  }
+  const collectedAmount = roundMoney(invoice.collectedAmount + amount)
+  return {
+    ...data,
+    bankAccounts: data.bankAccounts.map(item => item.id === bank.id ? { ...item, currentBalance: roundMoney(item.currentBalance + amount) } : item),
+    invoices: data.invoices.map(item => item.id === invoice.id ? { ...item, collectedAmount,
+      status: collectedAmount >= item.total ? 'Incassata' : item.status, updatedAt: now() } : item),
+    financialEvents: [event({ type: 'Incasso definitivo', amount, date: input.date, reference, invoiceId,
+      customerId: invoice.customerId, bankAccountId: bank.id, note: `Accredito fattura ${invoice.number} · ${reference}` }), ...data.financialEvents],
   }
 }
 
@@ -717,5 +747,5 @@ export function createVatQuarterF24Payable(data: ErpData, input: CreateVatQuarte
 
 function validateActualBankDate(date:string){
  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Rome'}).format(new Date())
- if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||date>today)throw new Error('Inserisci una data bancaria effettiva valida, non futura.')
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date||date>today)throw new Error('Inserisci una data bancaria effettiva valida, non futura.')
 }

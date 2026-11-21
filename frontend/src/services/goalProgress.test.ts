@@ -1,6 +1,9 @@
 import { expect, it } from 'vitest'
 import type { JobPhase, RepairJob } from '../types'
 import { emptyData } from './erp'
+import { setJobMaterialActualCost } from './jobMaterialCosts'
+import { vehicleOperatingProfit } from './vehicleOperatingProfit'
+import { vehicleInvoiceTaxableAmount } from './finance'
 import { calculateGoalProgress, remainingWeeklyMarginGoals } from './goalProgress'
 
 function makeReportJob() {
@@ -103,7 +106,7 @@ it('deducts four office hours plus production time outside cars alongside the lo
   ])[0]).toMatchObject({ offVehicleHours: 4, offVehicleCost: 68 })
 })
 
-it('uses recorded costs and zero missing costs for ready and delivered cars, without double counting',()=>{
+it('keeps ready and delivered costs incomplete while recognizing produced revenue once',()=>{
  const data=structuredClone(emptyData)
  data.plannerSettings.operators=[{id:'martin',name:'Martin',hourlyCost:20,dailyHours:8,active:true}]
  const job={...makeReportJob(),vehicleId:'v',plate:'TEST',entryDate:'2026-11-09',updatedAt:'2026-11-09T11:00:00Z',status:'Pronta consegna' as const,
@@ -112,11 +115,11 @@ it('uses recorded costs and zero missing costs for ready and delivered cars, wit
  data.jobs=[job]
  data.vehicles=[{id:'v',plate:'TEST',status:'Pronta',costEntries:[{category:'vernice',usedAt:'2026-11-09',total:10},{category:'trasporto',usedAt:'2026-11-09',total:5}]}] as typeof data.vehicles
  const before=JSON.stringify(data)
- expect(calculateGoalProgress(data,'2026-11-09').map(p=>p.done)).toEqual([465,465,465])
- expect(calculateGoalProgress(data,'2026-11-09')[2]).toMatchObject({incomplete:false,provisional:false})
+ expect(calculateGoalProgress(data,'2026-11-09').map(p=>p.done)).toEqual([0,0,0])
+ expect(calculateGoalProgress(data,'2026-11-09')[2]).toMatchObject({incomplete:true,produced:500})
  expect(JSON.stringify(data)).toBe(before)
  job.status='Consegnata';job.deliveredAt='2026-11-10T11:00:00Z'
- expect(calculateGoalProgress(data,'2026-11-10')[2].done).toBe(465)
+ expect(calculateGoalProgress(data,'2026-11-10')[2]).toMatchObject({incomplete:true,produced:500})
 })
 
 it('reconciles every remaining weekly amount to the monthly residual without changing historical periods',()=>{
@@ -136,6 +139,7 @@ it('reconciles monthly internal payroll once, excludes contractors and preserves
  const data=structuredClone(emptyData)
  data.plannerSettings.operators=[{id:'martin',name:'Martin',costMode:'external-extra',externalHourlyCost:40,dailyHours:8,active:true},{id:'other',name:'Altro',hourlyCost:30,dailyHours:8,active:true}]
  const job=makeReportJob()
+ job.materialActualCost = { amount: 0, at: '', note: '' }
  job.status='Consegnata';job.deliveredAt='2026-11-10T17:00:00Z';job.entryDate='2026-11-01'
  job.phases=[completedPhase,{...completedPhase,id:'internal',operatorAssignments:[{...completedPhase.operatorAssignments[0],id:'tablet:other',operatorName:'Altro'}]}]
  data.jobs=[job]
@@ -150,4 +154,22 @@ it('reconciles monthly internal payroll once, excludes contractors and preserves
  data.plannerSettings.monthlyPayrollActuals.push({id:'b',monthKey:'2026-11',amount:0,note:'rettifica',updatedAt:'2026-12-06T10:00:00Z'})
  expect(calculateGoalProgress(data,'2026-11-30')[2].done).toBe(baseline.done+30)
  expect(JSON.stringify(data.jobs)).toBe(before)
+})
+
+it('updates contribution from one actual material total and keeps the invoice taxable amount independent', () => {
+  const data = structuredClone(emptyData)
+  data.plannerSettings.operators = [{ id: 'martin', name: 'Martin', hourlyCost: 20, dailyHours: 8, active: true }]
+  const job = { ...makeReportJob(), vehicleId: 'v', customerId: 'c', plate: 'TEST',
+    entryDate: '2026-11-09', deliveredAt: '2026-11-09T15:00:00Z', status: 'Consegnata' as const,
+    updatedAt: '2026-11-09T15:00:00Z', history: [], phases: [completedPhase] }
+  const vehicle = { id: 'v', customerId: 'c', plate: 'TEST', status: 'Consegnata',
+    costEntries: [{ category: 'vernice', usedAt: '2026-11-09', total: 60 }] } as typeof data.vehicles[number]
+  data.jobs = [job]
+  data.vehicles = [vehicle]
+  const updated = setJobMaterialActualCost(data, job.id, 75, '', job.deliveredAt)
+  expect(calculateGoalProgress(data, '2026-11-10')[2]).toMatchObject({ done: 420, produced: 500, billed: 0 })
+  expect(calculateGoalProgress(updated, '2026-11-10')[2]).toMatchObject({ done: 405, produced: 500, billed: 0 })
+  expect(vehicleOperatingProfit(vehicle, updated.jobs![0], updated.jobs!, data.plannerSettings).contributionCents).toBe(40500)
+  expect(vehicleInvoiceTaxableAmount(updated, vehicle)).toBe(500)
+  expect(setJobMaterialActualCost(updated, job.id, 75)).toBe(updated)
 })

@@ -30,7 +30,7 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
 
   return <>
   <section className="panel" aria-label="Avanzamento obiettivi di margine">
-    <div className="panel-head"><div><span className="eyebrow">MARGINE · IVA ESCLUSA</span><h3>Avanzamento obiettivi</h3></div></div>
+    <div className="panel-head"><div><span className="eyebrow">MARGINE · IVA ESCLUSA</span><h3>Avanzamento del margine</h3></div></div>
     <div className="owner-kpi-grid">
       {periods.map(period => {
         const hasGoal = period.goal > 0
@@ -80,6 +80,14 @@ export function GoalProgressPanel({ data, vehicleWork }: { data: ErpData; vehicl
         </article>
       })}
     </div>
+  </section>
+  <section className="panel" aria-label="Avanzamento fatturato prodotto">
+    <h3>Fatturato prodotto · IVA esclusa</h3>
+    <div className="owner-kpi-grid">{periods.map(period => <article className="owner-kpi-card" key={period.label}>
+      <span>{period.label}</span><strong>{money.format(period.produced)}</strong>
+      <small>Fatture emesse e consuntivi: {money.format(period.billed)}</small>
+      {period.revenueGoal !== null && period.revenueGoal > 0 && <small>Obiettivo mensile {money.format(period.revenueGoal)} · residuo {money.format(Math.max(0, period.revenueGoal - period.produced))}</small>}
+    </article>)}</div>
   </section>
   {target && <section className="panel" aria-label="Ripartizione del margine residuo fino a fine mese">
     <div className="panel-head"><h3>Obiettivi delle settimane rimanenti</h3></div>

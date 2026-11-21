@@ -476,6 +476,11 @@ export function PlannerSettingsPage({
             <label>Costo esterno €/h<input aria-label="Costo esterno orario" type="number" min="0" step="1" value={operator.externalHourlyCost ?? 0} onChange={(event) => updateOperator(operator.id, { externalHourlyCost: Number(event.target.value) })} /></label>
             <label>IVA costo %<input aria-label="IVA costo esterno" type="number" min="0" step="1" value={operator.externalVatRate ?? 0} onChange={(event) => updateOperator(operator.id, { externalVatRate: Number(event.target.value) })} /></label>
           </>}
+          <label className="check"><input type="checkbox" checked={operator.isOwner ?? false} onChange={(event) => {
+            markDirty()
+            setDraft(current => ({ ...current, operators: current.operators.map(item =>
+              item.id === operator.id ? { ...item, isOwner: event.target.checked } : event.target.checked && item.isOwner ? { ...item, isOwner: false } : item) }))
+          }} /> Titolare · escluso dal conguaglio dipendenti</label>
           <label className="check"><input type="checkbox" checked={operator.active} onChange={(event) => updateOperator(operator.id, { active: event.target.checked })} /> Attivo</label>
           {tabletConnection && operator.active && settings.operators.some(saved => saved.active && saved.id === operator.id) &&
             <button type="button" className="secondary" onClick={() => setQrOperatorId(operator.id)}>QR tablet · {operator.name}</button>}

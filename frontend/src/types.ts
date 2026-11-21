@@ -325,6 +325,7 @@ export interface PlannerOperator {
   skillsConfigured?: boolean
   preferredDuties?: string[]
   weeklySchedule?: WeeklyWorkDaySchedule[]
+  isOwner?: boolean
   costMode?: 'included-in-overhead' | 'external-extra'
   /** Configurable real hourly cost for individual productivity analysis. */
   hourlyCost?: number
@@ -762,6 +763,7 @@ export interface FinancialEvent {
   bankAccountId?: string
   payableId?: string
   payableInstallmentId?: string
+  reference?: string
   note: string
   createdAt: string
 }
