@@ -39,6 +39,7 @@ export function LiveProductionPage() {
   const [password, setPassword] = useState('')
   const [selectionMode,setSelectionMode] = useState<'automatic'|'manual'>('manual')
   const [vehicleSearch,setVehicleSearch]=useState('')
+  const [manualVehicleId, setManualVehicleId] = useState<string | null>(null)
   const [phaseChoices, setPhaseChoices] = useState<Record<string, string>>({})
   const [openedEarlyTaskId, setOpenedEarlyTaskId] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
@@ -214,8 +215,21 @@ export function LiveProductionPage() {
       <section className="live-day-hours"><h2>Scegli una vettura · anche fuori programma</h2><label>Cerca targa o cono<input type="search" value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} /></label><p>Tutti vedono le vetture aperte. In manuale scegli qualsiasi fase di lavorazione, anche non prevista nel preventivo, fuori mansione o già completata per un intervento aggiuntivo. Passando a un altro lavoro, il tuo timer precedente va in pausa. Il programma automatico mantiene le priorità e il ricalcolo a ogni fase completata e quello notturno.</p>{feed.manualSelection && <label>Scelta del lavoro<select aria-label="Modalità scelta lavoro" value={selectionMode} disabled={busy} onChange={e=>{setSelectionMode(e.target.value as 'automatic'|'manual');setPhaseChoices({});setOpenedEarlyTaskId(null)}}>
         <option value="automatic">Automatica · fasi abilitate e programma</option><option value="manual">Manuale · scegli vettura e fase</option>
       </select></label>}</section>
+      {feed.manualSelection && <section className="live-day-hours" aria-label="Selezione manuale per cono">
+        <h2>Scelta manuale · tocca il cono della vettura</h2>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(90px, 1fr))',gap:8}}>
+          {Array.from({length:30},(_,i)=>i+1).map(number=>{
+            const job=feed.jobs.find(item=>item.coneNumber===number)
+            return <button key={number} type="button" disabled={!job || busy} aria-pressed={!!job && selectionMode==='manual' && manualVehicleId===job.jobId} onClick={()=>{if(job){setManualVehicleId(job.jobId);setSelectionMode('manual');setVehicleSearch('');setOpenedEarlyTaskId(null)}}}>
+              <span>CONO</span><strong style={{display:'block',fontSize:'2rem'}}>{number}</strong><span>{job?.plate ?? 'Libero'}</span>
+            </button>
+          })}
+          {feed.jobs.filter(job=>job.coneNumber==null).map(job=><button key={job.jobId} type="button" disabled={busy} onClick={()=>{setManualVehicleId(job.jobId);setSelectionMode('manual');setVehicleSearch('');setOpenedEarlyTaskId(null)}}>{job.plate} · senza cono</button>)}
+        </div>
+        {selectionMode==='manual' && !manualVehicleId && <p>Tocca una vettura per aprire la scheda e scegliere la fase di lavoro.</p>}
+      </section>}
       <section className="live-job-grid" aria-label="Vetture disponibili">
-        {feed.jobs.filter(job=>!vehicleSearch.trim()||`${job.plate} ${job.coneNumber??''} ${job.number}`.replace(/\s/g,'').toLowerCase().includes(vehicleSearch.replace(/\s/g,'').toLowerCase())).map(job => {
+        {feed.jobs.filter(job=>!manualVehicleId||selectionMode!=='manual'||!feed.manualSelection||job.jobId===manualVehicleId).filter(job=>!vehicleSearch.trim()||`${job.plate} ${job.coneNumber??''} ${job.number}`.replace(/\s/g,'').toLowerCase().includes(vehicleSearch.replace(/\s/g,'').toLowerCase())).map(job => {
           const totalClock = liveCountdown(job, (performance.now() - lastSample.current) / 1000)
           const manual = selectionMode === 'manual' && feed.manualSelection
           const availablePhases = (job.phases ?? []).filter(p => p.name !== 'Consegna' && (manual || (!p.notRequired && p.automaticAllowed !== false && !['Completata', 'Bloccata'].includes(p.status))))
