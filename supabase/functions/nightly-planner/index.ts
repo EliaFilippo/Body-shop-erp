@@ -26,6 +26,11 @@ function withHistoricalHours(data, tablet) {
   return [...tablet, ...historical];
 }
 
+// frontend/src/services/monthlyPayrollActual.ts
+function monthlyPayrollActual(settings, month) {
+  return [...settings.monthlyPayrollActuals ?? []].filter((row) => row.monthKey === month && Number.isFinite(row.amount) && row.amount >= 0).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+}
+
 // frontend/src/services/workCalendar.ts
 var DAY_MS = 864e5;
 var DEFAULT_WEEKLY_WORK_SCHEDULE = [
@@ -281,16 +286,18 @@ function calculateNightlyEconomics(data, state, plannedFor) {
   const items = (settings.internalCostSettings?.monthlyCostItems ?? []).filter((i) => i.active);
   const monthlyFixedCosts = items.reduce((sum, i) => sum + safe(i.monthlyAmount), 0);
   const payrollInMonthlyCosts = items.some((i) => (i.category === "personale" || i.coveredByOperatorRates === true) && safe(i.monthlyAmount) > 0);
+  const payroll = monthlyPayrollActual(settings, monthKey);
   let laborCosts = 0, missingLaborCost = false;
   for (const entry of work) {
     const op = settings.operators.find((o) => o.id === entry.operatorId);
-    if (payrollInMonthlyCosts && op?.costMode !== "external-extra") continue;
+    if ((payrollInMonthlyCosts || payroll) && op && op.costMode !== "external-extra" && !op.isOwner) continue;
     const rate = op?.costMode === "external-extra" ? safe(op.externalHourlyCost ?? op.hourlyCost) : safe(op?.hourlyCost);
     if (safe(entry.paidSeconds) > 0 && rate <= 0) missingLaborCost = true;
     laborCosts += safe(entry.paidSeconds) / 3600 * rate;
   }
   const historicalOperatingCosts = observationStart ? historicalCosts(data).filter((row) => row.date >= observationStart && row.date <= end && row.date <= asOfDay).reduce((sum, row) => sum + row.amount, 0) : 0;
-  const accruedCosts = monthlyFixedCosts * elapsedFraction + laborCosts + historicalOperatingCosts;
+  const configuredPayroll = items.filter((i) => i.category === "personale" || i.coveredByOperatorRates === true).reduce((sum, i) => sum + safe(i.monthlyAmount), 0) * elapsedFraction;
+  const accruedCosts = monthlyFixedCosts * elapsedFraction + laborCosts + historicalOperatingCosts + (payroll ? payroll.amount - configuredPayroll : 0);
   const operators = settings.operators.filter((o) => o.active);
   const manual = settings.internalCostSettings?.productiveCapacity;
   const calendarDates = [];
@@ -1818,10 +1825,13 @@ function applyProductionPlanningState(data, state) {
   const jobs = (data.jobs ?? []).map((job) => {
     if (job.status === "Annullata") return job;
     const delivered = job.status === "Consegnata";
+    const closed = delivered || job.status === "Pronta consegna";
+    const closedAt = delivered ? job.deliveredAt : job.updatedAt;
+    const closedBy = delivered ? "Ufficio \xB7 Consegna" : "Ufficio \xB7 Chiusura";
     let jobChanged = false;
     let phases = [...job.phases];
     const history = [...job.history ?? []];
-    for (const definition of delivered ? [] : state.phaseStates ?? []) {
+    for (const definition of closed ? [] : state.phaseStates ?? []) {
       const p = definition.phase;
       if (definition.jobId !== job.id || !p?.id || !p.name || !p.serverWorkTracked || !["Da fare", "In lavorazione", "Completata", "Bloccata"].includes(p.status)) continue;
       const index = phases.findIndex((phase) => phase.id === p.id), base = index >= 0 ? phases[index] : void 0;
@@ -1872,7 +1882,7 @@ function applyProductionPlanningState(data, state) {
         changed = true;
       }
     }
-    if (delivered) {
+    if (closed) {
       for (const [id2, entries] of entriesByJob.get(job.id) ?? []) {
         const name = manualPhaseNames.get(id2);
         if (!name || phases.some((phase) => phase.id === id2) || entries.some((entry) => entry.runningSince) || !entries.some((entry) => entry.lastEndedAt)) continue;
@@ -1882,9 +1892,9 @@ function applyProductionPlanningState(data, state) {
           requiredSkill: name,
           status: "Completata",
           estimatedMinutes: 0,
-          completedAt: job.deliveredAt,
-          endedAt: job.deliveredAt,
-          completedByName: "Ufficio \xB7 Consegna",
+          completedAt: closedAt,
+          endedAt: closedAt,
+          completedByName: closedBy,
           actualMinutes: entries.reduce((total, entry) => total + entry.closedSeconds / 60, 0),
           notes: "",
           blockedReason: "",
@@ -1902,9 +1912,9 @@ function applyProductionPlanningState(data, state) {
       phases.sort((a, b) => order(a) - order(b));
     }
     phases = phases.map((phase) => {
-      if (!delivered && phase.status === "Completata" && !phase.serverWorkTracked) return phase;
+      if (!closed && phase.status === "Completata" && !phase.serverWorkTracked) return phase;
       const entries = entriesByJob.get(job.id)?.get(phase.id);
-      if (!entries || delivered && entries.some((entry) => entry.runningSince)) return phase;
+      if (!entries || closed && entries.some((entry) => entry.runningSince)) return phase;
       const assignments = entries.map((e) => ({
         id: "tablet:" + e.operatorId,
         operatorName: e.operatorName,
@@ -1914,20 +1924,21 @@ function applyProductionPlanningState(data, state) {
         activityStatus: e.runningSince ? "Attivo" : "Concluso"
       }));
       const operatorAssignments = [...(phase.operatorAssignments ?? []).filter((a) => !a.id.startsWith("tablet:")), ...assignments];
-      const deliveredExtra = delivered && phase.notRequired && assignments.some((a) => a.endedAt && a.workedMinutes > 0);
+      const closedExtra = closed && phase.notRequired && assignments.some((a) => a.endedAt && a.workedMinutes > 0);
       const next = { ...phase, operatorAssignments };
-      if (delivered) {
-        next.actualMinutes = Number.isFinite(phase.tabletWorkedSeconds) && phase.tabletWorkedSeconds >= 0 ? phase.tabletWorkedSeconds / 60 : operatorAssignments.reduce((total, assignment) => total + (assignment.endedAt ? assignment.workedMinutes : 0), 0);
+      if (closed) {
+        const signedSeconds = phase.tabletWorkedSeconds;
+        next.actualMinutes = typeof signedSeconds === "number" && Number.isFinite(signedSeconds) && signedSeconds >= 0 ? Math.max(signedSeconds / 60, assignments.reduce((total, assignment) => total + assignment.workedMinutes, 0)) : operatorAssignments.reduce((total, assignment) => total + (assignment.endedAt ? assignment.workedMinutes : 0), 0);
         next.serverWorkTracked = true;
-        if (deliveredExtra) Object.assign(next, {
+        if (closedExtra) Object.assign(next, {
           notRequired: false,
           manualExtra: true,
           manualWorkTracked: true,
           status: "Completata",
           remainingTimeUnknown: false,
-          completedAt: phase.completedAt ?? job.deliveredAt,
-          endedAt: phase.endedAt ?? job.deliveredAt,
-          completedByName: phase.completedByName ?? "Ufficio \xB7 Consegna"
+          completedAt: phase.completedAt ?? closedAt,
+          endedAt: phase.endedAt ?? closedAt,
+          completedByName: phase.completedByName ?? closedBy
         });
       } else if (phase.status === "Da fare") next.status = "In lavorazione";
       if (sameJson(next, phase)) return phase;
