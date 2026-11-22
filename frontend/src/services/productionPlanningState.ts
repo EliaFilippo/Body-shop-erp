@@ -22,7 +22,7 @@ const sameJson=(a:unknown,b:unknown)=>{
  const stable=(v:unknown)=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value)
  return stable(a)===stable(b)
 }
-/** Import real manual and automatic work; completion is exclusively a server signature. */
+/** Import real manual and automatic work, preserving explicit office closures. */
 export function applyProductionPlanningState(data:ErpData,state:ProductionPlanningState):ErpData {
  if(!Array.isArray(state.entries)||!Number.isFinite(Date.parse(state.serverNow))||Date.parse(state.serverNow)<Date.parse(data.productionPlanningSampleAt??''))return data
  let changed=false
@@ -39,10 +39,13 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
  const jobs=(data.jobs??[]).map(job=>{
   if(job.status==='Annullata')return job
   const delivered=job.status==='Consegnata'
+  const closed=delivered||job.status==='Pronta consegna'
+  const closedAt=delivered?job.deliveredAt:job.updatedAt
+  const closedBy=delivered?'Ufficio · Consegna':'Ufficio · Chiusura'
   let jobChanged=false
   let phases=[...job.phases]
   const history=[...(job.history??[])]
-  for(const definition of delivered?[]:state.phaseStates??[]){
+  for(const definition of closed?[]:state.phaseStates??[]){
    const p=definition.phase
    if(definition.jobId!==job.id||!p?.id||!p.name||!p.serverWorkTracked||!['Da fare','In lavorazione','Completata','Bloccata'].includes(p.status))continue
    const index=phases.findIndex(phase=>phase.id===p.id),base=index>=0?phases[index]:undefined
@@ -70,12 +73,12 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
   }
   // A delivery can reach the cloud before the office imports a newly started extra phase.
   // The server still returns the closed segments, even for jobs no longer in the planner.
-  if(delivered){
+  if(closed){
    for(const [id,entries] of entriesByJob.get(job.id)??[]){
     const name=manualPhaseNames.get(id)
     if(!name||phases.some(phase=>phase.id===id)||entries.some(entry=>entry.runningSince)||!entries.some(entry=>entry.lastEndedAt))continue
     phases.push({id,name,requiredSkill:name,status:'Completata',estimatedMinutes:0,
-     completedAt:job.deliveredAt,endedAt:job.deliveredAt,completedByName:'Ufficio · Consegna',
+     completedAt:closedAt,endedAt:closedAt,completedByName:closedBy,
      actualMinutes:entries.reduce((total,entry)=>total+entry.closedSeconds/60,0),notes:'',blockedReason:'',
      operatorAssignments:[],manualExtra:true,manualWorkTracked:true,serverWorkTracked:true})
     changed=true;jobChanged=true
@@ -86,25 +89,27 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
    phases.sort((a,b)=>order(a)-order(b))
   }
   phases=phases.map(phase=>{
-   if(!delivered&&phase.status==='Completata'&&!phase.serverWorkTracked)return phase
+   if(!closed&&phase.status==='Completata'&&!phase.serverWorkTracked)return phase
    const entries=entriesByJob.get(job.id)?.get(phase.id)
-   if(!entries||(delivered&&entries.some(entry=>entry.runningSince)))return phase
+   if(!entries||(closed&&entries.some(entry=>entry.runningSince)))return phase
    const assignments:JobPhaseOperatorAssignment[]=entries.map(e=>({
     id:'tablet:'+e.operatorId,operatorName:e.operatorName,startedAt:e.runningSince||e.firstStartedAt,
     ...(e.runningSince?{}:{endedAt:e.lastEndedAt||state.serverNow}),
     workedMinutes:e.closedSeconds/60,activityStatus:e.runningSince?'Attivo':'Concluso',
    }))
    const operatorAssignments=[...(phase.operatorAssignments??[]).filter(a=>!a.id.startsWith('tablet:')), ...assignments]
-   const deliveredExtra=delivered&&phase.notRequired&&assignments.some(a=>a.endedAt&&a.workedMinutes>0)
+   const closedExtra=closed&&phase.notRequired&&assignments.some(a=>a.endedAt&&a.workedMinutes>0)
    const next:JobPhase={...phase,operatorAssignments}
-   if(delivered){
-    next.actualMinutes=Number.isFinite(phase.tabletWorkedSeconds)&&phase.tabletWorkedSeconds!>=0
-     ?phase.tabletWorkedSeconds!/60:operatorAssignments.reduce((total,assignment)=>total+(assignment.endedAt?assignment.workedMinutes:0),0)
+   if(closed){
+    const signedSeconds=phase.tabletWorkedSeconds
+    next.actualMinutes=typeof signedSeconds==='number'&&Number.isFinite(signedSeconds)&&signedSeconds>=0
+     ?Math.max(signedSeconds/60,assignments.reduce((total,assignment)=>total+assignment.workedMinutes,0))
+     :operatorAssignments.reduce((total,assignment)=>total+(assignment.endedAt?assignment.workedMinutes:0),0)
     next.serverWorkTracked=true
-    if(deliveredExtra)Object.assign(next,{
+    if(closedExtra)Object.assign(next,{
      notRequired:false,manualExtra:true,manualWorkTracked:true,status:'Completata',
-     remainingTimeUnknown:false,completedAt:phase.completedAt??job.deliveredAt,
-     endedAt:phase.endedAt??job.deliveredAt,completedByName:phase.completedByName??'Ufficio · Consegna',
+     remainingTimeUnknown:false,completedAt:phase.completedAt??closedAt,
+     endedAt:phase.endedAt??closedAt,completedByName:phase.completedByName??closedBy,
     })
    }else if(phase.status==='Da fare')next.status='In lavorazione'
    if(sameJson(next,phase))return phase

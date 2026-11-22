@@ -60,8 +60,8 @@ function visitStart(job: RepairJob) {
 
 export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: RepairJob[], deliveryDate: string) {
  const start = visitStart(job)
- const inVisit = (vehicle.costEntries ?? []).filter(entry => start && entry.usedAt >= start && entry.usedAt <= deliveryDate)
- if (!inVisit.length) return { materials: undefined, parts: undefined, other: undefined }
+ const inVisit = (vehicle.costEntries ?? []).filter(entry => entry.jobId === job.id ||
+  (!entry.jobId && start && entry.usedAt >= start && entry.usedAt <= deliveryDate))
 
  const plateKey = (plate: string) => plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
  const competing = jobs.filter(other => other.id !== job.id && other.status !== 'Annullata'
@@ -70,9 +70,11 @@ export function recordedJobVehicleCosts(vehicle: Vehicle, job: RepairJob, jobs: 
    const delivered = Date.parse(other.deliveredAt ?? '')
    return { start: visitStart(other), end: Number.isFinite(delivered) ? costDate.format(new Date(delivered)) : undefined }
   })
- const entries = inVisit.filter(entry => !competing.some(visit => (!visit.start || entry.usedAt >= visit.start)
+ const entries = inVisit.filter(entry => entry.jobId === job.id || !competing.some(visit => (!visit.start || entry.usedAt >= visit.start)
    && (!visit.end || entry.usedAt <= visit.end)))
- const sum = (selected: typeof entries) => selected.length ? selected.reduce((total, entry) => total + entry.total, 0) : undefined
+ const sum = (selected: typeof entries) => selected.length &&
+  selected.every(entry => typeof entry.total === 'number' && Number.isFinite(entry.total) && entry.total >= 0)
+   ? round(selected.reduce((total, entry) => total + entry.total, 0)) : undefined
  return {
   materials: sum(entries.filter(entry => consumableCategories.has(entry.category))),
   parts: sum(entries.filter(entry => entry.category === 'ricambi')),

@@ -3,16 +3,17 @@ import type { RepairJob } from '../../types'
 import { MoneyInput } from '../../components/MoneyInput'
 import { calculateJobMaterialMargin } from '../../services/jobMaterialCosts'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
-export function JobMaterialCosts({job,onSave}:{job:RepairJob;onSave:(amount:number,note:string)=>void}){
+export function JobMaterialCosts({job,recordedMaterials,onSave}:{job:RepairJob;recordedMaterials?:number;onSave:(amount:number,note:string)=>void}){
  const [amount,setAmount]=useState<number|null>(job.materialActualCost?.amount??null)
  const [note,setNote]=useState(job.materialActualCost?.note??'')
  const [message,setMessage]=useState('');const [error,setError]=useState('')
- const snapshot=calculateJobMaterialMargin(job)
+ const recorded = job.materialActualCost === undefined && recordedMaterials !== undefined
+ const snapshot=calculateJobMaterialMargin(recorded ? {...job,materialActualCost:{amount:recordedMaterials,at:'',note:''}} : job)
  const preview=amount===null?snapshot:calculateJobMaterialMargin({...job,materialActualCost:{amount,at:'',note}})
  return <section className="panel" aria-label="Materiali a consuntivo"><h3>Materiali a consuntivo</h3>
   <p>Nel preventivo il consumo è stimato al 20% delle lavorazioni, salvo valori già concordati. A fine lavoro inserisci il totale reale dei materiali di consumo utilizzati: vernice, trasparente, fondo, abrasivi e altri consumabili.</p>
   <div className="summary-grid"><div className="summary-card"><span>Materiali stimati nel preventivo</span><strong>{euro(snapshot.estimatedMaterials)}</strong></div>
-   <div className="summary-card"><span>Materiali reali salvati</span><strong>{snapshot.actualMaterials===null?'Da inserire':euro(snapshot.actualMaterials)}</strong></div>
+   <div className="summary-card"><span>{recorded ? 'Materiali registrati sulla vettura' : 'Materiali reali salvati'}</span><strong>{snapshot.actualMaterials===null?'Da inserire':euro(snapshot.actualMaterials)}</strong></div>
    <div className="summary-card"><span>{amount===null&&snapshot.actualMaterials===null?'Margine previsto':'Margine con materiali reali'}{amount!==(job.materialActualCost?.amount??null)?' · anteprima':''}</span><strong>{preview.margin===null?'Costi da completare':euro(preview.margin)}</strong>{preview.marginPercent!==null&&<small>{preview.marginPercent}%</small>}</div>
    {preview.materialsSaving!==null&&<div className="summary-card"><span>Differenza materiali rispetto alla stima</span><strong>{euro(preview.materialsSaving)}</strong></div>}
   </div>

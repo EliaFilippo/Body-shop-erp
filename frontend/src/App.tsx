@@ -52,7 +52,7 @@ const VehicleStatusesSettingsPage = lazy(() => import('./features/planner/Vehicl
 import { localizePlanningTimestamps, toRomePlanningClock } from './services/romePlanningClock'
 import { todayKey, calculateDayCapacity, calculatePlanner, recalculateOperatorPrograms, remainingHours, simulateEstimateProductionForecast } from './services/planner'
 import { calculateInternalCostMonthlyTotals, calculateInternalProductiveCapacity, createEstimate, resolveInternalHourlyRate } from './services/workflow'
-import { calculateExecutiveDashboardSnapshot, calculateVehicleEconomicSnapshot } from './services/economic'
+import { calculateExecutiveDashboardSnapshot } from './services/economic'
 import { calculateBusinessOverviewSnapshot, type BusinessOverviewPeriod } from './services/businessOverview'
 import { appendAcceptancePhotoEntry, buildAcceptanceQuoteSummary, createAcceptanceDraft, createEmptyDocumentDraft, createPhotoArchiveEntry, mergeCustomerDocumentDraftWithOcr, mergeVehicleBookletDraftWithOcr } from './services/acceptance'
 const FinancePage = lazy(() => import('./features/finance/FinancePage').then(module => ({default:module.FinancePage})))
@@ -123,7 +123,6 @@ const settingsCards: Array<{ id: View; title: string; description: string }> = [
 ]
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('it-IT', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
-const parseMoney = (value: string | FormDataEntryValue | null) => parseMoneyDraft(String(value ?? '')) ?? 0
 const money = (value: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(Number.isFinite(value) ? value : 0)
 const ACCEPTANCE_IMAGE_FILE_TYPES = '.jpg,.jpeg,.png,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif,.avif,image/jpeg,image/png,image/webp,image/bmp,image/gif,image/tiff,image/heic,image/heif,image/avif'
 const ACCEPTANCE_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/bmp', 'image/gif', 'image/tiff', 'image/heic', 'image/heif', 'image/avif'])
@@ -2086,15 +2085,17 @@ function getVehicleBillingActions(billingData: ErpData) {
 
 function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle; data: ErpData; onClose: () => void; onSave: (entry: Omit<NonNullable<Vehicle['costEntries']>[number], 'id' | 'createdAt' | 'updatedAt'>) => void }) {
   const money = (value: number) => value.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
-  const snapshot = calculateVehicleEconomicSnapshot(vehicle, data.financeSettings)
+  const jobs = (data.jobs ?? []).filter(job => job.status !== 'Annullata' &&
+    (job.vehicleId ? job.vehicleId === vehicle.id : normalizePlate(job.plate) === normalizePlate(vehicle.plate)))
   const [form, setForm] = useState({
+    jobId: jobs.length === 1 ? jobs[0].id : '',
       usedAt: new Date().toISOString().slice(0, 10),
     category: 'ricambi' as VehicleCostCategory,
     description: '',
     supplier: '',
     quantity: '1',
     unit: 'pz',
-       unitCost: '0.00',
+       unitCost: '',
     discount: '0.00',
     vatRate: String(data.financeSettings.defaultVatRate ?? 22),
     note: '',
@@ -2102,12 +2103,20 @@ function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }))
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!form.unitCost.trim() || (jobs.length && !form.jobId)) return
     const quantity = Math.max(0, Number(form.quantity) || 0)
-    const unitCost = Math.max(0, parseMoney(form.unitCost))
-    const discount = Math.max(0, parseMoney(form.discount))
+    const unitCost = parseMoneyDraft(form.unitCost)
+    const discount = Math.max(0, parseMoneyDraft(form.discount) ?? 0)
+    if (unitCost === null || unitCost < 0) {
+      const input = event.currentTarget.querySelector<HTMLInputElement>('[name="unitCost"]')
+      input?.setCustomValidity('Inserisci un prezzo valido, anche zero se confermato.')
+      input?.reportValidity()
+      return
+    }
     const description = form.description.trim()
     if (!description) return
     onSave({
+      jobId: form.jobId || undefined,
       usedAt: form.usedAt,
       category: form.category as VehicleCostCategory,
       description,
@@ -2121,7 +2130,7 @@ function VehicleCostModal({ vehicle, data, onClose, onSave }: { vehicle: Vehicle
       note: form.note.trim(),
     })
   }
-  return <Modal title={`Materiali e costi · ${vehicle.plate}`} onClose={onClose}><div className="cost-modal"><div className="summary-grid"><div className="summary-card"><span>Ricavo previsto</span><strong>{money(snapshot.taxableRevenue)}</strong></div><div className="summary-card"><span>Costi diretti</span><strong>{money(snapshot.totalDirectCosts)}</strong></div><div className="summary-card"><span>Margine reale</span><strong>{money(snapshot.realMargin)}</strong></div><div className="summary-card"><span>Margine %</span><strong>{snapshot.grossMarginPercent}%</strong></div></div><form className="cost-form" onSubmit={submit}><label>Data<input type="date" value={form.usedAt} onChange={(event) => update('usedAt', event.target.value)} /></label><label>Categoria<select value={form.category} onChange={(event) => update('category', event.target.value)}><option value="ricambi">Ricambi</option><option value="vernice">Vernice</option><option value="trasparente">Trasparente</option><option value="fondo">Fondo</option><option value="stucco">Stucco</option><option value="carta abrasiva">Carta abrasiva</option><option value="nastro e materiale da mascheratura">Nastro e materiale da mascheratura</option><option value="minuteria">Minuteria</option><option value="materiali di lucidatura">Materiali di lucidatura</option><option value="lavorazioni esterne">Lavorazioni esterne</option><option value="lavaggio">Lavaggio</option><option value="trasporto">Trasporto</option><option value="smaltimento">Smaltimento</option><option value="altro">Altro</option></select></label><label>Descrizione<input required value={form.description} onChange={(event) => update('description', event.target.value)} /></label><label>Fornitore<input value={form.supplier} onChange={(event) => update('supplier', event.target.value)} /></label><label>Quantità<input type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label><label>Unità<input value={form.unit} onChange={(event) => update('unit', event.target.value)} /></label><label>Prezzo unitario<input type="text" inputMode="decimal" value={form.unitCost} onChange={(event) => update('unitCost', event.target.value)} /></label><label>Sconto<input type="text" inputMode="decimal" value={form.discount} onChange={(event) => update('discount', event.target.value)} /></label><label>IVA %<input type="number" min="0" step="1" value={form.vatRate} onChange={(event) => update('vatRate', event.target.value)} /></label><label>Nota<textarea value={form.note} onChange={(event) => update('note', event.target.value)} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Chiudi</button><button className="primary">Salva costo</button></div></form>{vehicle.costEntries?.length ? <div className="entry-list"><h4>Costi già registrati</h4>{vehicle.costEntries.slice().reverse().map((entry) => <div className="entry-item" key={entry.id}><strong>{entry.description}</strong><span>{entry.category} · {entry.quantity} {entry.unit} · {money(entry.total)}</span></div>)}</div> : <div className="empty"><div>◌</div><p>Nessun costo registrato per questa commessa.</p></div>}</div></Modal>
+  return <Modal title={`Materiali e costi · ${vehicle.plate}`} onClose={onClose}><div className="cost-modal"><form className="cost-form" onSubmit={submit}>{jobs.length > 0 && <label>Commessa<select required value={form.jobId} onChange={event => update('jobId', event.target.value)}><option value="">Seleziona commessa</option>{jobs.map(job => <option key={job.id} value={job.id}>{job.number} · {job.status}</option>)}</select></label>}<label>Data<input type="date" value={form.usedAt} onChange={(event) => update('usedAt', event.target.value)} /></label><label>Categoria<select value={form.category} onChange={(event) => update('category', event.target.value)}><option value="ricambi">Ricambi</option><option value="vernice">Vernice</option><option value="trasparente">Trasparente</option><option value="fondo">Fondo</option><option value="stucco">Stucco</option><option value="carta abrasiva">Carta abrasiva</option><option value="nastro e materiale da mascheratura">Nastro e materiale da mascheratura</option><option value="minuteria">Minuteria</option><option value="materiali di lucidatura">Materiali di lucidatura</option><option value="lavorazioni esterne">Lavorazioni esterne</option><option value="lavaggio">Lavaggio</option><option value="trasporto">Trasporto</option><option value="smaltimento">Smaltimento</option><option value="altro">Altro</option></select></label><label>Descrizione<input required value={form.description} onChange={(event) => update('description', event.target.value)} /></label><label>Fornitore<input value={form.supplier} onChange={(event) => update('supplier', event.target.value)} /></label><label>Quantità<input type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update('quantity', event.target.value)} /></label><label>Unità<input value={form.unit} onChange={(event) => update('unit', event.target.value)} /></label><label>Prezzo unitario<input type="text" inputMode="decimal" name="unitCost" required value={form.unitCost} onChange={(event) => { event.target.setCustomValidity(''); update('unitCost', event.target.value) }} /></label><label>Sconto<input type="text" inputMode="decimal" value={form.discount} onChange={(event) => update('discount', event.target.value)} /></label><label>IVA %<input type="number" min="0" step="1" value={form.vatRate} onChange={(event) => update('vatRate', event.target.value)} /></label><label>Nota<textarea value={form.note} onChange={(event) => update('note', event.target.value)} /></label><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Chiudi</button><button className="primary">Salva costo</button></div></form>{vehicle.costEntries?.length ? <div className="entry-list"><h4>Costi registrati sulla vettura</h4>{vehicle.costEntries.slice().reverse().map((entry) => <div className="entry-item" key={entry.id}><strong>{entry.description}</strong><span>{entry.category} · {entry.quantity} {entry.unit} · {money(entry.total)}{entry.jobId && jobs.find(job => job.id === entry.jobId) ? ` · ${jobs.find(job => job.id === entry.jobId)?.number}` : ''}</span></div>)}</div> : <div className="empty"><div>◌</div><p>Nessun costo registrato per questa commessa.</p></div>}</div></Modal>
 }
 
 function Cones({ data, customerById, onMove, onAdd, query, renderActions, renderStatus }: {

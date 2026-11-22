@@ -4,9 +4,9 @@ import { deliveredJobReport, reportDuration } from '../../services/deliveredJobR
 import { JobMaterialCosts } from './JobMaterialCosts'
 import './deliveredJobReports.css'
 const euro=(n:number)=>n.toLocaleString('it-IT',{style:'currency',currency:'EUR'})
-export function DeliveredJobReports({jobs,customerById,onBack,onSaveMaterials,initialQuery=''}:{
+export function DeliveredJobReports({jobs,customerById,onBack,onSaveMaterials,recordedMaterials,initialQuery=''}:{
  jobs:RepairJob[];customerById:(id:string)=>Customer|undefined;onBack:()=>void;
- onSaveMaterials:(id:string,amount:number,note:string)=>void;initialQuery?:string
+ recordedMaterials?:(job:RepairJob)=>number|undefined;onSaveMaterials:(id:string,amount:number,note:string)=>void;initialQuery?:string
 }){
  const [query,setQuery]=useState(initialQuery)
  const delivered=jobs.filter(j=>j.status==='Consegnata')
@@ -17,7 +17,9 @@ export function DeliveredJobReports({jobs,customerById,onBack,onSaveMaterials,in
   <section className="panel"><label>Cerca vettura consegnata<input type="search" placeholder="Targa, cliente o commessa" value={query} onChange={e=>setQuery(e.target.value)}/></label><p>{found.length} vetture trovate</p></section>
   {!found.length&&<section className="panel"><p>{delivered.length?'Nessuna vettura corrisponde alla ricerca.':'Nessuna vettura consegnata. I report compariranno quando la commessa sarà segnata Consegnata.'}</p></section>}
   {found.map(job=>{
-   const report=deliveredJobReport(job)
+   const recorded = recordedMaterials?.(job)
+   const report=deliveredJobReport(!job.materialActualCost && recorded !== undefined
+    ? {...job,materialActualCost:{amount:recorded,at:'',note:''}} : job)
    const materials=report.materials
    const timeTone=report.differenceSeconds===null?'pending':report.differenceSeconds<0?'over':'within'
    return <article key={job.id} className="panel delivered-report" aria-label={`Report ${job.plate} ${job.number}`}>
@@ -36,7 +38,7 @@ export function DeliveredJobReports({jobs,customerById,onBack,onSaveMaterials,in
     <details><summary>Vedi dettaglio lavorazioni</summary><div className="table-wrap"><table><thead><tr><th>Lavorazione</th><th>Ore previste</th><th>Ore registrate</th><th>Registrazioni</th></tr></thead><tbody>
      {report.rows.map(row=><tr key={row.label}><th>{row.label}</th><td>{reportDuration(row.plannedMinutes*60)}</td><td>{row.missing&&row.workedSeconds===0?'Da registrare':reportDuration(row.workedSeconds)}</td><td>{row.missing?'Parziali o mancanti':row.manual?'Ufficio':'Tablet'}</td></tr>)}
     </tbody></table></div></details>
-    <details><summary>{materials.actualMaterials===null?'Inserisci materiali reali':'Vedi o aggiorna materiali reali'}</summary><JobMaterialCosts job={job} onSave={(amount,note)=>onSaveMaterials(job.id,amount,note)}/></details>
+    <details><summary>{materials.actualMaterials===null?'Inserisci materiali reali':'Vedi o aggiorna materiali reali'}</summary><JobMaterialCosts job={job} recordedMaterials={recorded} onSave={(amount,note)=>onSaveMaterials(job.id,amount,note)}/></details>
    </article>
   })}
  </div>

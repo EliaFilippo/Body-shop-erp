@@ -22,7 +22,7 @@ import type {
 	StandardWorkPriceListItem,
 	StandardWorkTimePreset,
 } from '../types'
-import { addVehicle, changeVehicleStatus, closeDeliveredJobPhases, completeJobDelivery, normalizePlate, reconcileVehicleCones } from './erp'
+import { addVehicle, changeVehicleStatus, closeDeliveredJobPhases, completeJobDelivery, normalizePlate, reconcileVehicleCones, stopVehicleWork } from './erp'
 import { isVehicleDeliveredStatus, suggestVehicleStatus } from './vehicleStatuses'
 
 const id = () => crypto.randomUUID()
@@ -856,12 +856,12 @@ function phaseDurationMinutes(phase: JobPhase, at: string) {
 	return minutesBetween(phaseStart, phaseEnd)
 }
 
-function synchronizePhase(phase: JobPhase, at: string, awaitingDeliveryTimers = false): JobPhase {
-	const closedWithoutAssignments = awaitingDeliveryTimers && phase.completedByName === 'Ufficio · Consegna' && !phase.operatorAssignments?.length
+function synchronizePhase(phase: JobPhase, at: string, awaitingClosedTimers = false): JobPhase {
+	const closedWithoutAssignments = awaitingClosedTimers && ['Ufficio · Consegna', 'Ufficio · Chiusura'].includes(phase.completedByName ?? '') && !phase.operatorAssignments?.length
 	let assignments = closedWithoutAssignments ? [] : normalizePhaseAssignments(phase, at)
 	if (phase.status === 'Completata') {
 		assignments = assignments.map((item) => {
-			if (item.endedAt || item.activityStatus !== 'Attivo' || (awaitingDeliveryTimers && item.id.startsWith('tablet:'))) return item
+			if (item.endedAt || item.activityStatus !== 'Attivo' || (awaitingClosedTimers && item.id.startsWith('tablet:'))) return item
 			const endedAt = phase.endedAt || phase.completedAt || at
 			return {
 				...item,
@@ -886,7 +886,7 @@ function synchronizePhase(phase: JobPhase, at: string, awaitingDeliveryTimers = 
 	return {
 		...current,
 		actualMinutes: Number.isFinite(phase.tabletWorkedSeconds) && phase.tabletWorkedSeconds! >= 0
-			? phase.tabletWorkedSeconds! / 60
+			? Math.max(phase.tabletWorkedSeconds! / 60, awaitingClosedTimers && phase.serverWorkTracked ? phase.actualMinutes : 0)
 			: phase.serverWorkTracked || closedWithoutAssignments ? phase.actualMinutes : phase.status === 'Completata'
 			? phaseDurationMinutes(current, endedAt || at)
 			: phase.actualMinutes,
@@ -998,9 +998,9 @@ function isJobStatusOperational(status: JobStatus) {
 function stabilizeJobStatusFromPhases(job: RepairJob): JobStatus {
 	const phases = activeWorkflowPhases(job)
 	if (!phases.length) return job.status
-	if (job.status === 'Annullata' || job.status === 'Consegnata') return job.status
+	if (job.status === 'Annullata' || job.status === 'Consegnata' || job.status === 'Pronta consegna') return job.status
 	if (phases.some((phase) => phase.status === 'Bloccata')) return 'In attesa'
-	if (phases.every((phase) => phase.status === 'Completata')) return job.status === 'Pronta consegna' ? 'Pronta consegna' : 'Controllo qualità'
+	if (phases.every((phase) => phase.status === 'Completata')) return 'Controllo qualità'
 	if (phases.some((phase) => phase.status === 'In lavorazione' || phase.status === 'Completata')) return 'In lavorazione'
 	return job.status
 }
@@ -1027,7 +1027,7 @@ export function workflowOperationalSnapshot(job: RepairJob): {
 	operatorCount: number
 } {
 	const at = now()
-	const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata'))
+	const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata' || job.status === 'Pronta consegna'))
 	const syncedJob = { ...job, phases: syncedPhases }
 	const lastCompleted = latestCompletedPhase(syncedJob)
 	const nextPhase = nextTodoPhase(syncedJob)
@@ -1497,7 +1497,6 @@ export function updateJobStatus(data: ErpData, jobId: string, status: JobStatus)
 	if (current.status === status) return data
 	const allowed = allowedJobTransitions[current.status]
 	if (!allowed.includes(status)) throw new Error(`Transizione non consentita da ${current.status} a ${status}.`)
-	if (status === 'Pronta consegna' && current.workflowCycle === 'elias-v1' && current.phases.some(phase=>!phase.notRequired&&phase.name!=='Consegna'&&phase.status!=='Completata')) throw new Error('Completa le fasi richieste prima della consegna.')
 	if (status === 'Pronta consegna' && current.qualityChecklist.some((item) => !item.checked)) {
 		throw new Error('Completa il controllo qualità prima di impostare Pronta consegna.')
 	}
@@ -1513,10 +1512,12 @@ export function updateJobStatus(data: ErpData, jobId: string, status: JobStatus)
 		})
 	}
 	const timestamp = now()
+	const linkedVehicle = current.vehicleId ?? data.vehicles.find(item => normalizePlate(item.plate) === normalizePlate(current.plate))?.id
 	let next: ErpData = {
 		...data,
+		...(status === 'Pronta consegna' && linkedVehicle ? { production: stopVehicleWork(data.production, linkedVehicle, timestamp) } : {}),
 		jobs: jobs.map((job) => job.id === jobId ? {
-			...job,
+			...(status === 'Pronta consegna' ? closeDeliveredJobPhases(job, timestamp, 'Ufficio · Chiusura') : job),
 			status,
 			updatedAt: timestamp,
 			history: [{ id: id(), at: timestamp, actor: 'Operatore ERP', message: `Stato aggiornato a ${status}.` }, ...job.history],
@@ -1766,7 +1767,7 @@ export function syncJobsWithVehicles(data: ErpData): ErpData {
 		return {
 			...job,
 			plate: vehicle.plate,
-			coneNumber: vehicle.coneNumber,
+			coneNumber: job.status === 'Consegnata' ? null : vehicle.coneNumber,
 			expectedDeliveryDate: vehicle.requestedDeliveryDate || job.expectedDeliveryDate,
 			priority: vehicle.priority ?? job.priority,
 			blocks: job.blocks.length ? job.blocks : (vehicle.blockReason ? [vehicle.blockReason] : []),
@@ -1799,7 +1800,7 @@ export function syncOperationalStateFromJobs(data: ErpData): ErpData {
 	const normalizedJobs = (withSuggestedStatuses.jobs ?? []).map((storedJob) => {
 		const job = storedJob.status === 'Consegnata' ? closeDeliveredJobPhases(storedJob) : storedJob
 		const at = now()
-		const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata'))
+		const syncedPhases = job.phases.map((phase) => synchronizePhase(phase, at, job.status === 'Consegnata' || job.status === 'Pronta consegna'))
 		const syncedJob = { ...job, phases: syncedPhases }
 		const progressPercent = deriveJobProgress(syncedJob)
 		const currentStatus = stabilizeJobStatusFromPhases(syncedJob)

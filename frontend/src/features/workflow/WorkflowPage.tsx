@@ -1,3 +1,4 @@
+import { archivedJobMaterials } from '../../services/archivedJobMaterials'
 import { isFastEstimateDraft } from '../../services/fastEstimate'
 import { buildWorkSheetHtml, printWorkSheet } from '../../services/workSheet'
 import { EstimatePdfPreview } from './EstimatePdfPreview'
@@ -377,7 +378,10 @@ export function WorkflowPage({
     </div>
   }
 
-  if(deliveredReportQuery!==null)return <DeliveredJobReports jobs={jobs} customerById={customerById} initialQuery={deliveredReportQuery} onBack={()=>setDeliveredReportQuery(null)} onSaveMaterials={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Materiali reali salvati. Report aggiornato.')}/>
+  if(deliveredReportQuery!==null)return <DeliveredJobReports jobs={jobs} recordedMaterials={job => {
+    const vehicle = data.vehicles.find(item => item.id === job.vehicleId)
+    return vehicle ? archivedJobMaterials(vehicle, job, jobs).materialActualCost?.amount : undefined
+  }} customerById={customerById} initialQuery={deliveredReportQuery} onBack={()=>setDeliveredReportQuery(null)} onSaveMaterials={(jobId,amount,note)=>apply(setJobMaterialActualCost(data,jobId,amount,note),'Materiali reali salvati. Report aggiornato.')}/>
 
   return <>
     {renderSummary ? renderSummary(renderEstimateActions) : kpis && <>
@@ -1869,13 +1873,15 @@ function JobEditor({
     ...job.phases.flatMap((phase) => phaseAllOperators(phase)),
   ])).sort((a, b) => a.localeCompare(b, 'it-IT'))
 
+  const costVehicle = data.vehicles.find(vehicle => vehicle.id === job.vehicleId)
+  const materialsJob = costVehicle ? archivedJobMaterials(costVehicle, job, data.jobs ?? []) : job
   const linkedInvoice = data.invoices.find((invoice) => invoice.lines.some((line) => line.vehicleId && line.vehicleId === job.vehicleId))
   const residual = linkedInvoice ? Math.max(0, linkedInvoice.total - linkedInvoice.collectedAmount - linkedInvoice.ribaAllocatedAmount) : 0
   const totalPlannedMinutes = job.phases.filter((phase) => !phase.notRequired).reduce((sum, phase) => sum + Math.max(0, phase.estimatedMinutes), 0)
 
   return <Modal title={`Scheda commessa ${job.number}`} onClose={onCancel}>
     {job.estimateId && <div className="planner-actions"><WorkSheetButton job={job} onPrint={onPrintWorkSheet} /></div>}
-    <JobMaterialCosts job={job} onSave={(amount,note)=>onSaveMaterialCost(job.id,amount,note)}/>
+    <JobMaterialCosts key={job.id} job={job} recordedMaterials={materialsJob.materialActualCost?.amount} onSave={(amount,note)=>onSaveMaterialCost(job.id,amount,note)}/>
     <form className="form-grid" onSubmit={(event) => {
       event.preventDefault()
       onSubmit(job.id, { expectedDeliveryDate, priority, responsible, notes })

@@ -362,6 +362,11 @@ export function addVehicleCostEntry(
 ): ErpData {
   const vehicle = data.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) throw new Error('Vettura non trovata.')
+  if (input.jobId && !(data.jobs ?? []).some(job => job.id === input.jobId && job.status !== 'Annullata'
+    && (job.vehicleId ? job.vehicleId === vehicle.id : normalizePlate(job.plate) === normalizePlate(vehicle.plate)))) {
+    throw new Error('La commessa selezionata non appartiene alla vettura.')
+  }
+  if (!Number.isFinite(input.total)) throw new Error('Inserisci un costo valido.')
   const entry: VehicleCostEntry = {
     ...input,
     id: id(),
@@ -434,10 +439,11 @@ const statusHistoryEvent = (
   source,
 })
 
-export function closeDeliveredJobPhases(job: RepairJob, deliveredAt = job.deliveredAt): RepairJob {
+export function closeDeliveredJobPhases(job: RepairJob, deliveredAt = job.deliveredAt, closedBy: 'Ufficio · Consegna' | 'Ufficio · Chiusura' = 'Ufficio · Consegna'): RepairJob {
   const deliveryTime = Date.parse(deliveredAt ?? '')
   const closedAt = Number.isFinite(deliveryTime) ? deliveredAt : undefined
   const phases = job.phases.map(phase => {
+    if (closedBy === 'Ufficio · Chiusura' && phase.name === 'Consegna') return phase
     const operatorAssignments = (phase.operatorAssignments ?? []).map(assignment => {
       // The cloud supplies the final total for tablet timers after it saves the delivery.
       if (!closedAt || assignment.endedAt || assignment.activityStatus !== 'Attivo' || assignment.id.startsWith('tablet:')) return assignment
@@ -456,7 +462,7 @@ export function closeDeliveredJobPhases(job: RepairJob, deliveredAt = job.delive
       operatorAssignments,
       status: 'Completata' as const,
       completedAt: phase.completedAt ?? closedAt,
-      completedByName: phase.completedByName ?? 'Ufficio · Consegna',
+      completedByName: phase.completedByName ?? closedBy,
       endedAt: phase.endedAt ?? closedAt,
       remainingTimeUnknown: false,
       actualMinutes: workChanged
@@ -471,9 +477,23 @@ export function closeDeliveredJobPhases(job: RepairJob, deliveredAt = job.delive
 export function completeJobDelivery(job: RepairJob, deliveredAt: string): RepairJob {
   if (job.status === 'Consegnata' && job.deliveredAt) return closeDeliveredJobPhases(job)
   return {
-    ...closeDeliveredJobPhases(job, deliveredAt), status: 'Consegnata', deliveredAt, updatedAt: deliveredAt,
+    ...closeDeliveredJobPhases(job, deliveredAt), status: 'Consegnata', coneNumber: null, deliveredAt, updatedAt: deliveredAt,
     history: [{ id: id(), at: deliveredAt, actor: 'Ufficio', message: 'Consegna registrata e fasi residue chiuse.' }, ...(job.history ?? [])],
   }
+}
+
+export function stopVehicleWork(production: ErpData['production'], vehicleId: string, closedAt: string) {
+  if (!production) return production
+  const workLogs = production.workLogs.map(log => {
+    if (log.vehicleId !== vehicleId || log.status === 'completed') return log
+    const elapsed = (Date.parse(closedAt) - Date.parse(log.lastResumedAt ?? log.startedAt)) / 60_000
+    const addedMinutes = log.status === 'running' && Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0
+    return {
+      ...log, status: 'completed' as const, endedAt: closedAt, lastResumedAt: undefined,
+      totalMinutes: log.totalMinutes + addedMinutes,
+    }
+  })
+  return workLogs.some((log, index) => log !== production.workLogs[index]) ? { ...production, workLogs } : production
 }
 
 export function changeVehicleStatus(
@@ -531,23 +551,13 @@ export function changeVehicleStatus(
   const deliveredAt = previousDelivery && (!deliveryJob?.createdAt || Date.parse(deliveryJob.createdAt) <= Date.parse(previousDelivery))
     ? previousDelivery : now()
 
-  const production = data.production
-  const workLogs = delivered && source === 'manual' && production
-    ? production.workLogs.map(log => {
-      if (log.vehicleId !== vehicle.id || log.status === 'completed') return log
-      const elapsed = (Date.parse(deliveredAt) - Date.parse(log.lastResumedAt ?? log.startedAt)) / 60_000
-      const addedMinutes = log.status === 'running' && Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0
-      return {
-        ...log, status: 'completed' as const, endedAt: deliveredAt, lastResumedAt: undefined,
-        totalMinutes: log.totalMinutes + addedMinutes,
-      }
-    })
-    : undefined
-
+  const production = delivered && source === 'manual'
+    ? stopVehicleWork(data.production, vehicle.id, deliveredAt)
+    : data.production
   return reconcileVehicleCones({
     ...data,
     coneHistory: history,
-    ...(production && workLogs ? { production: { ...production, workLogs } } : {}),
+    ...(production !== data.production ? { production } : {}),
     ...(deliveryJob ? { jobs: data.jobs?.map(job => job.id === deliveryJob.id
       ? completeJobDelivery(job, deliveredAt) : job) } : {}),
     vehicles: data.vehicles.map((item) =>

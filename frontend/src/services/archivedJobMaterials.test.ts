@@ -27,3 +27,16 @@ it('includes recorded materials when actual work and delivery precede the planne
  expect(archivedJobMaterials(car,closed,[closed,{...closed,id:'overlap'}]).materialActualCost).toBeUndefined()
  expect(archivedJobMaterials({...car,costEntries:[{...car.costEntries![0],usedAt:'2026-11-17'}]},closed,[closed]).materialActualCost).toBeUndefined()
 })
+
+
+it('attributes late entries to the selected visit and leaves ambiguous and missing totals unrecorded', () => {
+ const other={...job,id:'other'}
+ const car={...vehicle,costEntries:[
+  {jobId:job.id,category:'vernice',usedAt:'2026-11-22',total:45},
+  {jobId:other.id,category:'vernice',usedAt:'2026-11-18',total:0},
+  {category:'vernice',usedAt:'2026-11-18',total:80},
+ ]} as Vehicle
+ expect(archivedJobMaterials(car,job,[job,other]).materialActualCost?.amount).toBe(45)
+ expect(archivedJobMaterials(car,other,[job,other]).materialActualCost?.amount).toBe(0)
+ expect(archivedJobMaterials(car,{...job,id:'missing'},[job,other]).materialActualCost).toBeUndefined()
+})

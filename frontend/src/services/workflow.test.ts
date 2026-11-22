@@ -1267,6 +1267,12 @@ describe('workflow preventivi e commesse', () => {
       })),
     }
     const ready = updateJobStatus(quality, quality.jobs?.[0].id ?? '', 'Pronta consegna')
+    expect(ready.jobs?.[0].status).toBe('Pronta consegna')
+    expect(ready.jobs?.[0].phases.filter(phase => phase.name !== 'Consegna')
+      .every(phase => phase.status === 'Completata')).toBe(true)
+    expect(ready.jobs?.[0].deliveredAt).toBeUndefined()
+    expect(ready.vehicles[0].coneNumber).not.toBeNull()
+    expect(syncOperationalStateFromJobs(ready).jobs?.[0].status).toBe('Pronta consegna')
     const manualReady = changeVehicleStatus(ready, 'v1', 'pronta')
     const delivered = updateJobStatus(manualReady, ready.jobs?.[0].id ?? '', 'Consegnata')
 
