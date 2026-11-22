@@ -1,3 +1,5 @@
+import { OwnerPasswordGate } from './OwnerPasswordGate'
+import { StaffEfficiency } from './OperationalEfficiency'
 import { PrivatePasswordSettings } from './PrivatePasswordSettings'
 import { useEffect, useRef, useState } from 'react'
 import { productionRpc } from '../../services/liveProduction'
@@ -99,44 +101,11 @@ export function ProductionControlPanel({ connection }: { connection: NoticesConn
  </section>
 }
 
-function PrivateProductivity({connection,from,to}:{connection:NoticesConnection;from:string;to:string}) {
- const [report,setReport]=useState<ProductionControlReport|null>(null)
- const [error,setError]=useState('')
- useEffect(() => {
-  let stopped = false
-  let polling = false
-  let timer: ReturnType<typeof setTimeout>
-  const poll = async () => {
-   if (stopped || polling || document.hidden) return
-   polling = true
-   try {
-    const next = await productionRpc<ProductionControlReport>('production_productivity_report',
-      { p_company_id: connection.companyId, p_from: from, p_to: to }, connection.session, connection.config)
-    if (!stopped) { setReport(next); setError('') }
-   } catch (problem) {
-    if (!stopped) setError(problem instanceof Error ? problem.message : 'Report non disponibile.')
-   } finally {
-    polling = false
-    if (!stopped && !document.hidden) timer = setTimeout(poll, 30_000)
-   }
-  }
-  const visibilityChanged = () => {
-   clearTimeout(timer)
-   if (!document.hidden) void poll()
-  }
-  document.addEventListener('visibilitychange', visibilityChanged)
-  void poll()
-  return () => {
-   stopped = true
-   clearTimeout(timer)
-   document.removeEventListener('visibilitychange', visibilityChanged)
-  }
- }, [connection.companyId, connection.session.accessToken, connection.config.url, connection.config.anonKey, from, to])
- return <>{error&&<p role="alert">{error}</p>}   <p>Punteggio = tempo assegnato ÷ tempo lavorato × 100. 100 rispetta il tempo, oltre 100 indica tempo risparmiato. Solo fasi concluse; pause e attese tecniche escluse. I tempi di S/R e I/S contano una sola volta, dopo entrambe le fasi.</p>
-   {report && <div className="production-score-table"><table><thead><tr><th>Operatore</th><th>Assegnato</th><th>Lavorato</th><th>Punteggio</th><th>Gruppi conclusi</th><th>Condiviso senza quota personale</th></tr></thead>
-    <tbody>{report.operators.map(o => <tr key={o.operatorId}><th>{o.name}</th><td>{duration(o.assignedSeconds)}</td><td>{duration(o.workedSeconds)}</td><td>{o.score === null ? '—' : o.score.toLocaleString('it-IT')}</td><td>{o.completedGroups}</td><td>{duration(o.unscoredSharedSeconds)}</td></tr>)}</tbody></table></div>}
-   {report && !report.operators.length && <p>Nessuna fase conclusa con tempo standard e lavoro registrato in questo mese.</p>}
-   <p>Le quote personali dei lavori condivisi vengono conservate al primo Start. Senza una ripartizione affidabile, il risultato resta della squadra e non modifica il punteggio individuale. Il punteggio misura i tempi, non la qualità né gli incassi.</p>
-   {!!report?.teams.length && <details><summary>Risultati delle squadre</summary>{report.teams.map(t => <p key={`${t.jobId}:${t.phase}`}>{t.plate} · {t.phase} · {t.operators.map(o => o.name).join(', ')}: {t.score.toLocaleString('it-IT')} punti ({duration(t.assignedSeconds)} assegnate / {duration(t.workedSeconds)} lavorate)</p>)}</details>}
-</>
+function PrivateProductivity({ connection, from, to }: { connection: NoticesConnection; from: string; to: string }) {
+ return <>
+  <p>Sul tablet ogni operatore vede il proprio semaforo. Se per il periodo non ci sono abbastanza ore registrate e confrontabili sulle vetture chiuse, i tre colori restano spenti.</p>
+  <OwnerPasswordGate connection={connection} title="Report Dipendenti" protectReading>
+   {session => <StaffEfficiency connection={{ ...connection, session }} period={{ from, to }} />}
+  </OwnerPasswordGate>
+ </>
 }

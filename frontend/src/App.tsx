@@ -1,3 +1,5 @@
+import { StaffEfficiency } from './features/production/OperationalEfficiency'
+import type { NoticesConnection } from './features/production/PhaseNotices'
 import { marginTargetRate } from './services/marginTargetRate'
 import { RibaManagementPage } from './features/finance/RibaManagementPage'
 import { VehicleScheduleDates } from './features/cones/VehicleScheduleDates'
@@ -1294,7 +1296,7 @@ function App() {
       {(completion.pending||completion.error||displayData!==data)&&<p role="status" style={{margin:'8px 24px'}}>{completion.error|| (completion.pending?'Ricalcolo del piano dopo completamento fase…':`Piano aggiornato alle ${new Date(completion.plan!.generatedAt).toLocaleTimeString('it-IT',{timeZone:'Europe/Rome'})} · consegne previste aggiornate`)}</p>}
       <Suspense fallback={<p role="status">Apertura schermata…</p>}><div className="content">
             {cloudConfig && cloudSession && cloudMembership && cloudMembership.role !== 'production' && <ProductionControlPanel connection={{ config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId }} />}
-        {view === 'dashboard' && <Dashboard data={displayData} vehicleWork={vehicleWork} setView={setView} onNewVehicle={() => {
+        {view === 'dashboard' && <Dashboard efficiencyConnection={cloudConfig && cloudSession && cloudMembership && cloudReady ? { config: cloudConfig, session: cloudSession, companyId: cloudMembership.companyId } : undefined} data={displayData} vehicleWork={vehicleWork} setView={setView} onNewVehicle={() => {
           if (data.customers.length) setModal({ type: 'vehicle' })
           else {
             setView('customers')
@@ -1944,7 +1946,7 @@ function WorkHoursSettingsPage({ settings, onSave }: { settings: ErpData['planne
   </section>
 }
 
-function Dashboard({ data, vehicleWork, setView, onNewVehicle, onNewCustomer }: { data: ErpData; vehicleWork?: VehicleWork[]; setView: (view: View) => void; onNewVehicle: () => void; onNewCustomer: () => void }) {
+function Dashboard({ data, vehicleWork, setView, onNewVehicle, onNewCustomer, efficiencyConnection }: { efficiencyConnection?: NoticesConnection; data: ErpData; vehicleWork?: VehicleWork[]; setView: (view: View) => void; onNewVehicle: () => void; onNewCustomer: () => void }) {
   const normalizeStatus = (value: string) => value.trim().toLowerCase()
   const today = new Date().toISOString().slice(0, 10)
   const plusDays = (days: number) => {
@@ -2029,6 +2031,8 @@ function Dashboard({ data, vehicleWork, setView, onNewVehicle, onNewCustomer }: 
     <GoalProgressPanel data={data} vehicleWork={vehicleWork} />
     <ConfirmedWorkOverview data={data}/>
     <section className="owner-kpi-grid">{topKpis.map((kpi) => <article className="owner-kpi-card" key={kpi.id}><span>{kpi.label}</span><strong>{kpi.value}</strong><small>{kpi.note}</small></article>)}</section>
+
+    {efficiencyConnection && <StaffEfficiency connection={efficiencyConnection} />}
 
     <section className="panel owner-economy-panel">
       <div className="panel-head"><div><span className="eyebrow">GRAFICO ECONOMICO PRINCIPALE</span><h3>Fatturato, costi, margine e obiettivo · IVA esclusa</h3></div><div className="segmented"><button className={overviewPeriod === 'oggi' ? 'active' : ''} onClick={() => setOverviewPeriod('oggi')}>Oggi</button><button className={overviewPeriod === 'settimana' ? 'active' : ''} onClick={() => setOverviewPeriod('settimana')}>Settimana</button><button className={overviewPeriod === 'mese' ? 'active' : ''} onClick={() => setOverviewPeriod('mese')}>Mese</button><button className={overviewPeriod === 'anno' ? 'active' : ''} onClick={() => setOverviewPeriod('anno')}>Anno</button></div></div>
