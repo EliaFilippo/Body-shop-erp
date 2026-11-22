@@ -30,13 +30,20 @@ it('shows phase comparisons and a review suggestion without editing assigned tim
 })
 
 
-it('loads the detailed productivity report only after opening it', async () => {
- mock.rpc.mockResolvedValue({alerts:[],operators:[],teams:[]})
+it('loads the employee efficiency detail only after the private password unlock', async () => {
+ mock.rpc.mockImplementation(async (name: string) => {
+  if (name === 'production_private_password') return { configured: true, ok: true }
+  if (name === 'production_efficiency') return { rows: [], teams: [] }
+  return { alerts: [], operators: [], teams: [] }
+ })
  render(<ProductionControlPanel connection={connection} />)
- await waitFor(() => expect(mock.rpc.mock.calls.some(call=>call[0]==='production_control_report')).toBe(true))
- expect(mock.rpc.mock.calls.some(call=>call[0]==='production_productivity_report')).toBe(false)
  const details = screen.getByText('Tempi e produttività operatori').closest('details')!
  details.open = true
  fireEvent(details, new Event('toggle'))
- await waitFor(() => expect(mock.rpc.mock.calls.some(call=>call[0]==='production_productivity_report')).toBe(true))
+ expect(await screen.findByText(/Sul tablet ogni operatore/)).toBeInTheDocument()
+ expect(mock.rpc.mock.calls.some(call => call[0] === 'production_efficiency')).toBe(false)
+ fireEvent.change(screen.getByLabelText('Password dei blocchi'), { target: { value: 'password-test' } })
+ fireEvent.click(screen.getByText('Sblocca con password'))
+ await waitFor(() => expect(mock.rpc.mock.calls.find(call => call[0] === 'production_efficiency')?.[1])
+  .toMatchObject({ p_company_id: 'c', p_staff: true, p_details: true }))
 })

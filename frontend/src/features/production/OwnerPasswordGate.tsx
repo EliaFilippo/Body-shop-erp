@@ -3,8 +3,8 @@ import { type CloudAuthSession } from '../../services/cloudAuth'
 import { productionRpc } from '../../services/liveProduction'
 import type { NoticesConnection } from './PhaseNotices'
 
-export function OwnerPasswordGate({ connection, title, children, onAccessChange }: {
- connection?: NoticesConnection; title: string; children: (session: CloudAuthSession) => ReactNode; onAccessChange?: (unlocked: boolean) => void;
+export function OwnerPasswordGate({ connection, title, children, onAccessChange, protectReading = false }: {
+ connection?: NoticesConnection; title: string; protectReading?: boolean; children: (session: CloudAuthSession) => ReactNode; onAccessChange?: (unlocked: boolean) => void;
 }) {
  const generation = useRef(0)
  const [verified, setVerified] = useState<CloudAuthSession | null>(null)
@@ -23,9 +23,9 @@ export function OwnerPasswordGate({ connection, title, children, onAccessChange 
   document.addEventListener('visibilitychange', hide)
   return () => document.removeEventListener('visibilitychange', hide)
  }, [])
- return <section className="panel" aria-label={`${title} protetto`}><h3>{title} · modifiche protette</h3>
+ return <section className="panel" aria-label={`${title} protetto`}><h3>{title} · {protectReading ? 'consultazione riservata' : 'modifiche protette'}</h3>
   {unlocked && verified ? <><p>Sbloccato per 5 minuti. <button type="button" onClick={() => { generation.current++; setVerified(null); setUntil(0) }}>Blocca</button></p>{children(verified)}</>
-  : <><p>La consultazione è libera dopo l’accesso al gestionale. Inserisci la password dei blocchi soltanto per abilitare le modifiche.</p><form onSubmit={async e => {
+  : <><p>{protectReading ? 'Inserisci la password dei blocchi per consultare il dettaglio delle fasi.' : 'La consultazione è libera dopo l’accesso al gestionale. Inserisci la password dei blocchi soltanto per abilitare le modifiche.'}</p><form onSubmit={async e => {
    e.preventDefault(); if (!connection || busy) return
    const request = generation.current
    setBusy(true); setError('')

@@ -1,6 +1,7 @@
 import { useCloudSessionRenewal } from '../../hooks/useCloudSessionRenewal'
 import { authenticatedCloudFetch, persistCloudSession, readStoredCloudSession, clearCloudSession } from '../../services/cloudSession'
 import { ContinueDay } from './ContinueDay'
+import { TabletEfficiency } from './OperationalEfficiency'
 import { OperatorActivities } from './OperatorActivities'
 import { phaseDisplayName } from '../../services/workCycle'
 import { panelTaskDescription } from '../../services/eliasPriceList'
@@ -193,6 +194,7 @@ export function LiveProductionPage() {
     {session && feed && <>
       {!feed.operatorName && <p className="live-alert">Il titolare deve collegare questo account al tuo operatore prima di avviare il lavoro.</p>}
       <p role="status">{stale ? 'Collegamento interrotto: il tempo sul server continua. I comandi sono sospesi finché la connessione non torna.' : 'Tablet aggiornato · sincronizzazione ogni 5 secondi'}</p>
+      {feed.role === 'production' && feed.operatorName && session && config && <TabletEfficiency connection={{ companyId, session, config }} operatorName={feed.operatorName} />}
       {feed.operatorName && <OperatorActivities activity={feed.activity} busy={busy} stale={stale} elapsed={(performance.now()-lastSample.current)/1000} onAction={kind=>void act('production_activity_action',{p_kind:kind})}/>}
       {feed.operatorName && <ContinueDay feed={feed} busy={busy} stale={stale} onContinue={until=>void act('production_continue_day',{p_until:until})}/>}
       {feed.today && <section className="live-day-hours"><h2>Le mie ore di oggi</h2><HoursTotals report={feed.today} elapsed={(performance.now() - lastSample.current) / 1000} stale={stale} />

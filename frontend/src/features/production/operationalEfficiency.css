@@ -1,0 +1,27 @@
+.operational-efficiency ul {
+  list-style: none;
+  padding: 0;
+}
+
+.operational-efficiency li {
+  padding: .2rem 0;
+}
+
+.operational-efficiency [aria-current='true'] {
+  font-weight: 700;
+}
+
+.efficiency-light {
+  display: inline-block;
+  width: .75rem;
+  height: .75rem;
+  margin-right: .25rem;
+  border-radius: 50%;
+  background: #64748b;
+}
+
+:is(.efficiency-light[data-active='true'], ul[data-rated='true'] .efficiency-light)[data-color='green'] { background: #15803d; }
+:is(.efficiency-light[data-active='true'], ul[data-rated='true'] .efficiency-light)[data-color='yellow'] { background: #ca8a04; }
+:is(.efficiency-light[data-active='true'], ul[data-rated='true'] .efficiency-light)[data-color='red'] { background: #dc2626; }
+
+.operational-efficiency ul[data-rated='true'] .efficiency-light[data-active='false'] { opacity: .45; }
