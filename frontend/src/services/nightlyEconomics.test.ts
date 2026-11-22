@@ -112,3 +112,27 @@ it('include i consuntivi storici una sola volta nelle tariffe e nell’obiettivo
  const result=calculateNightlyEconomics(data,state,'2026-09-15')
  expect(result).toMatchObject({productiveHours:42,paidHours:52,accruedOperatingCosts:1532.5,realHourlyCost:36.49,realizedNetRevenue:4500,residualRevenue:5500})
 })
+
+it('uses the latest monthly payroll total once and keeps owner and contractor hourly costs',()=>{
+ const {data,state}=setup()
+ data.plannerSettings.monthlyPayrollActuals=[
+  {id:'old',monthKey:'2026-09',amount:900,note:'',updatedAt:'2026-10-01T08:00:00Z'},
+  {id:'new',monthKey:'2026-09',amount:1200,note:'',updatedAt:'2026-10-02T08:00:00Z'},
+  {id:'other',monthKey:'2026-08',amount:9999,note:'',updatedAt:'2026-10-03T08:00:00Z'},
+ ]
+ data.plannerSettings.operators.push(
+  {id:'owner',name:'Titolare',active:true,dailyHours:8,hourlyCost:30,isOwner:true},
+  {id:'external',name:'Esterno',active:true,dailyHours:8,hourlyCost:40,costMode:'external-extra'},
+ )
+ state.dailyWork!.push(
+  {date:'2026-09-14',operatorId:'owner',productiveSeconds:3600,paidSeconds:3600},
+  {date:'2026-09-14',operatorId:'external',productiveSeconds:3600,paidSeconds:3600},
+ )
+ const before=JSON.stringify(data)
+ expect(calculateNightlyEconomics(data,state,'2026-09-15').accruedOperatingCosts).toBe(2211.67)
+ expect(JSON.stringify(data)).toBe(before)
+ data.plannerSettings.monthlyPayrollActuals.push({id:'zero',monthKey:'2026-09',amount:0,note:'',updatedAt:'2026-10-04T08:00:00Z'})
+ expect(calculateNightlyEconomics(data,state,'2026-09-15').accruedOperatingCosts).toBe(1011.67)
+ data.plannerSettings.internalCostSettings!.monthlyCostItems!.pop()
+ expect(calculateNightlyEconomics(data,state,'2026-09-15').accruedOperatingCosts).toBe(1011.67)
+})
