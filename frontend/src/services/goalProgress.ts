@@ -1,4 +1,5 @@
 import { finalizedJobCosts } from './finalizedJobCosts'
+import { monthlyPayrollActual } from './monthlyPayrollActual'
 import type { ErpData } from '../types'
 import { closedJobPartsCost, closedJobMargin, jobOtherDirectCost, operatorHourlyCost, recordedPhaseLabor } from './closedJobMargin'
 import { deliveredWorkPhases } from './deliveredJobReport'
@@ -153,7 +154,7 @@ export function calculateGoalProgress(data: ErpData, today = romeDate.format(new
     const expenses = outsideCosts.filter(entry => includes(entry.date))
     const offVehicleCostCents = expenses.reduce((sum, entry) => sum + (entry.costCents ?? 0), 0)
     const recognizedInternalLabor = (recognized.reduce((sum, entry) => sum + entry.internalLaborCents, 0) + expenses.filter(entry => entry.internal).reduce((sum, entry) => sum + (entry.costCents ?? 0), 0)) / 100
-    const payrollActual = label === 'Mese' ? [...(settings.monthlyPayrollActuals ?? [])].filter(entry => entry.monthKey === month && Number.isFinite(entry.amount) && entry.amount >= 0).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt))[0] : undefined
+    const payrollActual = label === 'Mese' ? monthlyPayrollActual(settings, month) : undefined
     const payrollAdjustment = payrollActual ? cents(payrollActual.amount - recognizedInternalLabor) / 100 : 0
     const done = (recognized.reduce((sum, entry) => sum + (entry.marginCents ?? 0), 0) - offVehicleCostCents) / 100 - payrollAdjustment
     const offVehicleTimeIncomplete = expenses.some(entry => entry.seconds === null)
