@@ -108,9 +108,9 @@ export function TabletEfficiency({ connection, operatorName }: { connection: Not
     <PeriodLabel period={data?.period ?? currentPeriod()} />
     {level && row?.plannedSeconds != null && row.workedSeconds != null &&
       <p>{percentage.format(row.plannedSeconds / row.workedSeconds)} · Saldo {balance(row.plannedSeconds - row.workedSeconds)}</p>}
-    <ul data-rated={!!level}>{levels.map(([color, label]) => <li key={color} aria-current={level?.[0] === color ? 'true' : undefined}>
-      <span className="efficiency-light" data-color={color} data-active={level?.[0] === color} /> {label}
-    </li>)}</ul>
+    {level ? <p aria-current="true">
+      <span className="efficiency-light" data-color={level[0]} data-active="true" /> {level[1]}
+    </p> : <p role="status">{data?.failed ? 'Efficienza non disponibile.' : !data ? 'Caricamento efficienza…' : 'Efficienza non valutabile.'}</p>}
   </section>
 }
 
