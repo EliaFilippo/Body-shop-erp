@@ -117,6 +117,8 @@ jobs:
           wait "$first_pid"
           grep 'Metti in pausa' /tmp/start-second.log
           psql -v ON_ERROR_STOP=1 -c "do \$\$begin if (select count(*) from production_live_segments where ended_at is null)<>1 then raise exception 'Concurrent duplicate'; end if; end\$\$;"
+      - name: Tablet closure, canonical cones, and preserved historical timers
+        run: psql -f supabase/tests/tablet_job_closure.sql
   frontend:
     runs-on: ubuntu-latest
     steps:

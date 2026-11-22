@@ -142,3 +142,22 @@ describe('stable office persistence after tablet polling',()=>{
   }
  })
 })
+
+
+it('imports the final tablet time for an office closure once, even when a stale running phase arrives', () => {
+ const data=fixture(), job=data.jobs[0]
+ job.status='Pronta consegna'
+ job.updatedAt=state.serverNow
+ const phase=job.phases[0]
+ Object.assign(phase,{status:'Completata',completedAt:state.serverNow,completedByName:'Ufficio · Chiusura',tabletWorkedSeconds:600})
+ const stale={...state,phaseStates:[{jobId:'j',phase:{...phase,status:'In lavorazione' as const,serverWorkTracked:true}}]}
+ expect(applyProductionPlanningState(data,stale).jobs![0].phases[0]).toBe(phase)
+ const ended={...stale,entries:[{...state.entries[0],runningSince:null,lastEndedAt:state.serverNow,closedSeconds:900}]}
+ const updated=applyProductionPlanningState(data,ended)
+ expect(updated.jobs![0].phases[0]).toMatchObject({
+  status:'Completata',completedByName:'Ufficio · Chiusura',actualMinutes:15,tabletWorkedSeconds:600,
+  operatorAssignments:[{id:'tablet:a',workedMinutes:15,activityStatus:'Concluso'}],
+ })
+ expect(syncOperationalStateFromJobs(updated).jobs![0].phases[0].actualMinutes).toBe(15)
+ expect(applyProductionPlanningState(updated,ended)).toBe(updated)
+})

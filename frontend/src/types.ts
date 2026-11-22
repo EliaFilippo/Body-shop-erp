@@ -232,6 +232,7 @@ export type VehicleCostCategory = 'ricambi' | 'materiale verniciatura' | 'manodo
 
 export interface VehicleCostEntry {
   id: string
+  jobId?: string
   usedAt: string
   category: VehicleCostCategory
   description: string
