@@ -948,12 +948,12 @@ function currentPaintReservations(data:ErpData,floor:string):PaintReservation[] 
   if(jobIds.has(job.id))continue
   const phase=job.phases.find(item=>item.name==='Verniciatura'&&!item.notRequired)
   for(const active of job.phases){
-   if(active.notRequired || active.status!=='In lavorazione' || active===phase || isWashingPhase(active.name))continue
+   if(active.manualOnlyStationWork===true || active.notRequired || active.status!=='In lavorazione' || active===phase || isWashingPhase(active.name))continue
    const operator=data.plannerSettings.operators.find(op=>(active.operatorAssignments??[]).some(assignment=>assignment.operatorName===op.name))
    const endAt=addWorkingMinutes(floor,Math.max(1,phaseResidualMinutes(active,floor,job)),data.plannerSettings,operator)
    reservations.push({jobId:job.id,startAt:floor,endAt})
   }
-  if(!phase)continue
+  if(!phase || phase.manualOnlyStationWork===true)continue
   const wait=Math.max(0,Number(phase.technicalWaitMinutes??60))
   if(phase.status==='Completata'){
    const completed=completedAtForPhase(phase)
