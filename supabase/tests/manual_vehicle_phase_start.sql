@@ -54,7 +54,7 @@ do $$begin
  if (select count(*) from production_phase_checks where company_id='60000000-0000-0000-0000-000000000006')<>1 or not exists(select 1 from production_phase_checks where company_id='60000000-0000-0000-0000-000000000006' and phase_id='p2' and worked_seconds=123 and checked_at='2026-01-01T10:00:00Z') then raise exception 'Historical signature changed';end if;
  if not exists(select 1 from production_live_sessions where company_id='60000000-0000-0000-0000-000000000006' and operator_id='a' and phase_id='p2' and status='running') then raise exception 'Failed target lost active timer';end if;
 end $$;
--- Capacity and rollback must still apply to explicit additional work.
+-- Manual washing must not be blocked by another manual session.
 update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||(
  select jsonb_agg(jsonb_build_object('id','manual-wash'||n,'status','Pianificata','phases',jsonb_build_array(
  jsonb_build_object('id','wash','name','Lavaggio esterno','status','Completata')))) from generate_series(1,2)n))
@@ -65,17 +65,15 @@ select '60000000-0000-0000-0000-000000000006','manual-wash'||n,'WASH'||n,'WASH-'
 select production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash1','wash');
 select production_timer_action('60000000-0000-0000-0000-000000000006','manual-wash1','pause');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash2','wash');
 do $$begin
- begin
-  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash2','wash');raise exception 'Wash capacity bypass';
- exception when raise_exception then if sqlerrm not like 'La sola postazione%' then raise;end if;end;
- if not exists(select 1 from production_live_sessions where company_id='60000000-0000-0000-0000-000000000006' and operator_id='b' and job_id='manual2' and status='running') then raise exception 'Capacity failure stopped prior work';end if;
+ if not exists(select 1 from production_live_sessions where company_id='60000000-0000-0000-0000-000000000006' and operator_id='b' and job_id='manual-wash2' and status='running') then raise exception 'Manual wash did not start';end if;
 end $$;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
 select production_timer_action('60000000-0000-0000-0000-000000000006','manual-wash1','finish');
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
 select production_manual_start('60000000-0000-0000-0000-000000000006','manual-wash2','wash');
--- Three manual paint interventions still occupy three bays after switching/pausing.
+-- Four manual paint interventions can start without virtual bay reservations.
 update erp_snapshots set payload=jsonb_set(payload,'{jobs}',payload->'jobs'||(
  select jsonb_agg(jsonb_build_object('id','manual-paint'||n,'status','Pianificata','workflowCycle','elias-v1','phases',jsonb_build_array(
  jsonb_build_object('id','paint','name','Verniciatura','status','Completata','completedAt','2026-01-01T10:00:00Z'),
@@ -88,19 +86,11 @@ set request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
 select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint1','paint');
 select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint2','paint');
 select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint3','paint');
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint4','paint');
+select production_timer_action('60000000-0000-0000-0000-000000000006','manual-paint4','finish');
+select production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint4','unmask');
 do $$begin
- begin
-  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint4','paint');raise exception 'Paint capacity bypass';
- exception when raise_exception then if sqlerrm not like 'Le 3 postazioni%' then raise;end if;end;
-end $$;
-select production_timer_action('60000000-0000-0000-0000-000000000006','manual-paint3','finish');
-do $$begin
- begin
-  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint3','unmask');raise exception 'Drying bypass';
- exception when raise_exception then if sqlerrm<>'Attesa asciugatura prima di proseguire' then raise;end if;end;
- begin
-  perform production_manual_start('60000000-0000-0000-0000-000000000006','manual-paint4','paint');raise exception 'Drying bay bypass';
- exception when raise_exception then if sqlerrm not like 'Le 3 postazioni%' then raise;end if;end;
+ if (select count(distinct job_id) from production_live_segments where company_id='60000000-0000-0000-0000-000000000006' and job_id like 'manual-paint%' and phase_id='paint' and manual_start)<>4 then raise exception 'Manual paint starts lost';end if;
 end $$;
 set request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
 set local role authenticated;

@@ -51,7 +51,7 @@ export function applyProductionPlanningState(data:ErpData,state:ProductionPlanni
    const index=phases.findIndex(phase=>phase.id===p.id),base=index>=0?phases[index]:undefined
    const merged:JobPhase={...p,...base,estimatedMinutes:base?.estimatedMinutes??p.estimatedMinutes??0,notes:base?.notes??p.notes??'',blockedReason:base?.blockedReason??p.blockedReason??'',operatorAssignments:base?.operatorAssignments??p.operatorAssignments??[],
     id:p.id,name:p.name,requiredSkill:base?.requiredSkill||p.requiredSkill||p.name,status:p.status,notRequired:false,
-    manualWorkTracked:p.manualWorkTracked,manualExtra:p.manualExtra,serverWorkTracked:true,
+    manualWorkTracked:p.manualWorkTracked,manualOnlyStationWork:p.manualOnlyStationWork,manualExtra:p.manualExtra,serverWorkTracked:true,
     remainingTimeUnknown:!!p.remainingTimeUnknown&&!(Number(base?.estimatedMinutes??p.estimatedMinutes)>0||Number(base?.sharedTimeMinutes??p.sharedTimeMinutes)>0),
     actualMinutes:p.status==='Completata'&&Number.isFinite(p.tabletWorkedSeconds)&&p.tabletWorkedSeconds!>=0?p.tabletWorkedSeconds!/60
      :Number.isFinite(p.actualMinutes)&&p.actualMinutes>=0?p.actualMinutes:base?.actualMinutes??0,startedAt:p.startedAt,
