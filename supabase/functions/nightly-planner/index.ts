@@ -555,7 +555,7 @@ function findWashStationStart(requestedAt, jobId, reservations, endForStart, nor
 }
 function currentWashReservations(data, floor, endForPhase) {
   const { jobIds } = closedPlanningWork(data);
-  return (data.jobs ?? []).filter((job) => !jobIds.has(job.id)).flatMap((job) => job.phases.filter((p) => isWashingPhase(p.name) && !p.notRequired && p.status === "In lavorazione").map((phase) => ({ jobId: job.id, startAt: floor, endAt: endForPhase(job, phase) })));
+  return (data.jobs ?? []).filter((job) => !jobIds.has(job.id)).flatMap((job) => job.phases.filter((p) => isWashingPhase(p.name) && !p.notRequired && p.manualOnlyStationWork !== true && p.status === "In lavorazione").map((phase) => ({ jobId: job.id, startAt: floor, endAt: endForPhase(job, phase) })));
 }
 
 // frontend/src/services/operatorSkills.ts
@@ -1022,12 +1022,12 @@ function currentPaintReservations(data, floor) {
     if (jobIds.has(job.id)) continue;
     const phase = job.phases.find((item) => item.name === "Verniciatura" && !item.notRequired);
     for (const active of job.phases) {
-      if (active.notRequired || active.status !== "In lavorazione" || active === phase || isWashingPhase(active.name)) continue;
+      if (active.manualOnlyStationWork === true || active.notRequired || active.status !== "In lavorazione" || active === phase || isWashingPhase(active.name)) continue;
       const operator = data.plannerSettings.operators.find((op) => (active.operatorAssignments ?? []).some((assignment) => assignment.operatorName === op.name));
       const endAt = addWorkingMinutes(floor, Math.max(1, phaseResidualMinutes(active, floor, job)), data.plannerSettings, operator);
       reservations.push({ jobId: job.id, startAt: floor, endAt });
     }
-    if (!phase) continue;
+    if (!phase || phase.manualOnlyStationWork === true) continue;
     const wait = Math.max(0, Number(phase.technicalWaitMinutes ?? 60));
     if (phase.status === "Completata") {
       const completed = completedAtForPhase(phase);
@@ -1848,6 +1848,7 @@ function applyProductionPlanningState(data, state) {
         status: p.status,
         notRequired: false,
         manualWorkTracked: p.manualWorkTracked,
+        manualOnlyStationWork: p.manualOnlyStationWork,
         manualExtra: p.manualExtra,
         serverWorkTracked: true,
         remainingTimeUnknown: !!p.remainingTimeUnknown && !(Number(base?.estimatedMinutes ?? p.estimatedMinutes) > 0 || Number(base?.sharedTimeMinutes ?? p.sharedTimeMinutes) > 0),
