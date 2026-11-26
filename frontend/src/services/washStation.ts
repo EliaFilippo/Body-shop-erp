@@ -14,5 +14,5 @@ export function findWashStationStart(requestedAt:string,jobId:string,reservation
 }
 export function currentWashReservations(data:ErpData,floor:string,endForPhase:(job:NonNullable<ErpData['jobs']>[number],phase:NonNullable<ErpData['jobs']>[number]['phases'][number])=>string):PaintReservation[] {
  const {jobIds} = closedPlanningWork(data)
- return (data.jobs??[]).filter(job=>!jobIds.has(job.id)).flatMap(job=>job.phases.filter(p=>isWashingPhase(p.name)&&!p.notRequired&&p.status==='In lavorazione').map(phase=>({jobId:job.id,startAt:floor,endAt:endForPhase(job,phase)})))
+ return (data.jobs??[]).filter(job=>!jobIds.has(job.id)).flatMap(job=>job.phases.filter(p=>isWashingPhase(p.name)&&!p.notRequired&&p.manualOnlyStationWork!==true&&p.status==='In lavorazione').map(phase=>({jobId:job.id,startAt:floor,endAt:endForPhase(job,phase)})))
 }
