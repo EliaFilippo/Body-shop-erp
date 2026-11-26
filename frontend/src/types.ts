@@ -1134,6 +1134,7 @@ export interface EstimateDocument {
 export interface JobPhase {
   serverWorkTracked?:boolean
   manualWorkTracked?:boolean
+  manualOnlyStationWork?:boolean
   manualExtra?:boolean
   remainingTimeUnknown?:boolean
   /** Empty selects automatic scheduling; an ID pins this phase to one operator. */
